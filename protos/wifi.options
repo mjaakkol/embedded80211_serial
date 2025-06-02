@@ -1,0 +1,27 @@
+WifiConnectRequest.ssid         max_size:32
+WifiConnectRequest.psk          max_size: 65
+WifiConnectRequest.sae_password max_size: 64
+WifiConnectRequest.bssid        max_size: 6
+WifiDirectedScanSsid.ssid       max_size:32
+
+WifiDirectedScanSsid.ssid       max_size:32
+
+WifiScanParams.channels         max: 32
+WifiScanParams.directed_scan_ssids max:32
+
+WifiApEnableParams.ssid         max_size:32
+
+WifiStatusResponse.error_message max_size: 64
+
+WifiVersion.firmware_version    max_size: 32
+
+WifiInterfaceStatus.ssid         max_size:32
+WifiInterfaceStatus.bssid         max_size:6
+
+WifiScanResult.ssid             max_size:32
+WifiScanResult.bssid            max_size:6
+
+ScanDoneEvent.all_results       max_count: 32
+
+ApStaConnectedEvent.sta_mac_address max_size: 6
+ApStaDisconnectedEvent.sta_mac_address max_size: 6

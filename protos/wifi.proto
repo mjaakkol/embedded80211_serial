@@ -1,0 +1,435 @@
+syntax = "proto3";
+
+package embedded_wifi_mgmt;
+
+// -----------------------------------------------------------------------------
+// Enumerations (based on Zephyr's wifi_mgmt.h and related headers)
+// -----------------------------------------------------------------------------
+
+// Corresponds to enum wifi_security_type in wifi_mgmt.h
+enum WifiSecurityType {
+  WIFI_SECURITY_TYPE_UNKNOWN = 0;
+  WIFI_SECURITY_TYPE_NONE = 1;
+  WIFI_SECURITY_TYPE_WEP = 2;
+  WIFI_SECURITY_TYPE_PSK = 3;        // Generic PSK for WPA/WPA2
+  WIFI_SECURITY_TYPE_EAP = 4;        // Generic EAP for WPA/WPA2/WPA3 Enterprise
+  WIFI_SECURITY_TYPE_WAPI = 5;       // Not commonly used outside specific regions
+  WIFI_SECURITY_TYPE_PSK_SHA256 = 6; // PSK with SHA256 AKM (often for WPA2)
+  WIFI_SECURITY_TYPE_SAE = 7;        // Simultaneous Authentication of Equals (WPA3 Personal)
+  WIFI_SECURITY_TYPE_OWE = 8;        // Opportunistic Wireless Encryption
+  WIFI_SECURITY_TYPE_SAE_EXT_KEY = 9;
+  WIFI_SECURITY_TYPE_WPA3_EAP_SUITE_B = 10;
+  WIFI_SECURITY_TYPE_OSEN = 11;
+}
+
+// Corresponds to enum wifi_channel in wifi_mgmt.h
+enum WifiChannelConst {
+  WIFI_CHANNEL_ANY = 0; // Special value for "any channel"
+}
+
+// Corresponds to enum wifi_band in wifi_mgmt.h
+enum WifiBand {
+  WIFI_BAND_ANY = 0;
+  WIFI_BAND_2_4_GHZ = 1;
+  WIFI_BAND_5_GHZ = 2;
+  WIFI_BAND_6_GHZ = 3;  // If supported
+  WIFI_BAND_60_GHZ = 4; // If supported (e.g. 802.11ad/ay)
+}
+
+// Corresponds to enum wifi_scan_type in wifi_mgmt.h
+enum WifiScanType {
+  WIFI_SCAN_TYPE_PASSIVE = 0;
+  WIFI_SCAN_TYPE_ACTIVE = 1;
+}
+
+// Corresponds to enum wifi_iface_state in wifi_mgmt.h
+enum WifiInterfaceState {
+  WIFI_STATE_INACTIVE = 0;
+  WIFI_STATE_SCANNING = 1;
+  WIFI_STATE_AUTHENTICATING = 2;
+  WIFI_STATE_ASSOCIATING = 3;
+  WIFI_STATE_ASSOCIATED = 4;
+  WIFI_STATE_4WAY_HANDSHAKE = 5;
+  WIFI_STATE_GROUP_HANDSHAKE = 6;
+  WIFI_STATE_CONNECTED = 7;
+  WIFI_STATE_DISCONNECTED = 8;
+  WIFI_STATE_INTERFACE_DISABLED = 9;
+  // AP-specific states are generally handled by AP mode status events
+}
+
+// Corresponds to enum wifi_mfp_options in wifi_mgmt.h
+enum WifiMfpOptions {
+  WIFI_MFP_OPTIONAL = 0; // MFP Optional
+  WIFI_MFP_REQUIRED = 1; // MFP Required
+  WIFI_MFP_DISABLE = 2;  // MFP Disabled (matches Zephyr's WIFI_MFP_DISABLE)
+}
+
+// Corresponds to enum wifi_mode in wifi_mgmt.h
+enum WifiMode {
+  WIFI_MODE_INFRA = 0; // Station (STA) mode
+  WIFI_MODE_AP = 1;    // Access Point (AP) mode
+  WIFI_MODE_MESH_POINT = 2; // If mesh is supported
+  WIFI_MODE_P2P_GO = 3;     // Wi-Fi Direct Group Owner
+  WIFI_MODE_P2P_CLIENT = 4; // Wi-Fi Direct Client
+}
+
+// Corresponds to enum wifi_link_mode in wifi_mgmt.h
+enum WifiLinkMode {
+  WIFI_LINK_MODE_UNKNOWN = 0;
+  WIFI_LINK_MODE_LEGACY_B = 1;    // 802.11b
+  WIFI_LINK_MODE_LEGACY_G = 2;    // 802.11g
+  WIFI_LINK_MODE_LEGACY_A = 3;    // 802.11a
+  WIFI_LINK_MODE_HT_20 = 4;       // 802.11n 20MHz
+  WIFI_LINK_MODE_HT_40 = 5;       // 802.11n 40MHz
+  WIFI_LINK_MODE_VHT_20 = 6;      // 802.11ac 20MHz
+  WIFI_LINK_MODE_VHT_40 = 7;      // 802.11ac 40MHz
+  WIFI_LINK_MODE_VHT_80 = 8;      // 802.11ac 80MHz
+  WIFI_LINK_MODE_VHT_160 = 9;     // 802.11ac 160MHz
+  WIFI_LINK_MODE_HE_20 = 10;      // 802.11ax 20MHz (SU)
+  WIFI_LINK_MODE_HE_40 = 11;      // 802.11ax 40MHz (SU)
+  WIFI_LINK_MODE_HE_80 = 12;      // 802.11ax 80MHz (SU)
+  WIFI_LINK_MODE_HE_160 = 13;     // 802.11ax 160MHz (SU)
+  WIFI_LINK_MODE_HE_RU = 14;      // 802.11ax Resource Unit
+  WIFI_LINK_MODE_EHT_80 = 15;     // For 802.11be 80MHz (Wi-Fi 7)
+  WIFI_LINK_MODE_EHT_160 = 16;    // For 802.11be 160MHz (Wi-Fi 7)
+}
+
+// Corresponds to enum wifi_power_save_type in wifi_mgmt.h
+enum WifiPowerSaveType {
+  WIFI_PS_TYPE_NONE = 0;
+  WIFI_PS_TYPE_MODEM = 1; // Legacy power save (Non-PSPOLL or PSPOLL)
+  WIFI_PS_TYPE_WMM = 2;   // WMM power save (U-APSD)
+}
+
+// Corresponds to enum wifi_ps_state in wifi_ps_params
+enum WifiPsState {
+  WIFI_PS_STATE_DISABLE = 0;
+  WIFI_PS_STATE_ENABLE = 1;
+}
+
+// Corresponds to enum wifi_ps_wake_up_mode in wifi_ps_params
+enum WifiPsWakeupMode {
+  WIFI_PS_WAKEUP_MODE_DTIM = 0;             // Wake up at DTIM beacon
+  WIFI_PS_WAKEUP_MODE_LISTEN_INTERVAL = 1;  // Wake up at listen interval
+}
+
+// -----------------------------------------------------------------------------
+// Request Messages
+// -----------------------------------------------------------------------------
+
+// For NET_REQUEST_WIFI_CONNECT
+message WifiConnectRequest {
+  uint32 iface_index = 1;
+  bytes ssid = 2;                     // SSID (max 32 bytes in Zephyr)
+  WifiSecurityType security_type = 3;
+  bytes psk = 4;                      // Pre-shared key for WEP, WPA-PSK, WPA2-PSK. Max 64 hex chars for WEP, 8-63 ASCII for PSK.
+  bytes sae_password = 6;             // Password for WPA3-SAE.
+  uint32 channel = 8;                 // Specific channel, or 0 (WIFI_CHANNEL_ANY) to scan.
+  bytes bssid = 9;          // Connect to specific BSSID (6 bytes MAC address).
+  uint32 timeout_ms = 11;             // Connection timeout in milliseconds.
+  WifiMfpOptions mfp = 12;            // Management Frame Protection setting.
+}
+
+// For NET_REQUEST_WIFI_DISCONNECT
+message WifiDisconnectRequest {
+  uint32 iface_index = 1;
+}
+
+// For specifying a directed scan target
+message WifiDirectedScanSsid {
+  bytes ssid = 1;
+}
+
+// Parameters for NET_REQUEST_WIFI_SCAN (based on wifi_scan_params_v2)
+message WifiScanParams {
+  WifiScanType scan_type = 1;
+  WifiBand band = 2;                        // Band to scan. If WIFI_BAND_ANY, channels must be specified or all known channels scanned.
+  repeated uint32 channels = 3;            // List of specific channels to scan. If empty, scan all channels in the specified band.
+  uint32 dwell_time_ms = 4;               // Dwell time per channel in milliseconds.
+  repeated WifiDirectedScanSsid directed_scan_ssids = 5; // For directed scan.
+  // uint32 max_bss_entries = 6; // Max BSS entries to report (implementation detail, usually not in request)
+}
+
+message WifiScanRequest {
+  uint32 iface_index = 1;
+  WifiScanParams params = 2; // If not provided, driver uses default scan parameters.
+}
+
+// For NET_REQUEST_WIFI_AP_ENABLE
+message WifiApEnableParams {
+  bytes ssid = 1;
+  uint32 channel = 3;
+  WifiBand band = 4;
+  WifiSecurityType security_type = 5; // e.g., WIFI_SECURITY_TYPE_NONE, WIFI_SECURITY_TYPE_PSK (for WPA2-PSK AP)
+  bytes psk = 6;                      // Password if security_type requires it.
+  uint32 psk_length = 7;
+  bool hidden_ssid = 8;
+  uint32 beacon_interval_tu = 9;    // Beacon interval in TUs (Time Units, 1 TU = 1024 microseconds). Default usually 100.
+  uint32 dtim_period = 10;           // DTIM period (number of beacon intervals). Default usually 1 or 2.
+  // WifiMfpOptions mfp = 11; // MFP for AP mode if supported
+}
+
+message WifiApEnableRequest {
+  uint32 iface_index = 1;
+  WifiApEnableParams params = 2;
+}
+
+// For NET_REQUEST_WIFI_AP_DISABLE
+message WifiApDisableRequest {
+  uint32 iface_index = 1;
+}
+
+// For NET_REQUEST_WIFI_VERSION
+message GetWifiVersionRequest {
+  // No parameters needed, version is typically global for the Wi-Fi driver/firmware.
+}
+
+// Corresponds to Zephyr's struct wifi_ps_params
+message WifiPsSettings {
+  WifiPsState enabled = 1;
+  WifiPsWakeupMode wakeup_mode = 2;
+  uint32 listen_interval_beacons = 3; // Listen interval in beacon periods.
+  uint32 timeout_ms = 4;              // Timeout for PS mode (meaning can be driver-specific).
+  bool fail_all_scans_if_ps = 5;    // Whether to fail scans if PS is enabled.
+}
+
+// Corresponds to Zephyr's struct wifi_ps_config
+message WifiPowerSaveConfig {
+  WifiPsSettings ps_settings = 1;
+  WifiPowerSaveType type = 2;
+  // uint32 num_apsd_queues = 3; // For WMM U-APSD, often driver-internal or advanced config.
+}
+
+// For NET_REQUEST_WIFI_PS_CONFIG (Set)
+message SetPowerSaveConfigRequest {
+  uint32 iface_index = 1;
+  WifiPowerSaveConfig config = 2;
+}
+
+// For NET_REQUEST_WIFI_PS_CONFIG (Get)
+message GetPowerSaveConfigRequest {
+  uint32 iface_index = 1;
+}
+
+// For NET_REQUEST_WIFI_REG_DOMAIN (Set)
+message WifiRegDomain {
+  string country_code = 1; // 2-character ISO 3166-1 alpha-2 country code (e.g., "US", "GB").
+  // Zephyr's wifi_reg_domain also has dfs_region and op_class rules.
+  // This can be extended if more detailed configuration is needed.
+}
+
+message SetRegulatoryDomainRequest {
+  uint32 iface_index = 1; // Regulatory domain can sometimes be per-interface or global.
+  WifiRegDomain reg_domain = 2;
+}
+
+// For NET_REQUEST_WIFI_REG_DOMAIN (Get)
+message GetRegulatoryDomainRequest {
+  uint32 iface_index = 1;
+}
+
+// For polling current interface status
+message GetInterfaceStatusRequest {
+  uint32 iface_index = 1;
+}
+
+
+// -----------------------------------------------------------------------------
+// Response Messages
+// -----------------------------------------------------------------------------
+
+// Generic status response for operations that don't return specific data.
+message WifiStatusResponse {
+  bool success = 1;         // True if operation was accepted/successful, false otherwise.
+  int32 error_code = 2;     // Zephyr error code (e.g., from errno.h, 0 for success).
+  string error_message = 3; // Optional descriptive error message.
+}
+
+// For GetWifiVersionRequest
+message WifiVersion {
+  uint32 driver_major = 1;
+  uint32 driver_minor = 2;
+  uint32 driver_patch = 3;
+  string firmware_version = 4; // Optional: if available separately
+}
+message GetWifiVersionResponse {
+  WifiVersion version = 1;
+}
+
+// For GetPowerSaveConfigRequest
+message GetPowerSaveConfigResponse {
+  WifiPowerSaveConfig config = 1;
+}
+
+// For GetRegulatoryDomainRequest
+message GetRegulatoryDomainResponse {
+  WifiRegDomain reg_domain = 1;
+  // Could also return the full list of active rules if needed, but that's complex.
+}
+
+// For GetInterfaceStatusRequest
+// Also used in notifications
+message WifiInterfaceStatus {
+  // iface_index is typically part of the event/response wrapper
+  WifiInterfaceState state = 1;
+  WifiMode mode = 2;
+  bytes ssid = 3;
+  bytes bssid = 5; // 6 bytes MAC address
+  uint32 channel = 6;
+  WifiSecurityType security = 7;
+  WifiMfpOptions mfp = 8;
+  int32 rssi = 9; // Received Signal Strength Indication in dBm
+  WifiLinkMode link_mode = 10;
+  uint32 ht_mcs = 11;       // Relevant if link_mode is HT (802.11n)
+  uint32 vht_mcs = 12;      // Relevant if link_mode is VHT (802.11ac)
+  uint32 he_mcs = 13;       // Relevant if link_mode is HE (802.11ax)
+  uint32 tx_bitrate_kbps = 14; // Current transmit bitrate in Kbps
+  uint32 rx_bitrate_kbps = 15; // Current receive bitrate in Kbps
+}
+message GetInterfaceStatusResponse {
+  WifiInterfaceStatus status = 1;
+}
+
+
+// -----------------------------------------------------------------------------
+// Notification Messages (Asynchronous events from device to host)
+// -----------------------------------------------------------------------------
+
+// Individual scan result, part of NET_MGMT_EVENT_WIFI_SCAN_RESULT event
+message WifiScanResult {
+  bytes ssid = 1;
+  bytes bssid = 3; // 6 bytes MAC address
+  uint32 channel = 4;
+  int32 rssi = 5; // dBm
+  WifiSecurityType security = 6;
+  WifiMfpOptions mfp = 7;
+  WifiBand band = 8;
+  uint32 beacon_interval_tu = 9; // Beacon interval in TUs
+  uint32 dtim_period = 10;      // DTIM period
+  bool bss_max_idle_present = 11; // BSS Max Idle Period element present
+  uint32 bss_max_idle_period = 12; // In units of 1000 TUs, if present
+  bool owe_transition_mode_present = 13; // OWE Transition Mode AP identified
+  uint32 frequency_mhz = 14;
+  // bytes information_elements = 15; // Raw IEs
+}
+
+// NET_MGMT_EVENT_WIFI_SCAN_DONE
+message ScanDoneEvent {
+  int32 status = 1; // 0 for success, negative Zephyr error code if scan failed or was aborted.
+  repeated WifiScanResult all_results = 2; // Alternative: send all results at once if not streamed
+}
+
+// NET_MGMT_EVENT_WIFI_CONNECT_RESULT
+message ConnectResultEvent {
+  int32 status = 1; // 0 for success, negative Zephyr error code for failure.
+  // The full interface status is usually sent via a subsequent InterfaceStatusEvent
+}
+
+// NET_MGMT_EVENT_WIFI_DISCONNECT_RESULT
+message DisconnectResultEvent {
+  // iface_index is in the wrapper WifiEvent
+  bool initiated_by_user = 1; // True if disconnect was due to local request, false for link loss, etc.
+  uint32 reason_code = 2;     // Optional: WLAN reason code (IEEE 802.11 standard) if available.
+}
+
+// NET_MGMT_EVENT_WIFI_IFACE_STATUS
+message InterfaceStatusEvent {
+  WifiInterfaceStatus status = 1;
+}
+
+// NET_MGMT_EVENT_WIFI_AP_ENABLE_RESULT
+message ApEnableResultEvent {
+    int32 status = 1; // 0 for success, negative error code otherwise
+}
+
+// NET_MGMT_EVENT_WIFI_AP_DISABLE_RESULT
+message ApDisableResultEvent {
+    int32 status = 1; // 0 for success, negative error code otherwise
+}
+
+// NET_MGMT_EVENT_WIFI_AP_STA_CONNECTED
+message ApStaConnectedEvent {
+    bytes sta_mac_address = 1; // 6 bytes MAC address of the station that connected
+}
+
+// NET_MGMT_EVENT_WIFI_AP_STA_DISCONNECTED
+message ApStaDisconnectedEvent {
+    bytes sta_mac_address = 1; // 6 bytes MAC address of the station that disconnected
+}
+
+
+// Wrapper for all asynchronous events/notifications
+message WifiEvent {
+  uint32 iface_index = 1; // Interface this event pertains to
+
+  oneof event_data {
+    ScanDoneEvent scan_done_event = 2;
+    ConnectResultEvent connect_result_event = 3;
+    DisconnectResultEvent disconnect_result_event = 4;
+    InterfaceStatusEvent interface_status_event = 5;
+    ApEnableResultEvent ap_enable_result_event = 6;
+    ApDisableResultEvent ap_disable_result_event = 7;
+    ApStaConnectedEvent ap_sta_connected_event = 8;
+    ApStaDisconnectedEvent ap_sta_disconnected_event = 9;
+    // Add other events like TWT results, etc.
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Top-Level Messages for Serial Communication
+// -----------------------------------------------------------------------------
+
+enum RequestType {
+    REQUEST_TYPE_UNKNOWN = 0;
+    REQUEST_TYPE_CONNECT = 1;
+    REQUEST_TYPE_DISCONNECT = 2;
+    REQUEST_TYPE_SCAN = 3;
+    REQUEST_TYPE_AP_ENABLE = 4;
+    REQUEST_TYPE_AP_DISABLE = 5;
+    REQUEST_TYPE_GET_VERSION = 6;
+    REQUEST_TYPE_SET_PS_CONFIG = 7;
+    REQUEST_TYPE_GET_PS_CONFIG = 8;
+    REQUEST_TYPE_SET_REG_DOMAIN = 9;
+    REQUEST_TYPE_GET_REG_DOMAIN = 10;
+    REQUEST_TYPE_GET_IFACE_STATUS = 11;
+    // Add other request types as needed
+}
+
+// Request message from Host to Device
+message WifiMgmtRequest {
+  RequestType request_id = 1; // Unique ID for this request, used to match responses.
+
+  oneof payload {
+    WifiConnectRequest connect_req = 2;
+    WifiDisconnectRequest disconnect_req = 3;
+    WifiScanRequest scan_req = 4;
+    WifiApEnableRequest ap_enable_req = 5;
+    WifiApDisableRequest ap_disable_req = 6;
+    GetWifiVersionRequest get_version_req = 7;
+    SetPowerSaveConfigRequest set_ps_config_req = 8;
+    GetPowerSaveConfigRequest get_ps_config_req = 9;
+    SetRegulatoryDomainRequest set_reg_domain_req = 10;
+    GetRegulatoryDomainRequest get_reg_domain_req = 11;
+    GetInterfaceStatusRequest get_iface_status_req = 12;
+    // Add other requests here
+  }
+}
+
+// Response message from Device to Host
+message WifiMgmtResponse {
+  uint32 request_id = 1; // Corresponds to request_id in WifiMgmtRequest.
+
+  oneof payload {
+    WifiStatusResponse status_resp = 2; // Generic status for SET operations or simple GETs.
+    GetWifiVersionResponse get_version_resp = 3;
+    GetPowerSaveConfigResponse get_ps_config_resp = 4;
+    GetRegulatoryDomainResponse get_reg_domain_resp = 5;
+    GetInterfaceStatusResponse get_iface_status_resp = 6;
+    // Add other specific responses here
+  }
+}
+
+// Asynchronous notification message from Device to Host
+message WifiMgmtNotification {
+  WifiEvent event = 1;
+}
