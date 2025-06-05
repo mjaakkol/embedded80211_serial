@@ -158,14 +158,13 @@ message WifiScanRequest {
 // For NET_REQUEST_WIFI_AP_ENABLE
 message WifiApEnableParams {
   bytes ssid = 1;
-  uint32 channel = 3;
-  WifiBand band = 4;
-  WifiSecurityType security_type = 5; // e.g., WIFI_SECURITY_TYPE_NONE, WIFI_SECURITY_TYPE_PSK (for WPA2-PSK AP)
-  bytes psk = 6;                      // Password if security_type requires it.
-  uint32 psk_length = 7;
-  bool hidden_ssid = 8;
-  uint32 beacon_interval_tu = 9;    // Beacon interval in TUs (Time Units, 1 TU = 1024 microseconds). Default usually 100.
-  uint32 dtim_period = 10;           // DTIM period (number of beacon intervals). Default usually 1 or 2.
+  uint32 channel = 2;
+  WifiBand band = 3;
+  WifiSecurityType security_type = 4; // e.g., WIFI_SECURITY_TYPE_NONE, WIFI_SECURITY_TYPE_PSK (for WPA2-PSK AP)
+  bytes psk = 5;                      // Password if security_type requires it.
+  bool hidden_ssid = 6;
+  uint32 beacon_interval_tu = 7;    // Beacon interval in TUs (Time Units, 1 TU = 1024 microseconds). Default usually 100.
+  uint32 dtim_period = 8;           // DTIM period (number of beacon intervals). Default usually 1 or 2.
   // WifiMfpOptions mfp = 11; // MFP for AP mode if supported
 }
 
@@ -274,17 +273,17 @@ message WifiInterfaceStatus {
   WifiInterfaceState state = 1;
   WifiMode mode = 2;
   bytes ssid = 3;
-  bytes bssid = 5; // 6 bytes MAC address
-  uint32 channel = 6;
-  WifiSecurityType security = 7;
-  WifiMfpOptions mfp = 8;
-  int32 rssi = 9; // Received Signal Strength Indication in dBm
-  WifiLinkMode link_mode = 10;
-  uint32 ht_mcs = 11;       // Relevant if link_mode is HT (802.11n)
-  uint32 vht_mcs = 12;      // Relevant if link_mode is VHT (802.11ac)
-  uint32 he_mcs = 13;       // Relevant if link_mode is HE (802.11ax)
-  uint32 tx_bitrate_kbps = 14; // Current transmit bitrate in Kbps
-  uint32 rx_bitrate_kbps = 15; // Current receive bitrate in Kbps
+  bytes bssid = 4; // 6 bytes MAC address
+  uint32 channel = 5;
+  WifiSecurityType security = 6;
+  WifiMfpOptions mfp = 7;
+  int32 rssi = 8; // Received Signal Strength Indication in dBm
+  WifiLinkMode link_mode = 9;
+  uint32 ht_mcs = 10;       // Relevant if link_mode is HT (802.11n)
+  uint32 vht_mcs = 11;      // Relevant if link_mode is VHT (802.11ac)
+  uint32 he_mcs = 12;       // Relevant if link_mode is HE (802.11ax)
+  uint32 tx_bitrate_kbps = 13; // Current transmit bitrate in Kbps
+  uint32 rx_bitrate_kbps = 14; // Current receive bitrate in Kbps
 }
 message GetInterfaceStatusResponse {
   WifiInterfaceStatus status = 1;
@@ -298,18 +297,18 @@ message GetInterfaceStatusResponse {
 // Individual scan result, part of NET_MGMT_EVENT_WIFI_SCAN_RESULT event
 message WifiScanResult {
   bytes ssid = 1;
-  bytes bssid = 3; // 6 bytes MAC address
-  uint32 channel = 4;
-  int32 rssi = 5; // dBm
-  WifiSecurityType security = 6;
-  WifiMfpOptions mfp = 7;
-  WifiBand band = 8;
-  uint32 beacon_interval_tu = 9; // Beacon interval in TUs
-  uint32 dtim_period = 10;      // DTIM period
-  bool bss_max_idle_present = 11; // BSS Max Idle Period element present
-  uint32 bss_max_idle_period = 12; // In units of 1000 TUs, if present
-  bool owe_transition_mode_present = 13; // OWE Transition Mode AP identified
-  uint32 frequency_mhz = 14;
+  bytes bssid = 2; // 6 bytes MAC address
+  uint32 channel = 3;
+  int32 rssi = 4; // dBm
+  WifiSecurityType security = 5;
+  WifiMfpOptions mfp = 6;
+  WifiBand band = 7;
+  uint32 beacon_interval_tu = 8; // Beacon interval in TUs
+  uint32 dtim_period = 9;      // DTIM period
+  bool bss_max_idle_present = 10; // BSS Max Idle Period element present
+  uint32 bss_max_idle_period = 11; // In units of 1000 TUs, if present
+  bool owe_transition_mode_present = 12; // OWE Transition Mode AP identified
+  uint32 frequency_mhz = 13;
   // bytes information_elements = 15; // Raw IEs
 }
 

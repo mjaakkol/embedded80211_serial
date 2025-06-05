@@ -5,9 +5,13 @@ embedded_wifi_mgmt.WifiConnectRequest.bssid        max_size:6
 embedded_wifi_mgmt.WifiDirectedScanSsid.ssid       max_size:32
 
 embedded_wifi_mgmt.WifiScanParams.channels         max_count:32
-embedded_wifi_mgmt.WifiScanParams.directed_scan_ssids max_size:32
+embedded_wifi_mgmt.WifiScanParams.directed_scan_ssids max_count:32
+
+embedded_wifi_mgmt.WifiApEnableParams.ssid              max_size:32
+embedded_wifi_mgmt.WifiApEnableParams.psk               max_size:65
 
 embedded_wifi_mgmt.WifiApEnableParams.ssid         max_size:32
+embedded_wifi_mgmt.WifiRegDomain.country_code       max_length:2
 
 embedded_wifi_mgmt.WifiStatusResponse.error_message max_size:64
 
