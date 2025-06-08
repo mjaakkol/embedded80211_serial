@@ -129,7 +129,7 @@ static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfac
 
 
 // --- Main processing function ---
-void process_wifi_mgmt_request(uint8_t *buffer, size_t length) {
+void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint8_t *response_buffer, size_t* response_buffer_size) {
     embedded_wifi_mgmt_WifiMgmtRequest request = embedded_wifi_mgmt_WifiMgmtRequest_init_zero;
     pb_istream_t stream = pb_istream_from_buffer(buffer, length);
 
