@@ -1,7 +1,7 @@
 embedded_wifi_mgmt.WifiConnectRequest.ssid max_size:32
 embedded_wifi_mgmt.WifiConnectRequest.psk max_size:65
 embedded_wifi_mgmt.WifiConnectRequest.sae_password max_size:64
-embedded_wifi_mgmt.WifiConnectRequest.bssid        max_size:6
+embedded_wifi_mgmt.WifiConnectRequest.bssid        max_size:6 fixed_length:true
 embedded_wifi_mgmt.WifiDirectedScanSsid.ssid       max_size:32
 
 embedded_wifi_mgmt.WifiScanParams.channels         max_count:32
@@ -18,12 +18,12 @@ embedded_wifi_mgmt.WifiStatusResponse.error_message max_size:64
 embedded_wifi_mgmt.WifiVersion.firmware_version    max_size:32
 
 embedded_wifi_mgmt.WifiInterfaceStatus.ssid         max_size:32
-embedded_wifi_mgmt.WifiInterfaceStatus.bssid         max_size:6
+embedded_wifi_mgmt.WifiInterfaceStatus.bssid         max_size:6 fixed_length:true
 
 embedded_wifi_mgmt.WifiScanResult.ssid             max_size:32
-embedded_wifi_mgmt.WifiScanResult.bssid            max_size:6
+embedded_wifi_mgmt.WifiScanResult.bssid            max_size:6 fixed_length:true
 
 embedded_wifi_mgmt.ScanDoneEvent.all_results       max_count:32
 
-embedded_wifi_mgmt.ApStaConnectedEvent.sta_mac_address max_size:6
-embedded_wifi_mgmt.ApStaDisconnectedEvent.sta_mac_address max_size:6
+embedded_wifi_mgmt.ApStaConnectedEvent.sta_mac_address max_size:6 fixed_length:true
+embedded_wifi_mgmt.ApStaDisconnectedEvent.sta_mac_address max_size:6 fixed_length:true

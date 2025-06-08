@@ -9,7 +9,7 @@
  */
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(sta, CONFIG_LOG_DEFAULT_LEVEL);
+LOG_MODULE_REGISTER(embedded80211_serial, CONFIG_LOG_DEFAULT_LEVEL);
 
 #include <zephyr/kernel.h>
 #include <stdio.h>
