@@ -9,22 +9,63 @@ package embedded_wifi_mgmt;
 // Corresponds to enum wifi_security_type in wifi_mgmt.h
 enum WifiSecurityType {
   WIFI_SECURITY_TYPE_UNKNOWN = 0;
-  WIFI_SECURITY_TYPE_NONE = 1;
-  WIFI_SECURITY_TYPE_WEP = 2;
-  WIFI_SECURITY_TYPE_PSK = 3;        // Generic PSK for WPA/WPA2
-  WIFI_SECURITY_TYPE_EAP = 4;        // Generic EAP for WPA/WPA2/WPA3 Enterprise
-  WIFI_SECURITY_TYPE_WAPI = 5;       // Not commonly used outside specific regions
-  WIFI_SECURITY_TYPE_PSK_SHA256 = 6; // PSK with SHA256 AKM (often for WPA2)
-  WIFI_SECURITY_TYPE_SAE = 7;        // Simultaneous Authentication of Equals (WPA3 Personal)
-  WIFI_SECURITY_TYPE_OWE = 8;        // Opportunistic Wireless Encryption
-  WIFI_SECURITY_TYPE_SAE_EXT_KEY = 9;
-  WIFI_SECURITY_TYPE_WPA3_EAP_SUITE_B = 10;
-  WIFI_SECURITY_TYPE_OSEN = 11;
+  WIFI_SECURITY_TYPE_NONE = 1;    // No security.
+  WIFI_SECURITY_TYPE_WEP = 2;     // WEP security.
+  WIFI_SECURITY_TYPE_PSK = 3;     // WPA2-PSK security. (Also generic WPA/WPA2 PSK)
+  WIFI_SECURITY_TYPE_EAP = 4;     // EAP security - Enterprise. (Generic EAP for WPA/WPA2/WPA3)
+  WIFI_SECURITY_TYPE_WAPI = 5;    // GB 15629.11-2003 WAPI security.
+  WIFI_SECURITY_TYPE_PSK_SHA256 = 6; // WPA2-PSK-SHA256 security.
+  WIFI_SECURITY_TYPE_SAE = 7;     // WPA3-SAE security.
+  WIFI_SECURITY_TYPE_OWE = 8;     // Opportunistic Wireless Encryption (Not in the provided list, kept from existing)
+  WIFI_SECURITY_TYPE_SAE_EXT_KEY = 9; // SAE Extended key (uses group-dependent hashing)
+  WIFI_SECURITY_TYPE_WPA3_EAP_SUITE_B = 10; // (Kept from existing, specific WPA3 Ent)
+  WIFI_SECURITY_TYPE_OSEN = 11;   // (Kept from existing)
+  WIFI_SECURITY_TYPE_SAE_HNP = 12;    // WPA3-SAE security with hunting-and-pecking loop.
+  WIFI_SECURITY_TYPE_SAE_H2E = 13;    // WPA3-SAE security with hash-to-element.
+  WIFI_SECURITY_TYPE_SAE_AUTO = 14;   // WPA3-SAE security with both hunting-and-pecking loop and hash-to-element enabled.
+  WIFI_SECURITY_TYPE_EAP_TLS = 15;    // EAP TLS security - Enterprise.
+  WIFI_SECURITY_TYPE_WPA_PSK = 16;    // WPA-PSK security. (Distinct from WPA2-PSK if needed)
+  WIFI_SECURITY_TYPE_WPA_AUTO_PERSONAL = 17; // WPA/WPA2/WPA3 PSK security.
+  WIFI_SECURITY_TYPE_DPP = 18;        // DPP security.
+  WIFI_SECURITY_TYPE_EAP_PEAP_MSCHAPV2 = 19; // EAP PEAP MSCHAPV2 security - Enterprise.
+  WIFI_SECURITY_TYPE_EAP_PEAP_GTC = 20;      // EAP PEAP GTC security - Enterprise.
+  WIFI_SECURITY_TYPE_EAP_TTLS_MSCHAPV2 = 21; // EAP TTLS MSCHAPV2 security - Enterprise.
+  WIFI_SECURITY_TYPE_EAP_PEAP_TLS = 22;      // EAP PEAP security - Enterprise. (Note: EAP_PEAP_TLS, distinct from EAP_TLS)
+  WIFI_SECURITY_TYPE_FT_PSK = 23;     // FT-PSK security.
+  WIFI_SECURITY_TYPE_FT_SAE = 24;     // FT-SAE security.
+  WIFI_SECURITY_TYPE_FT_EAP = 25;     // FT-EAP security.
+  WIFI_SECURITY_TYPE_FT_EAP_SHA384 = 26; // FT-EAP-SHA384 security.
 }
 
+enum WifiWpa3EnterpriseType {
+  WIFI_WPA3_ENTERPRISE_TYPE_NA = 0; // Not applicable or not used
+  WIFI_WPA3_ENTERPRISE_TYPE_SUITEB = 1; // WPA3 enterprise Suite-B (PMFR + WPA3-Suite-B).
+  WIFI_WPA3_ENTERPRISE_TYPE_SUITEB_192 = 2; // WPA3 enterprise Suite-B-192 (PMFR + WPA3-Suite-B-192).
+  WIFI_WPA3_ENTERPRISE_TYPE_WPA3_ONLY = 3; // WPA3 enterprise only (PMFR + WPA2-ENT disabled).
+}
 // Corresponds to enum wifi_channel in wifi_mgmt.h
 enum WifiChannelConst {
   WIFI_CHANNEL_ANY = 0; // Special value for "any channel"
+}
+
+enum WiFiDisconnReason {
+  WIFI_REASON_DISCONN_UNKNOWN = 0; // Unspecified reason
+  WIFI_REASON_DISCONN_SUCCESS = 1;
+  WIFI_REASON_DISCONN_UNSPECIFIED = 2; // Unspecified reason,
+  WIFI_REASON_DISCONN_USER_REQUEST = 3; // User requested disconnect,
+  WIFI_REASON_DISCONN_AP_LEAVING = 4; // AP is leaving,
+  WIFI_REASON_DISCONN_INACTIVITY = 5; // Inactivity timeout,
+}
+
+enum WifiApStatus {
+  WIFI_AP_STATUS_SUCCESS = 0;
+  WIFI_AP_STATUS_FAIL = 1;
+  WIFI_AP_STATUS_CHANNEL_NOT_SUPPORTED = 2;
+  WIFI_AP_STATUS_CHANNEL_NOT_ALLOWED = 3;
+  WIFI_AP_STATUS_SSID_NOT_ALLOWED = 4;
+  WIFI_AP_STATUS_AUTH_TYPE_NOT_SUPPORTED = 5;
+  WIFI_AP_STATUS_OP_NOT_SUPPORTED = 6;
+  WIFI_AP_STATUS_OP_NOT_PERMITTED = 7;
 }
 
 // Corresponds to enum wifi_band in wifi_mgmt.h
@@ -113,6 +154,16 @@ enum WifiPsWakeupMode {
   WIFI_PS_WAKEUP_MODE_LISTEN_INTERVAL = 1;  // Wake up at listen interval
 }
 
+// New enum based on C's enum wifi_frequency_bandwidths
+enum WifiFrequencyBandwidth {
+  WIFI_FREQ_BANDWIDTH_UNKNOWN = 0; // Default or unknown
+  WIFI_FREQ_BANDWIDTH_20MHZ = 1;
+  WIFI_FREQ_BANDWIDTH_40MHZ = 2;
+  WIFI_FREQ_BANDWIDTH_80MHZ = 3;
+  WIFI_FREQ_BANDWIDTH_160MHZ = 4;
+  WIFI_FREQ_BANDWIDTH_80_80MHZ = 5; // For 80+80 MHz channels
+}
+
 // -----------------------------------------------------------------------------
 // Request Messages
 // -----------------------------------------------------------------------------
@@ -123,12 +174,36 @@ message WifiConnectRequest {
   bytes ssid = 2;                     // SSID (max 32 bytes in Zephyr)
   WifiSecurityType security_type = 3;
   bytes psk = 4;                      // Pre-shared key for WEP, WPA-PSK, WPA2-PSK. Max 64 hex chars for WEP, 8-63 ASCII for PSK.
+  // Field 5 was skipped in original, can be used or skipped.
   bytes sae_password = 6;             // Password for WPA3-SAE.
+  // Field 7 was skipped
   uint32 channel = 8;                 // Specific channel, or 0 (WIFI_CHANNEL_ANY) to scan.
-  bytes bssid = 9;          // Connect to specific BSSID (6 bytes MAC address).
+  bytes bssid = 9;                    // Connect to specific BSSID (6 bytes MAC address).
+  // Field 10 was skipped
   uint32 timeout_ms = 11;             // Connection timeout in milliseconds.
   WifiMfpOptions mfp = 12;            // Management Frame Protection setting.
+
+  // New fields from struct wifi_connect_req_params
+  WifiBand band = 13;                           // Target band for connection.
+  bytes anonymous_id = 14;                    // Anonymous identity for EAP.
+  bytes key_password = 15;                    // Key password (e.g. for some EAP methods or specific configurations).
+  bytes key2_password = 16;                   // Second key password if applicable.
+  WifiWpa3EnterpriseType wpa3_enterprise_type = 17; // WPA3 Enterprise mode.
+  uint32 tls_cipher_suite = 18;               // Specific TLS cipher suite (value or enum mapping needed).
+  uint32 eap_version = 19;                     // EAP version.
+  bytes eap_identity = 20;                    // EAP identity.
+  bytes eap_password = 21;                    // EAP password.
+  bool verify_peer_certificate = 22;          // Whether to verify peer certificate in EAP-TLS.
+  bool ft_enabled = 23;                       // Fast Transition (802.11r) enabled.
+  // nusers, passwds, identities, passwords are for multi-user EAP scenarios.
+  // For simplicity, we can represent this with repeated fields for identity and password.
+  // The C struct uses fixed arrays; nanopb can handle repeated fields with max_count.
+  repeated bytes enterprise_identities = 24;  // For EAP methods supporting multiple identities.
+  repeated bytes enterprise_passwords = 25;   // Corresponding passwords for multiple identities.
+  bool ignore_broadcast_ssid = 26;            // Whether to ignore broadcast SSID (hidden networks).
+  WifiFrequencyBandwidth bandwidth = 27;      // Desired channel bandwidth.
 }
+
 
 // For NET_REQUEST_WIFI_DISCONNECT
 message WifiDisconnectRequest {
@@ -140,14 +215,20 @@ message WifiDirectedScanSsid {
   bytes ssid = 1;
 }
 
+message WifiBandChannel {
+  uint32 band = 1; // e.g., WIFI_BAND_2_4_GHZ, WIFI_BAND_5_GHZ
+  uint32 channel = 2; // Specific channel number, or 0 for any channel in that band.
+}
+
 // Parameters for NET_REQUEST_WIFI_SCAN (based on wifi_scan_params_v2)
 message WifiScanParams {
   WifiScanType scan_type = 1;
-  WifiBand band = 2;                        // Band to scan. If WIFI_BAND_ANY, channels must be specified or all known channels scanned.
-  repeated uint32 channels = 3;            // List of specific channels to scan. If empty, scan all channels in the specified band.
-  uint32 dwell_time_ms = 4;               // Dwell time per channel in milliseconds.
-  repeated WifiDirectedScanSsid directed_scan_ssids = 5; // For directed scan.
-  // uint32 max_bss_entries = 6; // Max BSS entries to report (implementation detail, usually not in request)
+  uint32 bands = 2;                        // Bitmap of bands to be scanned (e.g., WIFI_BAND_2_4_GHZ | WIFI_BAND_5_GHZ).
+  uint32 dwell_time_active = 3;               // Dwell time per channel in milliseconds.
+  uint32 dwell_time_passive = 4;              // Dwell time for passive scanning in milliseconds.
+  repeated bytes ssids = 5; // List of SSIDs to scan for (max 32 bytes each, empty means scan all).
+  uint32 max_bss_cnt = 6; // Max number of BSS entries to report (implementation detail, usually not in request).
+  repeated WifiBandChannel band_chan = 7; // For directed scan.
 }
 
 message WifiScanRequest {
@@ -183,14 +264,6 @@ message GetWifiVersionRequest {
   // No parameters needed, version is typically global for the Wi-Fi driver/firmware.
 }
 
-// Corresponds to Zephyr's struct wifi_ps_params
-message WifiPsSettings {
-  WifiPsState enabled = 1;
-  WifiPsWakeupMode wakeup_mode = 2;
-  uint32 listen_interval_beacons = 3; // Listen interval in beacon periods.
-  uint32 timeout_ms = 4;              // Timeout for PS mode (meaning can be driver-specific).
-  bool fail_all_scans_if_ps = 5;    // Whether to fail scans if PS is enabled.
-}
 
 // Corresponds to Zephyr's struct wifi_ps_config
 message WifiPowerSaveConfig {
@@ -203,6 +276,27 @@ message WifiPowerSaveConfig {
 message SetPowerSaveConfigRequest {
   uint32 iface_index = 1;
   WifiPowerSaveConfig config = 2;
+}
+
+// New message corresponding to C's struct wifi_reg_chan_info
+message WifiRegChanInfo {
+  uint32 center_frequency_mhz = 1; // Center frequency in MHz
+  uint32 max_power_dbm = 2;        // Max power in dBm
+  bool supported = 3;              // If the channel is supported
+  bool passive_only = 4;           // If only passive scan is allowed
+  bool dfs = 5;                    // If DFS is required on this channel
+}
+
+// Updated message corresponding to C's struct wifi_reg_domain
+// Used in SetRegulatoryDomainRequest and GetRegulatoryDomainResponse
+message WifiRegDomain {
+  string country_code = 1; // 2-character ISO 3166-1 alpha-2 country code (e.g., "US", "GB").
+  bool force_update = 2;   // Corresponds to 'force' in C struct, to apply even if same.
+  repeated WifiRegChanInfo channel_info = 3; // List of channel information. num_channels is implicit.
+  // Zephyr's wifi_reg_domain also has dfs_region and op_class rules.
+  // These can be added here if more detailed configuration/retrieval is needed.
+  // For example:
+  // WifiDfsRegion dfs_region = 4; // (Requires defining WifiDfsRegion enum)
 }
 
 // For NET_REQUEST_WIFI_PS_CONFIG (Get)
@@ -255,10 +349,6 @@ message GetWifiVersionResponse {
   WifiVersion version = 1;
 }
 
-// For GetPowerSaveConfigRequest
-message GetPowerSaveConfigResponse {
-  WifiPowerSaveConfig config = 1;
-}
 
 // For GetRegulatoryDomainRequest
 message GetRegulatoryDomainResponse {
@@ -266,12 +356,10 @@ message GetRegulatoryDomainResponse {
   // Could also return the full list of active rules if needed, but that's complex.
 }
 
-// For GetInterfaceStatusRequest
-// Also used in notifications
 message WifiInterfaceStatus {
   // iface_index is typically part of the event/response wrapper
   WifiInterfaceState state = 1;
-  WifiMode mode = 2;
+  WifiMode mode = 2; // Corresponds to C's wifi_iface_mode
   bytes ssid = 3;
   bytes bssid = 4; // 6 bytes MAC address
   uint32 channel = 5;
@@ -282,13 +370,50 @@ message WifiInterfaceStatus {
   uint32 ht_mcs = 10;       // Relevant if link_mode is HT (802.11n)
   uint32 vht_mcs = 11;      // Relevant if link_mode is VHT (802.11ac)
   uint32 he_mcs = 12;       // Relevant if link_mode is HE (802.11ax)
-  uint32 tx_bitrate_kbps = 13; // Current transmit bitrate in Kbps
+  uint32 tx_bitrate_kbps = 13; // Current transmit bitrate in Kbps (maps from C's current_phy_tx_rate)
   uint32 rx_bitrate_kbps = 14; // Current receive bitrate in Kbps
+  // New fields from C's struct wifi_iface_status
+  WifiBand band = 15; // Corresponds to C's wifi_frequency_bands
+  WifiWpa3EnterpriseType wpa3_enterprise_type = 16;
+  uint32 dtim_period = 17;
+  uint32 beacon_interval = 18; // In Time Units (TUs)
+  bool twt_capable = 19;
 }
+
 message GetInterfaceStatusResponse {
   WifiInterfaceStatus status = 1;
 }
 
+
+// New enum based on C's enum wifi_config_ps_param_fail_reason
+enum WifiPsConfigFailReason {
+  WIFI_PS_CONFIG_FAIL_REASON_NONE = 0;
+  WIFI_PS_CONFIG_FAIL_REASON_INVALID_STATE = 1;
+  WIFI_PS_CONFIG_FAIL_REASON_INVALID_LISTEN_INTERVAL = 2;
+  WIFI_PS_CONFIG_FAIL_REASON_INVALID_WAKEUP_MODE = 3;
+  WIFI_PS_CONFIG_FAIL_REASON_INVALID_PS_MODE = 4; // Corresponds to WifiPowerSaveType
+  WIFI_PS_CONFIG_FAIL_REASON_INVALID_TIMEOUT = 5;
+  WIFI_PS_CONFIG_FAIL_REASON_NOT_SUPPORTED = 6;
+  WIFI_PS_CONFIG_FAIL_REASON_UNKNOWN = 7;
+}
+
+// New enum based on C's enum wifi_ps_exit_strategy
+enum WifiPsExitStrategy {
+  WIFI_PS_EXIT_STRATEGY_PERIODIC = 0;
+  WIFI_PS_EXIT_STRATEGY_ON_DEMAND = 1;
+}
+
+
+message WifiPsSettings {
+  WifiPsState enabled = 1;
+  WifiPsWakeupMode wakeup_mode = 2;
+  uint32 listen_interval_beacons = 3; // Listen interval in beacon periods.
+  uint32 timeout_ms = 4;              // Timeout for PS mode (meaning can be driver-specific).
+  bool fail_all_scans_if_ps = 5;    // Whether to fail scans if PS is enabled.
+  // New fields from struct wifi_ps_params
+  WifiPsConfigFailReason fail_reason = 6; // Reason for failure if an operation failed.
+  WifiPsExitStrategy exit_strategy = 7;   // Power save exit strategy.
+}
 
 // -----------------------------------------------------------------------------
 // Notification Messages (Asynchronous events from device to host)
@@ -301,15 +426,9 @@ message WifiScanResult {
   uint32 channel = 3;
   int32 rssi = 4; // dBm
   WifiSecurityType security = 5;
-  WifiMfpOptions mfp = 6;
-  WifiBand band = 7;
-  uint32 beacon_interval_tu = 8; // Beacon interval in TUs
-  uint32 dtim_period = 9;      // DTIM period
-  bool bss_max_idle_present = 10; // BSS Max Idle Period element present
-  uint32 bss_max_idle_period = 11; // In units of 1000 TUs, if present
-  bool owe_transition_mode_present = 12; // OWE Transition Mode AP identified
-  uint32 frequency_mhz = 13;
-  // bytes information_elements = 15; // Raw IEs
+  WifiWpa3EnterpriseType wpa3_enterprise_type = 6; // If applicable, e.g., for WPA3 Enterprise networks
+  WifiMfpOptions mfp = 7;
+  uint32 band = 8; // e.g., WIFI_BAND_2_4_GHZ, WIFI_BAND_5_GHZ
 }
 
 // NET_MGMT_EVENT_WIFI_SCAN_DONE
