@@ -13,23 +13,65 @@
 /* Corresponds to enum wifi_security_type in wifi_mgmt.h */
 typedef enum _embedded_wifi_mgmt_WifiSecurityType {
     embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_UNKNOWN = 0,
-    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_NONE = 1,
-    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_WEP = 2,
-    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_PSK = 3, /* Generic PSK for WPA/WPA2 */
-    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_EAP = 4, /* Generic EAP for WPA/WPA2/WPA3 Enterprise */
-    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_WAPI = 5, /* Not commonly used outside specific regions */
-    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_PSK_SHA256 = 6, /* PSK with SHA256 AKM (often for WPA2) */
-    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_SAE = 7, /* Simultaneous Authentication of Equals (WPA3 Personal) */
-    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_OWE = 8, /* Opportunistic Wireless Encryption */
-    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_SAE_EXT_KEY = 9,
-    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_WPA3_EAP_SUITE_B = 10,
-    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_OSEN = 11
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_NONE = 1, /* No security. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_WEP = 2, /* WEP security. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_PSK = 3, /* WPA2-PSK security. (Also generic WPA/WPA2 PSK) */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_EAP = 4, /* EAP security - Enterprise. (Generic EAP for WPA/WPA2/WPA3) */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_WAPI = 5, /* GB 15629.11-2003 WAPI security. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_PSK_SHA256 = 6, /* WPA2-PSK-SHA256 security. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_SAE = 7, /* WPA3-SAE security. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_OWE = 8, /* Opportunistic Wireless Encryption (Not in the provided list, kept from existing) */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_SAE_EXT_KEY = 9, /* SAE Extended key (uses group-dependent hashing) */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_WPA3_EAP_SUITE_B = 10, /* (Kept from existing, specific WPA3 Ent) */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_OSEN = 11, /* (Kept from existing) */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_SAE_HNP = 12, /* WPA3-SAE security with hunting-and-pecking loop. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_SAE_H2E = 13, /* WPA3-SAE security with hash-to-element. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_SAE_AUTO = 14, /* WPA3-SAE security with both hunting-and-pecking loop and hash-to-element enabled. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_EAP_TLS = 15, /* EAP TLS security - Enterprise. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_WPA_PSK = 16, /* WPA-PSK security. (Distinct from WPA2-PSK if needed) */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_WPA_AUTO_PERSONAL = 17, /* WPA/WPA2/WPA3 PSK security. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_DPP = 18, /* DPP security. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_EAP_PEAP_MSCHAPV2 = 19, /* EAP PEAP MSCHAPV2 security - Enterprise. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_EAP_PEAP_GTC = 20, /* EAP PEAP GTC security - Enterprise. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_EAP_TTLS_MSCHAPV2 = 21, /* EAP TTLS MSCHAPV2 security - Enterprise. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_EAP_PEAP_TLS = 22, /* EAP PEAP security - Enterprise. (Note: EAP_PEAP_TLS, distinct from EAP_TLS) */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_FT_PSK = 23, /* FT-PSK security. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_FT_SAE = 24, /* FT-SAE security. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_FT_EAP = 25, /* FT-EAP security. */
+    embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_FT_EAP_SHA384 = 26 /* FT-EAP-SHA384 security. */
 } embedded_wifi_mgmt_WifiSecurityType;
+
+typedef enum _embedded_wifi_mgmt_WifiWpa3EnterpriseType {
+    embedded_wifi_mgmt_WifiWpa3EnterpriseType_WIFI_WPA3_ENTERPRISE_TYPE_NA = 0, /* Not applicable or not used */
+    embedded_wifi_mgmt_WifiWpa3EnterpriseType_WIFI_WPA3_ENTERPRISE_TYPE_SUITEB = 1, /* WPA3 enterprise Suite-B (PMFR + WPA3-Suite-B). */
+    embedded_wifi_mgmt_WifiWpa3EnterpriseType_WIFI_WPA3_ENTERPRISE_TYPE_SUITEB_192 = 2, /* WPA3 enterprise Suite-B-192 (PMFR + WPA3-Suite-B-192). */
+    embedded_wifi_mgmt_WifiWpa3EnterpriseType_WIFI_WPA3_ENTERPRISE_TYPE_WPA3_ONLY = 3 /* WPA3 enterprise only (PMFR + WPA2-ENT disabled). */
+} embedded_wifi_mgmt_WifiWpa3EnterpriseType;
 
 /* Corresponds to enum wifi_channel in wifi_mgmt.h */
 typedef enum _embedded_wifi_mgmt_WifiChannelConst {
     embedded_wifi_mgmt_WifiChannelConst_WIFI_CHANNEL_ANY = 0 /* Special value for "any channel" */
 } embedded_wifi_mgmt_WifiChannelConst;
+
+typedef enum _embedded_wifi_mgmt_WiFiDisconnReason {
+    embedded_wifi_mgmt_WiFiDisconnReason_WIFI_REASON_DISCONN_UNKNOWN = 0, /* Unspecified reason */
+    embedded_wifi_mgmt_WiFiDisconnReason_WIFI_REASON_DISCONN_SUCCESS = 1,
+    embedded_wifi_mgmt_WiFiDisconnReason_WIFI_REASON_DISCONN_UNSPECIFIED = 2, /* Unspecified reason, */
+    embedded_wifi_mgmt_WiFiDisconnReason_WIFI_REASON_DISCONN_USER_REQUEST = 3, /* User requested disconnect, */
+    embedded_wifi_mgmt_WiFiDisconnReason_WIFI_REASON_DISCONN_AP_LEAVING = 4, /* AP is leaving, */
+    embedded_wifi_mgmt_WiFiDisconnReason_WIFI_REASON_DISCONN_INACTIVITY = 5 /* Inactivity timeout, */
+} embedded_wifi_mgmt_WiFiDisconnReason;
+
+typedef enum _embedded_wifi_mgmt_WifiApStatus {
+    embedded_wifi_mgmt_WifiApStatus_WIFI_AP_STATUS_SUCCESS = 0,
+    embedded_wifi_mgmt_WifiApStatus_WIFI_AP_STATUS_FAIL = 1,
+    embedded_wifi_mgmt_WifiApStatus_WIFI_AP_STATUS_CHANNEL_NOT_SUPPORTED = 2,
+    embedded_wifi_mgmt_WifiApStatus_WIFI_AP_STATUS_CHANNEL_NOT_ALLOWED = 3,
+    embedded_wifi_mgmt_WifiApStatus_WIFI_AP_STATUS_SSID_NOT_ALLOWED = 4,
+    embedded_wifi_mgmt_WifiApStatus_WIFI_AP_STATUS_AUTH_TYPE_NOT_SUPPORTED = 5,
+    embedded_wifi_mgmt_WifiApStatus_WIFI_AP_STATUS_OP_NOT_SUPPORTED = 6,
+    embedded_wifi_mgmt_WifiApStatus_WIFI_AP_STATUS_OP_NOT_PERMITTED = 7
+} embedded_wifi_mgmt_WifiApStatus;
 
 /* Corresponds to enum wifi_band in wifi_mgmt.h */
 typedef enum _embedded_wifi_mgmt_WifiBand {
@@ -116,6 +158,34 @@ typedef enum _embedded_wifi_mgmt_WifiPsWakeupMode {
     embedded_wifi_mgmt_WifiPsWakeupMode_WIFI_PS_WAKEUP_MODE_LISTEN_INTERVAL = 1 /* Wake up at listen interval */
 } embedded_wifi_mgmt_WifiPsWakeupMode;
 
+/* New enum based on C's enum wifi_frequency_bandwidths */
+typedef enum _embedded_wifi_mgmt_WifiFrequencyBandwidth {
+    embedded_wifi_mgmt_WifiFrequencyBandwidth_WIFI_FREQ_BANDWIDTH_UNKNOWN = 0, /* Default or unknown */
+    embedded_wifi_mgmt_WifiFrequencyBandwidth_WIFI_FREQ_BANDWIDTH_20MHZ = 1,
+    embedded_wifi_mgmt_WifiFrequencyBandwidth_WIFI_FREQ_BANDWIDTH_40MHZ = 2,
+    embedded_wifi_mgmt_WifiFrequencyBandwidth_WIFI_FREQ_BANDWIDTH_80MHZ = 3,
+    embedded_wifi_mgmt_WifiFrequencyBandwidth_WIFI_FREQ_BANDWIDTH_160MHZ = 4,
+    embedded_wifi_mgmt_WifiFrequencyBandwidth_WIFI_FREQ_BANDWIDTH_80_80MHZ = 5 /* For 80+80 MHz channels */
+} embedded_wifi_mgmt_WifiFrequencyBandwidth;
+
+/* New enum based on C's enum wifi_config_ps_param_fail_reason */
+typedef enum _embedded_wifi_mgmt_WifiPsConfigFailReason {
+    embedded_wifi_mgmt_WifiPsConfigFailReason_WIFI_PS_CONFIG_FAIL_REASON_NONE = 0,
+    embedded_wifi_mgmt_WifiPsConfigFailReason_WIFI_PS_CONFIG_FAIL_REASON_INVALID_STATE = 1,
+    embedded_wifi_mgmt_WifiPsConfigFailReason_WIFI_PS_CONFIG_FAIL_REASON_INVALID_LISTEN_INTERVAL = 2,
+    embedded_wifi_mgmt_WifiPsConfigFailReason_WIFI_PS_CONFIG_FAIL_REASON_INVALID_WAKEUP_MODE = 3,
+    embedded_wifi_mgmt_WifiPsConfigFailReason_WIFI_PS_CONFIG_FAIL_REASON_INVALID_PS_MODE = 4, /* Corresponds to WifiPowerSaveType */
+    embedded_wifi_mgmt_WifiPsConfigFailReason_WIFI_PS_CONFIG_FAIL_REASON_INVALID_TIMEOUT = 5,
+    embedded_wifi_mgmt_WifiPsConfigFailReason_WIFI_PS_CONFIG_FAIL_REASON_NOT_SUPPORTED = 6,
+    embedded_wifi_mgmt_WifiPsConfigFailReason_WIFI_PS_CONFIG_FAIL_REASON_UNKNOWN = 7
+} embedded_wifi_mgmt_WifiPsConfigFailReason;
+
+/* New enum based on C's enum wifi_ps_exit_strategy */
+typedef enum _embedded_wifi_mgmt_WifiPsExitStrategy {
+    embedded_wifi_mgmt_WifiPsExitStrategy_WIFI_PS_EXIT_STRATEGY_PERIODIC = 0,
+    embedded_wifi_mgmt_WifiPsExitStrategy_WIFI_PS_EXIT_STRATEGY_ON_DEMAND = 1
+} embedded_wifi_mgmt_WifiPsExitStrategy;
+
 typedef enum _embedded_wifi_mgmt_RequestType {
     embedded_wifi_mgmt_RequestType_REQUEST_TYPE_UNKNOWN = 0,
     embedded_wifi_mgmt_RequestType_REQUEST_TYPE_CONNECT = 1,
@@ -141,11 +211,33 @@ typedef struct _embedded_wifi_mgmt_WifiConnectRequest {
     embedded_wifi_mgmt_WifiConnectRequest_ssid_t ssid; /* SSID (max 32 bytes in Zephyr) */
     embedded_wifi_mgmt_WifiSecurityType security_type;
     embedded_wifi_mgmt_WifiConnectRequest_psk_t psk; /* Pre-shared key for WEP, WPA-PSK, WPA2-PSK. Max 64 hex chars for WEP, 8-63 ASCII for PSK. */
+    /* Field 5 was skipped in original, can be used or skipped. */
     embedded_wifi_mgmt_WifiConnectRequest_sae_password_t sae_password; /* Password for WPA3-SAE. */
+    /* Field 7 was skipped */
     uint32_t channel; /* Specific channel, or 0 (WIFI_CHANNEL_ANY) to scan. */
     pb_byte_t bssid[6]; /* Connect to specific BSSID (6 bytes MAC address). */
+    /* Field 10 was skipped */
     uint32_t timeout_ms; /* Connection timeout in milliseconds. */
     embedded_wifi_mgmt_WifiMfpOptions mfp; /* Management Frame Protection setting. */
+    /* New fields from struct wifi_connect_req_params */
+    embedded_wifi_mgmt_WifiBand band; /* Target band for connection. */
+    pb_callback_t anonymous_id; /* Anonymous identity for EAP. */
+    pb_callback_t key_password; /* Key password (e.g. for some EAP methods or specific configurations). */
+    pb_callback_t key2_password; /* Second key password if applicable. */
+    embedded_wifi_mgmt_WifiWpa3EnterpriseType wpa3_enterprise_type; /* WPA3 Enterprise mode. */
+    uint32_t tls_cipher_suite; /* Specific TLS cipher suite (value or enum mapping needed). */
+    uint32_t eap_version; /* EAP version. */
+    pb_callback_t eap_identity; /* EAP identity. */
+    pb_callback_t eap_password; /* EAP password. */
+    bool verify_peer_certificate; /* Whether to verify peer certificate in EAP-TLS. */
+    bool ft_enabled; /* Fast Transition (802.11r) enabled. */
+    /* nusers, passwds, identities, passwords are for multi-user EAP scenarios.
+ For simplicity, we can represent this with repeated fields for identity and password.
+ The C struct uses fixed arrays; nanopb can handle repeated fields with max_count.
+repeated bytes enterprise_identities = 24;  // For EAP methods supporting multiple identities.
+repeated bytes enterprise_passwords = 25;   // Corresponding passwords for multiple identities. */
+    bool ignore_broadcast_ssid; /* Whether to ignore broadcast SSID (hidden networks). */
+    embedded_wifi_mgmt_WifiFrequencyBandwidth bandwidth; /* Desired channel bandwidth. */
 } embedded_wifi_mgmt_WifiConnectRequest;
 
 /* For NET_REQUEST_WIFI_DISCONNECT */
@@ -159,15 +251,21 @@ typedef struct _embedded_wifi_mgmt_WifiDirectedScanSsid {
     embedded_wifi_mgmt_WifiDirectedScanSsid_ssid_t ssid;
 } embedded_wifi_mgmt_WifiDirectedScanSsid;
 
+typedef struct _embedded_wifi_mgmt_WifiBandChannel {
+    uint32_t band; /* e.g., WIFI_BAND_2_4_GHZ, WIFI_BAND_5_GHZ */
+    uint32_t channel; /* Specific channel number, or 0 for any channel in that band. */
+} embedded_wifi_mgmt_WifiBandChannel;
+
 /* Parameters for NET_REQUEST_WIFI_SCAN (based on wifi_scan_params_v2) */
 typedef struct _embedded_wifi_mgmt_WifiScanParams {
     embedded_wifi_mgmt_WifiScanType scan_type;
-    embedded_wifi_mgmt_WifiBand band; /* Band to scan. If WIFI_BAND_ANY, channels must be specified or all known channels scanned. */
-    pb_size_t channels_count;
-    uint32_t channels[32]; /* List of specific channels to scan. If empty, scan all channels in the specified band. */
-    uint32_t dwell_time_ms; /* Dwell time per channel in milliseconds. */
-    pb_size_t directed_scan_ssids_count;
-    embedded_wifi_mgmt_WifiDirectedScanSsid directed_scan_ssids[32]; /* For directed scan. */
+    uint32_t bands; /* Bitmap of bands to be scanned (e.g., WIFI_BAND_2_4_GHZ | WIFI_BAND_5_GHZ). */
+    uint32_t dwell_time_active; /* Dwell time per channel in milliseconds. */
+    uint32_t dwell_time_passive; /* Dwell time for passive scanning in milliseconds. */
+    pb_callback_t ssids; /* List of SSIDs to scan for (max 32 bytes each, empty means scan all). */
+    uint32_t max_bss_cnt; /* Max number of BSS entries to report (implementation detail, usually not in request). */
+    pb_size_t band_chan_count;
+    embedded_wifi_mgmt_WifiBandChannel band_chan[64]; /* For directed scan. */
 } embedded_wifi_mgmt_WifiScanParams;
 
 typedef struct _embedded_wifi_mgmt_WifiScanRequest {
@@ -206,38 +304,28 @@ typedef struct _embedded_wifi_mgmt_GetWifiVersionRequest { /* No parameters need
     char dummy_field;
 } embedded_wifi_mgmt_GetWifiVersionRequest;
 
-/* Corresponds to Zephyr's struct wifi_ps_params */
-typedef struct _embedded_wifi_mgmt_WifiPsSettings {
-    embedded_wifi_mgmt_WifiPsState enabled;
-    embedded_wifi_mgmt_WifiPsWakeupMode wakeup_mode;
-    uint32_t listen_interval_beacons; /* Listen interval in beacon periods. */
-    uint32_t timeout_ms; /* Timeout for PS mode (meaning can be driver-specific). */
-    bool fail_all_scans_if_ps; /* Whether to fail scans if PS is enabled. */
-} embedded_wifi_mgmt_WifiPsSettings;
+/* New message corresponding to C's struct wifi_reg_chan_info */
+typedef struct _embedded_wifi_mgmt_WifiRegChanInfo {
+    uint32_t center_frequency_mhz; /* Center frequency in MHz */
+    uint32_t max_power_dbm; /* Max power in dBm */
+    bool supported; /* If the channel is supported */
+    bool passive_only; /* If only passive scan is allowed */
+    bool dfs; /* If DFS is required on this channel */
+} embedded_wifi_mgmt_WifiRegChanInfo;
 
-/* Corresponds to Zephyr's struct wifi_ps_config */
-typedef struct _embedded_wifi_mgmt_WifiPowerSaveConfig {
-    bool has_ps_settings;
-    embedded_wifi_mgmt_WifiPsSettings ps_settings;
-    embedded_wifi_mgmt_WifiPowerSaveType type; /* uint32 num_apsd_queues = 3; // For WMM U-APSD, often driver-internal or advanced config. */
-} embedded_wifi_mgmt_WifiPowerSaveConfig;
-
-/* For NET_REQUEST_WIFI_PS_CONFIG (Set) */
-typedef struct _embedded_wifi_mgmt_SetPowerSaveConfigRequest {
-    uint32_t iface_index;
-    bool has_config;
-    embedded_wifi_mgmt_WifiPowerSaveConfig config;
-} embedded_wifi_mgmt_SetPowerSaveConfigRequest;
+/* Updated message corresponding to C's struct wifi_reg_domain
+ Used in SetRegulatoryDomainRequest and GetRegulatoryDomainResponse */
+typedef struct _embedded_wifi_mgmt_WifiRegDomain {
+    char country_code[3]; /* 2-character ISO 3166-1 alpha-2 country code (e.g., "US", "GB"). */
+    bool force_update; /* Corresponds to 'force' in C struct, to apply even if same. */
+    pb_size_t channel_info_count;
+    embedded_wifi_mgmt_WifiRegChanInfo channel_info[64]; /* List of channel information. num_channels is implicit. */
+} embedded_wifi_mgmt_WifiRegDomain;
 
 /* For NET_REQUEST_WIFI_PS_CONFIG (Get) */
 typedef struct _embedded_wifi_mgmt_GetPowerSaveConfigRequest {
     uint32_t iface_index;
 } embedded_wifi_mgmt_GetPowerSaveConfigRequest;
-
-/* For NET_REQUEST_WIFI_REG_DOMAIN (Set) */
-typedef struct _embedded_wifi_mgmt_WifiRegDomain {
-    char country_code[3]; /* 2-character ISO 3166-1 alpha-2 country code (e.g., "US", "GB"). */
-} embedded_wifi_mgmt_WifiRegDomain;
 
 typedef struct _embedded_wifi_mgmt_SetRegulatoryDomainRequest {
     uint32_t iface_index; /* Regulatory domain can sometimes be per-interface or global. */
@@ -275,12 +363,6 @@ typedef struct _embedded_wifi_mgmt_GetWifiVersionResponse {
     embedded_wifi_mgmt_WifiVersion version;
 } embedded_wifi_mgmt_GetWifiVersionResponse;
 
-/* For GetPowerSaveConfigRequest */
-typedef struct _embedded_wifi_mgmt_GetPowerSaveConfigResponse {
-    bool has_config;
-    embedded_wifi_mgmt_WifiPowerSaveConfig config;
-} embedded_wifi_mgmt_GetPowerSaveConfigResponse;
-
 /* For GetRegulatoryDomainRequest */
 typedef struct _embedded_wifi_mgmt_GetRegulatoryDomainResponse {
     bool has_reg_domain;
@@ -288,12 +370,10 @@ typedef struct _embedded_wifi_mgmt_GetRegulatoryDomainResponse {
 } embedded_wifi_mgmt_GetRegulatoryDomainResponse;
 
 typedef PB_BYTES_ARRAY_T(32) embedded_wifi_mgmt_WifiInterfaceStatus_ssid_t;
-/* For GetInterfaceStatusRequest
- Also used in notifications */
 typedef struct _embedded_wifi_mgmt_WifiInterfaceStatus {
     /* iface_index is typically part of the event/response wrapper */
     embedded_wifi_mgmt_WifiInterfaceState state;
-    embedded_wifi_mgmt_WifiMode mode;
+    embedded_wifi_mgmt_WifiMode mode; /* Corresponds to C's wifi_iface_mode */
     embedded_wifi_mgmt_WifiInterfaceStatus_ssid_t ssid;
     pb_byte_t bssid[6]; /* 6 bytes MAC address */
     uint32_t channel;
@@ -304,14 +384,45 @@ typedef struct _embedded_wifi_mgmt_WifiInterfaceStatus {
     uint32_t ht_mcs; /* Relevant if link_mode is HT (802.11n) */
     uint32_t vht_mcs; /* Relevant if link_mode is VHT (802.11ac) */
     uint32_t he_mcs; /* Relevant if link_mode is HE (802.11ax) */
-    uint32_t tx_bitrate_kbps; /* Current transmit bitrate in Kbps */
+    uint32_t tx_bitrate_kbps; /* Current transmit bitrate in Kbps (maps from C's current_phy_tx_rate) */
     uint32_t rx_bitrate_kbps; /* Current receive bitrate in Kbps */
+    /* New fields from C's struct wifi_iface_status */
+    embedded_wifi_mgmt_WifiBand band; /* Corresponds to C's wifi_frequency_bands */
+    embedded_wifi_mgmt_WifiWpa3EnterpriseType wpa3_enterprise_type;
+    uint32_t dtim_period;
+    uint32_t beacon_interval; /* In Time Units (TUs) */
+    bool twt_capable;
 } embedded_wifi_mgmt_WifiInterfaceStatus;
 
 typedef struct _embedded_wifi_mgmt_GetInterfaceStatusResponse {
     bool has_status;
     embedded_wifi_mgmt_WifiInterfaceStatus status;
 } embedded_wifi_mgmt_GetInterfaceStatusResponse;
+
+typedef struct _embedded_wifi_mgmt_WifiPsSettings {
+    embedded_wifi_mgmt_WifiPsState enabled;
+    embedded_wifi_mgmt_WifiPsWakeupMode wakeup_mode;
+    uint32_t listen_interval_beacons; /* Listen interval in beacon periods. */
+    uint32_t timeout_ms; /* Timeout for PS mode (meaning can be driver-specific). */
+    bool fail_all_scans_if_ps; /* Whether to fail scans if PS is enabled. */
+    /* New fields from struct wifi_ps_params */
+    embedded_wifi_mgmt_WifiPsConfigFailReason fail_reason; /* Reason for failure if an operation failed. */
+    embedded_wifi_mgmt_WifiPsExitStrategy exit_strategy; /* Power save exit strategy. */
+} embedded_wifi_mgmt_WifiPsSettings;
+
+/* Corresponds to Zephyr's struct wifi_ps_config */
+typedef struct _embedded_wifi_mgmt_WifiPowerSaveConfig {
+    bool has_ps_settings;
+    embedded_wifi_mgmt_WifiPsSettings ps_settings;
+    embedded_wifi_mgmt_WifiPowerSaveType type; /* uint32 num_apsd_queues = 3; // For WMM U-APSD, often driver-internal or advanced config. */
+} embedded_wifi_mgmt_WifiPowerSaveConfig;
+
+/* For NET_REQUEST_WIFI_PS_CONFIG (Set) */
+typedef struct _embedded_wifi_mgmt_SetPowerSaveConfigRequest {
+    uint32_t iface_index;
+    bool has_config;
+    embedded_wifi_mgmt_WifiPowerSaveConfig config;
+} embedded_wifi_mgmt_SetPowerSaveConfigRequest;
 
 typedef PB_BYTES_ARRAY_T(32) embedded_wifi_mgmt_WifiScanResult_ssid_t;
 /* Individual scan result, part of NET_MGMT_EVENT_WIFI_SCAN_RESULT event */
@@ -321,14 +432,9 @@ typedef struct _embedded_wifi_mgmt_WifiScanResult {
     uint32_t channel;
     int32_t rssi; /* dBm */
     embedded_wifi_mgmt_WifiSecurityType security;
+    embedded_wifi_mgmt_WifiWpa3EnterpriseType wpa3_enterprise_type; /* If applicable, e.g., for WPA3 Enterprise networks */
     embedded_wifi_mgmt_WifiMfpOptions mfp;
-    embedded_wifi_mgmt_WifiBand band;
-    uint32_t beacon_interval_tu; /* Beacon interval in TUs */
-    uint32_t dtim_period; /* DTIM period */
-    bool bss_max_idle_present; /* BSS Max Idle Period element present */
-    uint32_t bss_max_idle_period; /* In units of 1000 TUs, if present */
-    bool owe_transition_mode_present; /* OWE Transition Mode AP identified */
-    uint32_t frequency_mhz; /* bytes information_elements = 15; // Raw IEs */
+    uint32_t band; /* e.g., WIFI_BAND_2_4_GHZ, WIFI_BAND_5_GHZ */
 } embedded_wifi_mgmt_WifiScanResult;
 
 /* NET_MGMT_EVENT_WIFI_SCAN_DONE */
@@ -418,7 +524,7 @@ typedef struct _embedded_wifi_mgmt_WifiMgmtResponse {
     union _embedded_wifi_mgmt_WifiMgmtResponse_payload {
         embedded_wifi_mgmt_WifiStatusResponse status_resp; /* Generic status for SET operations or simple GETs. */
         embedded_wifi_mgmt_GetWifiVersionResponse get_version_resp;
-        embedded_wifi_mgmt_GetPowerSaveConfigResponse get_ps_config_resp;
+        /* GetPowerSaveConfigResponse get_ps_config_resp = 4; */
         embedded_wifi_mgmt_GetRegulatoryDomainResponse get_reg_domain_resp;
         embedded_wifi_mgmt_GetInterfaceStatusResponse get_iface_status_resp; /* Add other specific responses here */
     } payload;
@@ -437,12 +543,24 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _embedded_wifi_mgmt_WifiSecurityType_MIN embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_UNKNOWN
-#define _embedded_wifi_mgmt_WifiSecurityType_MAX embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_OSEN
-#define _embedded_wifi_mgmt_WifiSecurityType_ARRAYSIZE ((embedded_wifi_mgmt_WifiSecurityType)(embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_OSEN+1))
+#define _embedded_wifi_mgmt_WifiSecurityType_MAX embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_FT_EAP_SHA384
+#define _embedded_wifi_mgmt_WifiSecurityType_ARRAYSIZE ((embedded_wifi_mgmt_WifiSecurityType)(embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_FT_EAP_SHA384+1))
+
+#define _embedded_wifi_mgmt_WifiWpa3EnterpriseType_MIN embedded_wifi_mgmt_WifiWpa3EnterpriseType_WIFI_WPA3_ENTERPRISE_TYPE_NA
+#define _embedded_wifi_mgmt_WifiWpa3EnterpriseType_MAX embedded_wifi_mgmt_WifiWpa3EnterpriseType_WIFI_WPA3_ENTERPRISE_TYPE_WPA3_ONLY
+#define _embedded_wifi_mgmt_WifiWpa3EnterpriseType_ARRAYSIZE ((embedded_wifi_mgmt_WifiWpa3EnterpriseType)(embedded_wifi_mgmt_WifiWpa3EnterpriseType_WIFI_WPA3_ENTERPRISE_TYPE_WPA3_ONLY+1))
 
 #define _embedded_wifi_mgmt_WifiChannelConst_MIN embedded_wifi_mgmt_WifiChannelConst_WIFI_CHANNEL_ANY
 #define _embedded_wifi_mgmt_WifiChannelConst_MAX embedded_wifi_mgmt_WifiChannelConst_WIFI_CHANNEL_ANY
 #define _embedded_wifi_mgmt_WifiChannelConst_ARRAYSIZE ((embedded_wifi_mgmt_WifiChannelConst)(embedded_wifi_mgmt_WifiChannelConst_WIFI_CHANNEL_ANY+1))
+
+#define _embedded_wifi_mgmt_WiFiDisconnReason_MIN embedded_wifi_mgmt_WiFiDisconnReason_WIFI_REASON_DISCONN_UNKNOWN
+#define _embedded_wifi_mgmt_WiFiDisconnReason_MAX embedded_wifi_mgmt_WiFiDisconnReason_WIFI_REASON_DISCONN_INACTIVITY
+#define _embedded_wifi_mgmt_WiFiDisconnReason_ARRAYSIZE ((embedded_wifi_mgmt_WiFiDisconnReason)(embedded_wifi_mgmt_WiFiDisconnReason_WIFI_REASON_DISCONN_INACTIVITY+1))
+
+#define _embedded_wifi_mgmt_WifiApStatus_MIN embedded_wifi_mgmt_WifiApStatus_WIFI_AP_STATUS_SUCCESS
+#define _embedded_wifi_mgmt_WifiApStatus_MAX embedded_wifi_mgmt_WifiApStatus_WIFI_AP_STATUS_OP_NOT_PERMITTED
+#define _embedded_wifi_mgmt_WifiApStatus_ARRAYSIZE ((embedded_wifi_mgmt_WifiApStatus)(embedded_wifi_mgmt_WifiApStatus_WIFI_AP_STATUS_OP_NOT_PERMITTED+1))
 
 #define _embedded_wifi_mgmt_WifiBand_MIN embedded_wifi_mgmt_WifiBand_WIFI_BAND_ANY
 #define _embedded_wifi_mgmt_WifiBand_MAX embedded_wifi_mgmt_WifiBand_WIFI_BAND_60_GHZ
@@ -480,17 +598,32 @@ extern "C" {
 #define _embedded_wifi_mgmt_WifiPsWakeupMode_MAX embedded_wifi_mgmt_WifiPsWakeupMode_WIFI_PS_WAKEUP_MODE_LISTEN_INTERVAL
 #define _embedded_wifi_mgmt_WifiPsWakeupMode_ARRAYSIZE ((embedded_wifi_mgmt_WifiPsWakeupMode)(embedded_wifi_mgmt_WifiPsWakeupMode_WIFI_PS_WAKEUP_MODE_LISTEN_INTERVAL+1))
 
+#define _embedded_wifi_mgmt_WifiFrequencyBandwidth_MIN embedded_wifi_mgmt_WifiFrequencyBandwidth_WIFI_FREQ_BANDWIDTH_UNKNOWN
+#define _embedded_wifi_mgmt_WifiFrequencyBandwidth_MAX embedded_wifi_mgmt_WifiFrequencyBandwidth_WIFI_FREQ_BANDWIDTH_80_80MHZ
+#define _embedded_wifi_mgmt_WifiFrequencyBandwidth_ARRAYSIZE ((embedded_wifi_mgmt_WifiFrequencyBandwidth)(embedded_wifi_mgmt_WifiFrequencyBandwidth_WIFI_FREQ_BANDWIDTH_80_80MHZ+1))
+
+#define _embedded_wifi_mgmt_WifiPsConfigFailReason_MIN embedded_wifi_mgmt_WifiPsConfigFailReason_WIFI_PS_CONFIG_FAIL_REASON_NONE
+#define _embedded_wifi_mgmt_WifiPsConfigFailReason_MAX embedded_wifi_mgmt_WifiPsConfigFailReason_WIFI_PS_CONFIG_FAIL_REASON_UNKNOWN
+#define _embedded_wifi_mgmt_WifiPsConfigFailReason_ARRAYSIZE ((embedded_wifi_mgmt_WifiPsConfigFailReason)(embedded_wifi_mgmt_WifiPsConfigFailReason_WIFI_PS_CONFIG_FAIL_REASON_UNKNOWN+1))
+
+#define _embedded_wifi_mgmt_WifiPsExitStrategy_MIN embedded_wifi_mgmt_WifiPsExitStrategy_WIFI_PS_EXIT_STRATEGY_PERIODIC
+#define _embedded_wifi_mgmt_WifiPsExitStrategy_MAX embedded_wifi_mgmt_WifiPsExitStrategy_WIFI_PS_EXIT_STRATEGY_ON_DEMAND
+#define _embedded_wifi_mgmt_WifiPsExitStrategy_ARRAYSIZE ((embedded_wifi_mgmt_WifiPsExitStrategy)(embedded_wifi_mgmt_WifiPsExitStrategy_WIFI_PS_EXIT_STRATEGY_ON_DEMAND+1))
+
 #define _embedded_wifi_mgmt_RequestType_MIN embedded_wifi_mgmt_RequestType_REQUEST_TYPE_UNKNOWN
 #define _embedded_wifi_mgmt_RequestType_MAX embedded_wifi_mgmt_RequestType_REQUEST_TYPE_GET_IFACE_STATUS
 #define _embedded_wifi_mgmt_RequestType_ARRAYSIZE ((embedded_wifi_mgmt_RequestType)(embedded_wifi_mgmt_RequestType_REQUEST_TYPE_GET_IFACE_STATUS+1))
 
 #define embedded_wifi_mgmt_WifiConnectRequest_security_type_ENUMTYPE embedded_wifi_mgmt_WifiSecurityType
 #define embedded_wifi_mgmt_WifiConnectRequest_mfp_ENUMTYPE embedded_wifi_mgmt_WifiMfpOptions
+#define embedded_wifi_mgmt_WifiConnectRequest_band_ENUMTYPE embedded_wifi_mgmt_WifiBand
+#define embedded_wifi_mgmt_WifiConnectRequest_wpa3_enterprise_type_ENUMTYPE embedded_wifi_mgmt_WifiWpa3EnterpriseType
+#define embedded_wifi_mgmt_WifiConnectRequest_bandwidth_ENUMTYPE embedded_wifi_mgmt_WifiFrequencyBandwidth
+
 
 
 
 #define embedded_wifi_mgmt_WifiScanParams_scan_type_ENUMTYPE embedded_wifi_mgmt_WifiScanType
-#define embedded_wifi_mgmt_WifiScanParams_band_ENUMTYPE embedded_wifi_mgmt_WifiBand
 
 
 #define embedded_wifi_mgmt_WifiApEnableParams_band_ENUMTYPE embedded_wifi_mgmt_WifiBand
@@ -498,9 +631,6 @@ extern "C" {
 
 
 
-
-#define embedded_wifi_mgmt_WifiPsSettings_enabled_ENUMTYPE embedded_wifi_mgmt_WifiPsState
-#define embedded_wifi_mgmt_WifiPsSettings_wakeup_mode_ENUMTYPE embedded_wifi_mgmt_WifiPsWakeupMode
 
 #define embedded_wifi_mgmt_WifiPowerSaveConfig_type_ENUMTYPE embedded_wifi_mgmt_WifiPowerSaveType
 
@@ -520,11 +650,18 @@ extern "C" {
 #define embedded_wifi_mgmt_WifiInterfaceStatus_security_ENUMTYPE embedded_wifi_mgmt_WifiSecurityType
 #define embedded_wifi_mgmt_WifiInterfaceStatus_mfp_ENUMTYPE embedded_wifi_mgmt_WifiMfpOptions
 #define embedded_wifi_mgmt_WifiInterfaceStatus_link_mode_ENUMTYPE embedded_wifi_mgmt_WifiLinkMode
+#define embedded_wifi_mgmt_WifiInterfaceStatus_band_ENUMTYPE embedded_wifi_mgmt_WifiBand
+#define embedded_wifi_mgmt_WifiInterfaceStatus_wpa3_enterprise_type_ENUMTYPE embedded_wifi_mgmt_WifiWpa3EnterpriseType
 
+
+#define embedded_wifi_mgmt_WifiPsSettings_enabled_ENUMTYPE embedded_wifi_mgmt_WifiPsState
+#define embedded_wifi_mgmt_WifiPsSettings_wakeup_mode_ENUMTYPE embedded_wifi_mgmt_WifiPsWakeupMode
+#define embedded_wifi_mgmt_WifiPsSettings_fail_reason_ENUMTYPE embedded_wifi_mgmt_WifiPsConfigFailReason
+#define embedded_wifi_mgmt_WifiPsSettings_exit_strategy_ENUMTYPE embedded_wifi_mgmt_WifiPsExitStrategy
 
 #define embedded_wifi_mgmt_WifiScanResult_security_ENUMTYPE embedded_wifi_mgmt_WifiSecurityType
+#define embedded_wifi_mgmt_WifiScanResult_wpa3_enterprise_type_ENUMTYPE embedded_wifi_mgmt_WifiWpa3EnterpriseType
 #define embedded_wifi_mgmt_WifiScanResult_mfp_ENUMTYPE embedded_wifi_mgmt_WifiMfpOptions
-#define embedded_wifi_mgmt_WifiScanResult_band_ENUMTYPE embedded_wifi_mgmt_WifiBand
 
 
 
@@ -541,31 +678,32 @@ extern "C" {
 
 
 /* Initializer values for message structs */
-#define embedded_wifi_mgmt_WifiConnectRequest_init_default {0, {0, {0}}, _embedded_wifi_mgmt_WifiSecurityType_MIN, {0, {0}}, {0, {0}}, 0, {0}, 0, _embedded_wifi_mgmt_WifiMfpOptions_MIN}
+#define embedded_wifi_mgmt_WifiConnectRequest_init_default {0, {0, {0}}, _embedded_wifi_mgmt_WifiSecurityType_MIN, {0, {0}}, {0, {0}}, 0, {0}, 0, _embedded_wifi_mgmt_WifiMfpOptions_MIN, _embedded_wifi_mgmt_WifiBand_MIN, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, _embedded_wifi_mgmt_WifiWpa3EnterpriseType_MIN, 0, 0, {{NULL}, NULL}, {{NULL}, NULL}, 0, 0, 0, _embedded_wifi_mgmt_WifiFrequencyBandwidth_MIN}
 #define embedded_wifi_mgmt_WifiDisconnectRequest_init_default {0}
 #define embedded_wifi_mgmt_WifiDirectedScanSsid_init_default {{0, {0}}}
-#define embedded_wifi_mgmt_WifiScanParams_init_default {_embedded_wifi_mgmt_WifiScanType_MIN, _embedded_wifi_mgmt_WifiBand_MIN, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 0, 0, {embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default, embedded_wifi_mgmt_WifiDirectedScanSsid_init_default}}
+#define embedded_wifi_mgmt_WifiBandChannel_init_default {0, 0}
+#define embedded_wifi_mgmt_WifiScanParams_init_default {_embedded_wifi_mgmt_WifiScanType_MIN, 0, 0, 0, {{NULL}, NULL}, 0, 0, {embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default, embedded_wifi_mgmt_WifiBandChannel_init_default}}
 #define embedded_wifi_mgmt_WifiScanRequest_init_default {0, false, embedded_wifi_mgmt_WifiScanParams_init_default}
 #define embedded_wifi_mgmt_WifiApEnableParams_init_default {{0, {0}}, 0, _embedded_wifi_mgmt_WifiBand_MIN, _embedded_wifi_mgmt_WifiSecurityType_MIN, {0, {0}}, 0, 0, 0}
 #define embedded_wifi_mgmt_WifiApEnableRequest_init_default {0, false, embedded_wifi_mgmt_WifiApEnableParams_init_default}
 #define embedded_wifi_mgmt_WifiApDisableRequest_init_default {0}
 #define embedded_wifi_mgmt_GetWifiVersionRequest_init_default {0}
-#define embedded_wifi_mgmt_WifiPsSettings_init_default {_embedded_wifi_mgmt_WifiPsState_MIN, _embedded_wifi_mgmt_WifiPsWakeupMode_MIN, 0, 0, 0}
 #define embedded_wifi_mgmt_WifiPowerSaveConfig_init_default {false, embedded_wifi_mgmt_WifiPsSettings_init_default, _embedded_wifi_mgmt_WifiPowerSaveType_MIN}
 #define embedded_wifi_mgmt_SetPowerSaveConfigRequest_init_default {0, false, embedded_wifi_mgmt_WifiPowerSaveConfig_init_default}
+#define embedded_wifi_mgmt_WifiRegChanInfo_init_default {0, 0, 0, 0, 0}
+#define embedded_wifi_mgmt_WifiRegDomain_init_default {"", 0, 0, {embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default, embedded_wifi_mgmt_WifiRegChanInfo_init_default}}
 #define embedded_wifi_mgmt_GetPowerSaveConfigRequest_init_default {0}
-#define embedded_wifi_mgmt_WifiRegDomain_init_default {""}
 #define embedded_wifi_mgmt_SetRegulatoryDomainRequest_init_default {0, false, embedded_wifi_mgmt_WifiRegDomain_init_default}
 #define embedded_wifi_mgmt_GetRegulatoryDomainRequest_init_default {0}
 #define embedded_wifi_mgmt_GetInterfaceStatusRequest_init_default {0}
 #define embedded_wifi_mgmt_WifiStatusResponse_init_default {0, 0, ""}
 #define embedded_wifi_mgmt_WifiVersion_init_default {0, 0, 0, ""}
 #define embedded_wifi_mgmt_GetWifiVersionResponse_init_default {false, embedded_wifi_mgmt_WifiVersion_init_default}
-#define embedded_wifi_mgmt_GetPowerSaveConfigResponse_init_default {false, embedded_wifi_mgmt_WifiPowerSaveConfig_init_default}
 #define embedded_wifi_mgmt_GetRegulatoryDomainResponse_init_default {false, embedded_wifi_mgmt_WifiRegDomain_init_default}
-#define embedded_wifi_mgmt_WifiInterfaceStatus_init_default {_embedded_wifi_mgmt_WifiInterfaceState_MIN, _embedded_wifi_mgmt_WifiMode_MIN, {0, {0}}, {0}, 0, _embedded_wifi_mgmt_WifiSecurityType_MIN, _embedded_wifi_mgmt_WifiMfpOptions_MIN, 0, _embedded_wifi_mgmt_WifiLinkMode_MIN, 0, 0, 0, 0, 0}
+#define embedded_wifi_mgmt_WifiInterfaceStatus_init_default {_embedded_wifi_mgmt_WifiInterfaceState_MIN, _embedded_wifi_mgmt_WifiMode_MIN, {0, {0}}, {0}, 0, _embedded_wifi_mgmt_WifiSecurityType_MIN, _embedded_wifi_mgmt_WifiMfpOptions_MIN, 0, _embedded_wifi_mgmt_WifiLinkMode_MIN, 0, 0, 0, 0, 0, _embedded_wifi_mgmt_WifiBand_MIN, _embedded_wifi_mgmt_WifiWpa3EnterpriseType_MIN, 0, 0, 0}
 #define embedded_wifi_mgmt_GetInterfaceStatusResponse_init_default {false, embedded_wifi_mgmt_WifiInterfaceStatus_init_default}
-#define embedded_wifi_mgmt_WifiScanResult_init_default {{0, {0}}, {0}, 0, 0, _embedded_wifi_mgmt_WifiSecurityType_MIN, _embedded_wifi_mgmt_WifiMfpOptions_MIN, _embedded_wifi_mgmt_WifiBand_MIN, 0, 0, 0, 0, 0, 0}
+#define embedded_wifi_mgmt_WifiPsSettings_init_default {_embedded_wifi_mgmt_WifiPsState_MIN, _embedded_wifi_mgmt_WifiPsWakeupMode_MIN, 0, 0, 0, _embedded_wifi_mgmt_WifiPsConfigFailReason_MIN, _embedded_wifi_mgmt_WifiPsExitStrategy_MIN}
+#define embedded_wifi_mgmt_WifiScanResult_init_default {{0, {0}}, {0}, 0, 0, _embedded_wifi_mgmt_WifiSecurityType_MIN, _embedded_wifi_mgmt_WifiWpa3EnterpriseType_MIN, _embedded_wifi_mgmt_WifiMfpOptions_MIN, 0}
 #define embedded_wifi_mgmt_ScanDoneEvent_init_default {0, 0, {embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default, embedded_wifi_mgmt_WifiScanResult_init_default}}
 #define embedded_wifi_mgmt_ConnectResultEvent_init_default {0}
 #define embedded_wifi_mgmt_DisconnectResultEvent_init_default {0, 0}
@@ -578,31 +716,32 @@ extern "C" {
 #define embedded_wifi_mgmt_WifiMgmtRequest_init_default {_embedded_wifi_mgmt_RequestType_MIN, 0, {embedded_wifi_mgmt_WifiConnectRequest_init_default}}
 #define embedded_wifi_mgmt_WifiMgmtResponse_init_default {0, 0, {embedded_wifi_mgmt_WifiStatusResponse_init_default}}
 #define embedded_wifi_mgmt_WifiMgmtNotification_init_default {false, embedded_wifi_mgmt_WifiEvent_init_default}
-#define embedded_wifi_mgmt_WifiConnectRequest_init_zero {0, {0, {0}}, _embedded_wifi_mgmt_WifiSecurityType_MIN, {0, {0}}, {0, {0}}, 0, {0}, 0, _embedded_wifi_mgmt_WifiMfpOptions_MIN}
+#define embedded_wifi_mgmt_WifiConnectRequest_init_zero {0, {0, {0}}, _embedded_wifi_mgmt_WifiSecurityType_MIN, {0, {0}}, {0, {0}}, 0, {0}, 0, _embedded_wifi_mgmt_WifiMfpOptions_MIN, _embedded_wifi_mgmt_WifiBand_MIN, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, _embedded_wifi_mgmt_WifiWpa3EnterpriseType_MIN, 0, 0, {{NULL}, NULL}, {{NULL}, NULL}, 0, 0, 0, _embedded_wifi_mgmt_WifiFrequencyBandwidth_MIN}
 #define embedded_wifi_mgmt_WifiDisconnectRequest_init_zero {0}
 #define embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero {{0, {0}}}
-#define embedded_wifi_mgmt_WifiScanParams_init_zero {_embedded_wifi_mgmt_WifiScanType_MIN, _embedded_wifi_mgmt_WifiBand_MIN, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 0, 0, {embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero, embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero}}
+#define embedded_wifi_mgmt_WifiBandChannel_init_zero {0, 0}
+#define embedded_wifi_mgmt_WifiScanParams_init_zero {_embedded_wifi_mgmt_WifiScanType_MIN, 0, 0, 0, {{NULL}, NULL}, 0, 0, {embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero, embedded_wifi_mgmt_WifiBandChannel_init_zero}}
 #define embedded_wifi_mgmt_WifiScanRequest_init_zero {0, false, embedded_wifi_mgmt_WifiScanParams_init_zero}
 #define embedded_wifi_mgmt_WifiApEnableParams_init_zero {{0, {0}}, 0, _embedded_wifi_mgmt_WifiBand_MIN, _embedded_wifi_mgmt_WifiSecurityType_MIN, {0, {0}}, 0, 0, 0}
 #define embedded_wifi_mgmt_WifiApEnableRequest_init_zero {0, false, embedded_wifi_mgmt_WifiApEnableParams_init_zero}
 #define embedded_wifi_mgmt_WifiApDisableRequest_init_zero {0}
 #define embedded_wifi_mgmt_GetWifiVersionRequest_init_zero {0}
-#define embedded_wifi_mgmt_WifiPsSettings_init_zero {_embedded_wifi_mgmt_WifiPsState_MIN, _embedded_wifi_mgmt_WifiPsWakeupMode_MIN, 0, 0, 0}
 #define embedded_wifi_mgmt_WifiPowerSaveConfig_init_zero {false, embedded_wifi_mgmt_WifiPsSettings_init_zero, _embedded_wifi_mgmt_WifiPowerSaveType_MIN}
 #define embedded_wifi_mgmt_SetPowerSaveConfigRequest_init_zero {0, false, embedded_wifi_mgmt_WifiPowerSaveConfig_init_zero}
+#define embedded_wifi_mgmt_WifiRegChanInfo_init_zero {0, 0, 0, 0, 0}
+#define embedded_wifi_mgmt_WifiRegDomain_init_zero {"", 0, 0, {embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero, embedded_wifi_mgmt_WifiRegChanInfo_init_zero}}
 #define embedded_wifi_mgmt_GetPowerSaveConfigRequest_init_zero {0}
-#define embedded_wifi_mgmt_WifiRegDomain_init_zero {""}
 #define embedded_wifi_mgmt_SetRegulatoryDomainRequest_init_zero {0, false, embedded_wifi_mgmt_WifiRegDomain_init_zero}
 #define embedded_wifi_mgmt_GetRegulatoryDomainRequest_init_zero {0}
 #define embedded_wifi_mgmt_GetInterfaceStatusRequest_init_zero {0}
 #define embedded_wifi_mgmt_WifiStatusResponse_init_zero {0, 0, ""}
 #define embedded_wifi_mgmt_WifiVersion_init_zero {0, 0, 0, ""}
 #define embedded_wifi_mgmt_GetWifiVersionResponse_init_zero {false, embedded_wifi_mgmt_WifiVersion_init_zero}
-#define embedded_wifi_mgmt_GetPowerSaveConfigResponse_init_zero {false, embedded_wifi_mgmt_WifiPowerSaveConfig_init_zero}
 #define embedded_wifi_mgmt_GetRegulatoryDomainResponse_init_zero {false, embedded_wifi_mgmt_WifiRegDomain_init_zero}
-#define embedded_wifi_mgmt_WifiInterfaceStatus_init_zero {_embedded_wifi_mgmt_WifiInterfaceState_MIN, _embedded_wifi_mgmt_WifiMode_MIN, {0, {0}}, {0}, 0, _embedded_wifi_mgmt_WifiSecurityType_MIN, _embedded_wifi_mgmt_WifiMfpOptions_MIN, 0, _embedded_wifi_mgmt_WifiLinkMode_MIN, 0, 0, 0, 0, 0}
+#define embedded_wifi_mgmt_WifiInterfaceStatus_init_zero {_embedded_wifi_mgmt_WifiInterfaceState_MIN, _embedded_wifi_mgmt_WifiMode_MIN, {0, {0}}, {0}, 0, _embedded_wifi_mgmt_WifiSecurityType_MIN, _embedded_wifi_mgmt_WifiMfpOptions_MIN, 0, _embedded_wifi_mgmt_WifiLinkMode_MIN, 0, 0, 0, 0, 0, _embedded_wifi_mgmt_WifiBand_MIN, _embedded_wifi_mgmt_WifiWpa3EnterpriseType_MIN, 0, 0, 0}
 #define embedded_wifi_mgmt_GetInterfaceStatusResponse_init_zero {false, embedded_wifi_mgmt_WifiInterfaceStatus_init_zero}
-#define embedded_wifi_mgmt_WifiScanResult_init_zero {{0, {0}}, {0}, 0, 0, _embedded_wifi_mgmt_WifiSecurityType_MIN, _embedded_wifi_mgmt_WifiMfpOptions_MIN, _embedded_wifi_mgmt_WifiBand_MIN, 0, 0, 0, 0, 0, 0}
+#define embedded_wifi_mgmt_WifiPsSettings_init_zero {_embedded_wifi_mgmt_WifiPsState_MIN, _embedded_wifi_mgmt_WifiPsWakeupMode_MIN, 0, 0, 0, _embedded_wifi_mgmt_WifiPsConfigFailReason_MIN, _embedded_wifi_mgmt_WifiPsExitStrategy_MIN}
+#define embedded_wifi_mgmt_WifiScanResult_init_zero {{0, {0}}, {0}, 0, 0, _embedded_wifi_mgmt_WifiSecurityType_MIN, _embedded_wifi_mgmt_WifiWpa3EnterpriseType_MIN, _embedded_wifi_mgmt_WifiMfpOptions_MIN, 0}
 #define embedded_wifi_mgmt_ScanDoneEvent_init_zero {0, 0, {embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero, embedded_wifi_mgmt_WifiScanResult_init_zero}}
 #define embedded_wifi_mgmt_ConnectResultEvent_init_zero {0}
 #define embedded_wifi_mgmt_DisconnectResultEvent_init_zero {0, 0}
@@ -626,13 +765,30 @@ extern "C" {
 #define embedded_wifi_mgmt_WifiConnectRequest_bssid_tag 9
 #define embedded_wifi_mgmt_WifiConnectRequest_timeout_ms_tag 11
 #define embedded_wifi_mgmt_WifiConnectRequest_mfp_tag 12
+#define embedded_wifi_mgmt_WifiConnectRequest_band_tag 13
+#define embedded_wifi_mgmt_WifiConnectRequest_anonymous_id_tag 14
+#define embedded_wifi_mgmt_WifiConnectRequest_key_password_tag 15
+#define embedded_wifi_mgmt_WifiConnectRequest_key2_password_tag 16
+#define embedded_wifi_mgmt_WifiConnectRequest_wpa3_enterprise_type_tag 17
+#define embedded_wifi_mgmt_WifiConnectRequest_tls_cipher_suite_tag 18
+#define embedded_wifi_mgmt_WifiConnectRequest_eap_version_tag 19
+#define embedded_wifi_mgmt_WifiConnectRequest_eap_identity_tag 20
+#define embedded_wifi_mgmt_WifiConnectRequest_eap_password_tag 21
+#define embedded_wifi_mgmt_WifiConnectRequest_verify_peer_certificate_tag 22
+#define embedded_wifi_mgmt_WifiConnectRequest_ft_enabled_tag 23
+#define embedded_wifi_mgmt_WifiConnectRequest_ignore_broadcast_ssid_tag 26
+#define embedded_wifi_mgmt_WifiConnectRequest_bandwidth_tag 27
 #define embedded_wifi_mgmt_WifiDisconnectRequest_iface_index_tag 1
 #define embedded_wifi_mgmt_WifiDirectedScanSsid_ssid_tag 1
+#define embedded_wifi_mgmt_WifiBandChannel_band_tag 1
+#define embedded_wifi_mgmt_WifiBandChannel_channel_tag 2
 #define embedded_wifi_mgmt_WifiScanParams_scan_type_tag 1
-#define embedded_wifi_mgmt_WifiScanParams_band_tag 2
-#define embedded_wifi_mgmt_WifiScanParams_channels_tag 3
-#define embedded_wifi_mgmt_WifiScanParams_dwell_time_ms_tag 4
-#define embedded_wifi_mgmt_WifiScanParams_directed_scan_ssids_tag 5
+#define embedded_wifi_mgmt_WifiScanParams_bands_tag 2
+#define embedded_wifi_mgmt_WifiScanParams_dwell_time_active_tag 3
+#define embedded_wifi_mgmt_WifiScanParams_dwell_time_passive_tag 4
+#define embedded_wifi_mgmt_WifiScanParams_ssids_tag 5
+#define embedded_wifi_mgmt_WifiScanParams_max_bss_cnt_tag 6
+#define embedded_wifi_mgmt_WifiScanParams_band_chan_tag 7
 #define embedded_wifi_mgmt_WifiScanRequest_iface_index_tag 1
 #define embedded_wifi_mgmt_WifiScanRequest_params_tag 2
 #define embedded_wifi_mgmt_WifiApEnableParams_ssid_tag 1
@@ -646,17 +802,15 @@ extern "C" {
 #define embedded_wifi_mgmt_WifiApEnableRequest_iface_index_tag 1
 #define embedded_wifi_mgmt_WifiApEnableRequest_params_tag 2
 #define embedded_wifi_mgmt_WifiApDisableRequest_iface_index_tag 1
-#define embedded_wifi_mgmt_WifiPsSettings_enabled_tag 1
-#define embedded_wifi_mgmt_WifiPsSettings_wakeup_mode_tag 2
-#define embedded_wifi_mgmt_WifiPsSettings_listen_interval_beacons_tag 3
-#define embedded_wifi_mgmt_WifiPsSettings_timeout_ms_tag 4
-#define embedded_wifi_mgmt_WifiPsSettings_fail_all_scans_if_ps_tag 5
-#define embedded_wifi_mgmt_WifiPowerSaveConfig_ps_settings_tag 1
-#define embedded_wifi_mgmt_WifiPowerSaveConfig_type_tag 2
-#define embedded_wifi_mgmt_SetPowerSaveConfigRequest_iface_index_tag 1
-#define embedded_wifi_mgmt_SetPowerSaveConfigRequest_config_tag 2
-#define embedded_wifi_mgmt_GetPowerSaveConfigRequest_iface_index_tag 1
+#define embedded_wifi_mgmt_WifiRegChanInfo_center_frequency_mhz_tag 1
+#define embedded_wifi_mgmt_WifiRegChanInfo_max_power_dbm_tag 2
+#define embedded_wifi_mgmt_WifiRegChanInfo_supported_tag 3
+#define embedded_wifi_mgmt_WifiRegChanInfo_passive_only_tag 4
+#define embedded_wifi_mgmt_WifiRegChanInfo_dfs_tag 5
 #define embedded_wifi_mgmt_WifiRegDomain_country_code_tag 1
+#define embedded_wifi_mgmt_WifiRegDomain_force_update_tag 2
+#define embedded_wifi_mgmt_WifiRegDomain_channel_info_tag 3
+#define embedded_wifi_mgmt_GetPowerSaveConfigRequest_iface_index_tag 1
 #define embedded_wifi_mgmt_SetRegulatoryDomainRequest_iface_index_tag 1
 #define embedded_wifi_mgmt_SetRegulatoryDomainRequest_reg_domain_tag 2
 #define embedded_wifi_mgmt_GetRegulatoryDomainRequest_iface_index_tag 1
@@ -669,7 +823,6 @@ extern "C" {
 #define embedded_wifi_mgmt_WifiVersion_driver_patch_tag 3
 #define embedded_wifi_mgmt_WifiVersion_firmware_version_tag 4
 #define embedded_wifi_mgmt_GetWifiVersionResponse_version_tag 1
-#define embedded_wifi_mgmt_GetPowerSaveConfigResponse_config_tag 1
 #define embedded_wifi_mgmt_GetRegulatoryDomainResponse_reg_domain_tag 1
 #define embedded_wifi_mgmt_WifiInterfaceStatus_state_tag 1
 #define embedded_wifi_mgmt_WifiInterfaceStatus_mode_tag 2
@@ -685,20 +838,31 @@ extern "C" {
 #define embedded_wifi_mgmt_WifiInterfaceStatus_he_mcs_tag 12
 #define embedded_wifi_mgmt_WifiInterfaceStatus_tx_bitrate_kbps_tag 13
 #define embedded_wifi_mgmt_WifiInterfaceStatus_rx_bitrate_kbps_tag 14
+#define embedded_wifi_mgmt_WifiInterfaceStatus_band_tag 15
+#define embedded_wifi_mgmt_WifiInterfaceStatus_wpa3_enterprise_type_tag 16
+#define embedded_wifi_mgmt_WifiInterfaceStatus_dtim_period_tag 17
+#define embedded_wifi_mgmt_WifiInterfaceStatus_beacon_interval_tag 18
+#define embedded_wifi_mgmt_WifiInterfaceStatus_twt_capable_tag 19
 #define embedded_wifi_mgmt_GetInterfaceStatusResponse_status_tag 1
+#define embedded_wifi_mgmt_WifiPsSettings_enabled_tag 1
+#define embedded_wifi_mgmt_WifiPsSettings_wakeup_mode_tag 2
+#define embedded_wifi_mgmt_WifiPsSettings_listen_interval_beacons_tag 3
+#define embedded_wifi_mgmt_WifiPsSettings_timeout_ms_tag 4
+#define embedded_wifi_mgmt_WifiPsSettings_fail_all_scans_if_ps_tag 5
+#define embedded_wifi_mgmt_WifiPsSettings_fail_reason_tag 6
+#define embedded_wifi_mgmt_WifiPsSettings_exit_strategy_tag 7
+#define embedded_wifi_mgmt_WifiPowerSaveConfig_ps_settings_tag 1
+#define embedded_wifi_mgmt_WifiPowerSaveConfig_type_tag 2
+#define embedded_wifi_mgmt_SetPowerSaveConfigRequest_iface_index_tag 1
+#define embedded_wifi_mgmt_SetPowerSaveConfigRequest_config_tag 2
 #define embedded_wifi_mgmt_WifiScanResult_ssid_tag 1
 #define embedded_wifi_mgmt_WifiScanResult_bssid_tag 2
 #define embedded_wifi_mgmt_WifiScanResult_channel_tag 3
 #define embedded_wifi_mgmt_WifiScanResult_rssi_tag 4
 #define embedded_wifi_mgmt_WifiScanResult_security_tag 5
-#define embedded_wifi_mgmt_WifiScanResult_mfp_tag 6
-#define embedded_wifi_mgmt_WifiScanResult_band_tag 7
-#define embedded_wifi_mgmt_WifiScanResult_beacon_interval_tu_tag 8
-#define embedded_wifi_mgmt_WifiScanResult_dtim_period_tag 9
-#define embedded_wifi_mgmt_WifiScanResult_bss_max_idle_present_tag 10
-#define embedded_wifi_mgmt_WifiScanResult_bss_max_idle_period_tag 11
-#define embedded_wifi_mgmt_WifiScanResult_owe_transition_mode_present_tag 12
-#define embedded_wifi_mgmt_WifiScanResult_frequency_mhz_tag 13
+#define embedded_wifi_mgmt_WifiScanResult_wpa3_enterprise_type_tag 6
+#define embedded_wifi_mgmt_WifiScanResult_mfp_tag 7
+#define embedded_wifi_mgmt_WifiScanResult_band_tag 8
 #define embedded_wifi_mgmt_ScanDoneEvent_status_tag 1
 #define embedded_wifi_mgmt_ScanDoneEvent_all_results_tag 2
 #define embedded_wifi_mgmt_ConnectResultEvent_status_tag 1
@@ -733,7 +897,6 @@ extern "C" {
 #define embedded_wifi_mgmt_WifiMgmtResponse_request_id_tag 1
 #define embedded_wifi_mgmt_WifiMgmtResponse_status_resp_tag 2
 #define embedded_wifi_mgmt_WifiMgmtResponse_get_version_resp_tag 3
-#define embedded_wifi_mgmt_WifiMgmtResponse_get_ps_config_resp_tag 4
 #define embedded_wifi_mgmt_WifiMgmtResponse_get_reg_domain_resp_tag 5
 #define embedded_wifi_mgmt_WifiMgmtResponse_get_iface_status_resp_tag 6
 #define embedded_wifi_mgmt_WifiMgmtNotification_event_tag 1
@@ -748,8 +911,21 @@ X(a, STATIC,   SINGULAR, BYTES,    sae_password,      6) \
 X(a, STATIC,   SINGULAR, UINT32,   channel,           8) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, bssid,             9) \
 X(a, STATIC,   SINGULAR, UINT32,   timeout_ms,       11) \
-X(a, STATIC,   SINGULAR, UENUM,    mfp,              12)
-#define embedded_wifi_mgmt_WifiConnectRequest_CALLBACK NULL
+X(a, STATIC,   SINGULAR, UENUM,    mfp,              12) \
+X(a, STATIC,   SINGULAR, UENUM,    band,             13) \
+X(a, CALLBACK, SINGULAR, BYTES,    anonymous_id,     14) \
+X(a, CALLBACK, SINGULAR, BYTES,    key_password,     15) \
+X(a, CALLBACK, SINGULAR, BYTES,    key2_password,    16) \
+X(a, STATIC,   SINGULAR, UENUM,    wpa3_enterprise_type,  17) \
+X(a, STATIC,   SINGULAR, UINT32,   tls_cipher_suite,  18) \
+X(a, STATIC,   SINGULAR, UINT32,   eap_version,      19) \
+X(a, CALLBACK, SINGULAR, BYTES,    eap_identity,     20) \
+X(a, CALLBACK, SINGULAR, BYTES,    eap_password,     21) \
+X(a, STATIC,   SINGULAR, BOOL,     verify_peer_certificate,  22) \
+X(a, STATIC,   SINGULAR, BOOL,     ft_enabled,       23) \
+X(a, STATIC,   SINGULAR, BOOL,     ignore_broadcast_ssid,  26) \
+X(a, STATIC,   SINGULAR, UENUM,    bandwidth,        27)
+#define embedded_wifi_mgmt_WifiConnectRequest_CALLBACK pb_default_field_callback
 #define embedded_wifi_mgmt_WifiConnectRequest_DEFAULT NULL
 
 #define embedded_wifi_mgmt_WifiDisconnectRequest_FIELDLIST(X, a) \
@@ -762,15 +938,23 @@ X(a, STATIC,   SINGULAR, BYTES,    ssid,              1)
 #define embedded_wifi_mgmt_WifiDirectedScanSsid_CALLBACK NULL
 #define embedded_wifi_mgmt_WifiDirectedScanSsid_DEFAULT NULL
 
+#define embedded_wifi_mgmt_WifiBandChannel_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   band,              1) \
+X(a, STATIC,   SINGULAR, UINT32,   channel,           2)
+#define embedded_wifi_mgmt_WifiBandChannel_CALLBACK NULL
+#define embedded_wifi_mgmt_WifiBandChannel_DEFAULT NULL
+
 #define embedded_wifi_mgmt_WifiScanParams_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UENUM,    scan_type,         1) \
-X(a, STATIC,   SINGULAR, UENUM,    band,              2) \
-X(a, STATIC,   REPEATED, UINT32,   channels,          3) \
-X(a, STATIC,   SINGULAR, UINT32,   dwell_time_ms,     4) \
-X(a, STATIC,   REPEATED, MESSAGE,  directed_scan_ssids,   5)
-#define embedded_wifi_mgmt_WifiScanParams_CALLBACK NULL
+X(a, STATIC,   SINGULAR, UINT32,   bands,             2) \
+X(a, STATIC,   SINGULAR, UINT32,   dwell_time_active,   3) \
+X(a, STATIC,   SINGULAR, UINT32,   dwell_time_passive,   4) \
+X(a, CALLBACK, REPEATED, BYTES,    ssids,             5) \
+X(a, STATIC,   SINGULAR, UINT32,   max_bss_cnt,       6) \
+X(a, STATIC,   REPEATED, MESSAGE,  band_chan,         7)
+#define embedded_wifi_mgmt_WifiScanParams_CALLBACK pb_default_field_callback
 #define embedded_wifi_mgmt_WifiScanParams_DEFAULT NULL
-#define embedded_wifi_mgmt_WifiScanParams_directed_scan_ssids_MSGTYPE embedded_wifi_mgmt_WifiDirectedScanSsid
+#define embedded_wifi_mgmt_WifiScanParams_band_chan_MSGTYPE embedded_wifi_mgmt_WifiBandChannel
 
 #define embedded_wifi_mgmt_WifiScanRequest_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   iface_index,       1) \
@@ -808,15 +992,6 @@ X(a, STATIC,   SINGULAR, UINT32,   iface_index,       1)
 #define embedded_wifi_mgmt_GetWifiVersionRequest_CALLBACK NULL
 #define embedded_wifi_mgmt_GetWifiVersionRequest_DEFAULT NULL
 
-#define embedded_wifi_mgmt_WifiPsSettings_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, UENUM,    enabled,           1) \
-X(a, STATIC,   SINGULAR, UENUM,    wakeup_mode,       2) \
-X(a, STATIC,   SINGULAR, UINT32,   listen_interval_beacons,   3) \
-X(a, STATIC,   SINGULAR, UINT32,   timeout_ms,        4) \
-X(a, STATIC,   SINGULAR, BOOL,     fail_all_scans_if_ps,   5)
-#define embedded_wifi_mgmt_WifiPsSettings_CALLBACK NULL
-#define embedded_wifi_mgmt_WifiPsSettings_DEFAULT NULL
-
 #define embedded_wifi_mgmt_WifiPowerSaveConfig_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  ps_settings,       1) \
 X(a, STATIC,   SINGULAR, UENUM,    type,              2)
@@ -831,15 +1006,27 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  config,            2)
 #define embedded_wifi_mgmt_SetPowerSaveConfigRequest_DEFAULT NULL
 #define embedded_wifi_mgmt_SetPowerSaveConfigRequest_config_MSGTYPE embedded_wifi_mgmt_WifiPowerSaveConfig
 
+#define embedded_wifi_mgmt_WifiRegChanInfo_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   center_frequency_mhz,   1) \
+X(a, STATIC,   SINGULAR, UINT32,   max_power_dbm,     2) \
+X(a, STATIC,   SINGULAR, BOOL,     supported,         3) \
+X(a, STATIC,   SINGULAR, BOOL,     passive_only,      4) \
+X(a, STATIC,   SINGULAR, BOOL,     dfs,               5)
+#define embedded_wifi_mgmt_WifiRegChanInfo_CALLBACK NULL
+#define embedded_wifi_mgmt_WifiRegChanInfo_DEFAULT NULL
+
+#define embedded_wifi_mgmt_WifiRegDomain_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   country_code,      1) \
+X(a, STATIC,   SINGULAR, BOOL,     force_update,      2) \
+X(a, STATIC,   REPEATED, MESSAGE,  channel_info,      3)
+#define embedded_wifi_mgmt_WifiRegDomain_CALLBACK NULL
+#define embedded_wifi_mgmt_WifiRegDomain_DEFAULT NULL
+#define embedded_wifi_mgmt_WifiRegDomain_channel_info_MSGTYPE embedded_wifi_mgmt_WifiRegChanInfo
+
 #define embedded_wifi_mgmt_GetPowerSaveConfigRequest_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   iface_index,       1)
 #define embedded_wifi_mgmt_GetPowerSaveConfigRequest_CALLBACK NULL
 #define embedded_wifi_mgmt_GetPowerSaveConfigRequest_DEFAULT NULL
-
-#define embedded_wifi_mgmt_WifiRegDomain_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, STRING,   country_code,      1)
-#define embedded_wifi_mgmt_WifiRegDomain_CALLBACK NULL
-#define embedded_wifi_mgmt_WifiRegDomain_DEFAULT NULL
 
 #define embedded_wifi_mgmt_SetRegulatoryDomainRequest_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   iface_index,       1) \
@@ -879,12 +1066,6 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  version,           1)
 #define embedded_wifi_mgmt_GetWifiVersionResponse_DEFAULT NULL
 #define embedded_wifi_mgmt_GetWifiVersionResponse_version_MSGTYPE embedded_wifi_mgmt_WifiVersion
 
-#define embedded_wifi_mgmt_GetPowerSaveConfigResponse_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  config,            1)
-#define embedded_wifi_mgmt_GetPowerSaveConfigResponse_CALLBACK NULL
-#define embedded_wifi_mgmt_GetPowerSaveConfigResponse_DEFAULT NULL
-#define embedded_wifi_mgmt_GetPowerSaveConfigResponse_config_MSGTYPE embedded_wifi_mgmt_WifiPowerSaveConfig
-
 #define embedded_wifi_mgmt_GetRegulatoryDomainResponse_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  reg_domain,        1)
 #define embedded_wifi_mgmt_GetRegulatoryDomainResponse_CALLBACK NULL
@@ -905,7 +1086,12 @@ X(a, STATIC,   SINGULAR, UINT32,   ht_mcs,           10) \
 X(a, STATIC,   SINGULAR, UINT32,   vht_mcs,          11) \
 X(a, STATIC,   SINGULAR, UINT32,   he_mcs,           12) \
 X(a, STATIC,   SINGULAR, UINT32,   tx_bitrate_kbps,  13) \
-X(a, STATIC,   SINGULAR, UINT32,   rx_bitrate_kbps,  14)
+X(a, STATIC,   SINGULAR, UINT32,   rx_bitrate_kbps,  14) \
+X(a, STATIC,   SINGULAR, UENUM,    band,             15) \
+X(a, STATIC,   SINGULAR, UENUM,    wpa3_enterprise_type,  16) \
+X(a, STATIC,   SINGULAR, UINT32,   dtim_period,      17) \
+X(a, STATIC,   SINGULAR, UINT32,   beacon_interval,  18) \
+X(a, STATIC,   SINGULAR, BOOL,     twt_capable,      19)
 #define embedded_wifi_mgmt_WifiInterfaceStatus_CALLBACK NULL
 #define embedded_wifi_mgmt_WifiInterfaceStatus_DEFAULT NULL
 
@@ -915,20 +1101,26 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  status,            1)
 #define embedded_wifi_mgmt_GetInterfaceStatusResponse_DEFAULT NULL
 #define embedded_wifi_mgmt_GetInterfaceStatusResponse_status_MSGTYPE embedded_wifi_mgmt_WifiInterfaceStatus
 
+#define embedded_wifi_mgmt_WifiPsSettings_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    enabled,           1) \
+X(a, STATIC,   SINGULAR, UENUM,    wakeup_mode,       2) \
+X(a, STATIC,   SINGULAR, UINT32,   listen_interval_beacons,   3) \
+X(a, STATIC,   SINGULAR, UINT32,   timeout_ms,        4) \
+X(a, STATIC,   SINGULAR, BOOL,     fail_all_scans_if_ps,   5) \
+X(a, STATIC,   SINGULAR, UENUM,    fail_reason,       6) \
+X(a, STATIC,   SINGULAR, UENUM,    exit_strategy,     7)
+#define embedded_wifi_mgmt_WifiPsSettings_CALLBACK NULL
+#define embedded_wifi_mgmt_WifiPsSettings_DEFAULT NULL
+
 #define embedded_wifi_mgmt_WifiScanResult_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BYTES,    ssid,              1) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, bssid,             2) \
 X(a, STATIC,   SINGULAR, UINT32,   channel,           3) \
 X(a, STATIC,   SINGULAR, INT32,    rssi,              4) \
 X(a, STATIC,   SINGULAR, UENUM,    security,          5) \
-X(a, STATIC,   SINGULAR, UENUM,    mfp,               6) \
-X(a, STATIC,   SINGULAR, UENUM,    band,              7) \
-X(a, STATIC,   SINGULAR, UINT32,   beacon_interval_tu,   8) \
-X(a, STATIC,   SINGULAR, UINT32,   dtim_period,       9) \
-X(a, STATIC,   SINGULAR, BOOL,     bss_max_idle_present,  10) \
-X(a, STATIC,   SINGULAR, UINT32,   bss_max_idle_period,  11) \
-X(a, STATIC,   SINGULAR, BOOL,     owe_transition_mode_present,  12) \
-X(a, STATIC,   SINGULAR, UINT32,   frequency_mhz,    13)
+X(a, STATIC,   SINGULAR, UENUM,    wpa3_enterprise_type,   6) \
+X(a, STATIC,   SINGULAR, UENUM,    mfp,               7) \
+X(a, STATIC,   SINGULAR, UINT32,   band,              8)
 #define embedded_wifi_mgmt_WifiScanResult_CALLBACK NULL
 #define embedded_wifi_mgmt_WifiScanResult_DEFAULT NULL
 
@@ -1028,14 +1220,12 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_iface_status_req,payload.get_ifa
 X(a, STATIC,   SINGULAR, UINT32,   request_id,        1) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload,status_resp,payload.status_resp),   2) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_version_resp,payload.get_version_resp),   3) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_ps_config_resp,payload.get_ps_config_resp),   4) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_reg_domain_resp,payload.get_reg_domain_resp),   5) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_iface_status_resp,payload.get_iface_status_resp),   6)
 #define embedded_wifi_mgmt_WifiMgmtResponse_CALLBACK NULL
 #define embedded_wifi_mgmt_WifiMgmtResponse_DEFAULT NULL
 #define embedded_wifi_mgmt_WifiMgmtResponse_payload_status_resp_MSGTYPE embedded_wifi_mgmt_WifiStatusResponse
 #define embedded_wifi_mgmt_WifiMgmtResponse_payload_get_version_resp_MSGTYPE embedded_wifi_mgmt_GetWifiVersionResponse
-#define embedded_wifi_mgmt_WifiMgmtResponse_payload_get_ps_config_resp_MSGTYPE embedded_wifi_mgmt_GetPowerSaveConfigResponse
 #define embedded_wifi_mgmt_WifiMgmtResponse_payload_get_reg_domain_resp_MSGTYPE embedded_wifi_mgmt_GetRegulatoryDomainResponse
 #define embedded_wifi_mgmt_WifiMgmtResponse_payload_get_iface_status_resp_MSGTYPE embedded_wifi_mgmt_GetInterfaceStatusResponse
 
@@ -1048,27 +1238,28 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  event,             1)
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiConnectRequest_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiDisconnectRequest_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiDirectedScanSsid_msg;
+extern const pb_msgdesc_t embedded_wifi_mgmt_WifiBandChannel_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiScanParams_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiScanRequest_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiApEnableParams_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiApEnableRequest_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiApDisableRequest_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_GetWifiVersionRequest_msg;
-extern const pb_msgdesc_t embedded_wifi_mgmt_WifiPsSettings_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiPowerSaveConfig_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_SetPowerSaveConfigRequest_msg;
-extern const pb_msgdesc_t embedded_wifi_mgmt_GetPowerSaveConfigRequest_msg;
+extern const pb_msgdesc_t embedded_wifi_mgmt_WifiRegChanInfo_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiRegDomain_msg;
+extern const pb_msgdesc_t embedded_wifi_mgmt_GetPowerSaveConfigRequest_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_SetRegulatoryDomainRequest_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_GetRegulatoryDomainRequest_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_GetInterfaceStatusRequest_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiStatusResponse_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiVersion_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_GetWifiVersionResponse_msg;
-extern const pb_msgdesc_t embedded_wifi_mgmt_GetPowerSaveConfigResponse_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_GetRegulatoryDomainResponse_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiInterfaceStatus_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_GetInterfaceStatusResponse_msg;
+extern const pb_msgdesc_t embedded_wifi_mgmt_WifiPsSettings_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_WifiScanResult_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_ScanDoneEvent_msg;
 extern const pb_msgdesc_t embedded_wifi_mgmt_ConnectResultEvent_msg;
@@ -1087,27 +1278,28 @@ extern const pb_msgdesc_t embedded_wifi_mgmt_WifiMgmtNotification_msg;
 #define embedded_wifi_mgmt_WifiConnectRequest_fields &embedded_wifi_mgmt_WifiConnectRequest_msg
 #define embedded_wifi_mgmt_WifiDisconnectRequest_fields &embedded_wifi_mgmt_WifiDisconnectRequest_msg
 #define embedded_wifi_mgmt_WifiDirectedScanSsid_fields &embedded_wifi_mgmt_WifiDirectedScanSsid_msg
+#define embedded_wifi_mgmt_WifiBandChannel_fields &embedded_wifi_mgmt_WifiBandChannel_msg
 #define embedded_wifi_mgmt_WifiScanParams_fields &embedded_wifi_mgmt_WifiScanParams_msg
 #define embedded_wifi_mgmt_WifiScanRequest_fields &embedded_wifi_mgmt_WifiScanRequest_msg
 #define embedded_wifi_mgmt_WifiApEnableParams_fields &embedded_wifi_mgmt_WifiApEnableParams_msg
 #define embedded_wifi_mgmt_WifiApEnableRequest_fields &embedded_wifi_mgmt_WifiApEnableRequest_msg
 #define embedded_wifi_mgmt_WifiApDisableRequest_fields &embedded_wifi_mgmt_WifiApDisableRequest_msg
 #define embedded_wifi_mgmt_GetWifiVersionRequest_fields &embedded_wifi_mgmt_GetWifiVersionRequest_msg
-#define embedded_wifi_mgmt_WifiPsSettings_fields &embedded_wifi_mgmt_WifiPsSettings_msg
 #define embedded_wifi_mgmt_WifiPowerSaveConfig_fields &embedded_wifi_mgmt_WifiPowerSaveConfig_msg
 #define embedded_wifi_mgmt_SetPowerSaveConfigRequest_fields &embedded_wifi_mgmt_SetPowerSaveConfigRequest_msg
-#define embedded_wifi_mgmt_GetPowerSaveConfigRequest_fields &embedded_wifi_mgmt_GetPowerSaveConfigRequest_msg
+#define embedded_wifi_mgmt_WifiRegChanInfo_fields &embedded_wifi_mgmt_WifiRegChanInfo_msg
 #define embedded_wifi_mgmt_WifiRegDomain_fields &embedded_wifi_mgmt_WifiRegDomain_msg
+#define embedded_wifi_mgmt_GetPowerSaveConfigRequest_fields &embedded_wifi_mgmt_GetPowerSaveConfigRequest_msg
 #define embedded_wifi_mgmt_SetRegulatoryDomainRequest_fields &embedded_wifi_mgmt_SetRegulatoryDomainRequest_msg
 #define embedded_wifi_mgmt_GetRegulatoryDomainRequest_fields &embedded_wifi_mgmt_GetRegulatoryDomainRequest_msg
 #define embedded_wifi_mgmt_GetInterfaceStatusRequest_fields &embedded_wifi_mgmt_GetInterfaceStatusRequest_msg
 #define embedded_wifi_mgmt_WifiStatusResponse_fields &embedded_wifi_mgmt_WifiStatusResponse_msg
 #define embedded_wifi_mgmt_WifiVersion_fields &embedded_wifi_mgmt_WifiVersion_msg
 #define embedded_wifi_mgmt_GetWifiVersionResponse_fields &embedded_wifi_mgmt_GetWifiVersionResponse_msg
-#define embedded_wifi_mgmt_GetPowerSaveConfigResponse_fields &embedded_wifi_mgmt_GetPowerSaveConfigResponse_msg
 #define embedded_wifi_mgmt_GetRegulatoryDomainResponse_fields &embedded_wifi_mgmt_GetRegulatoryDomainResponse_msg
 #define embedded_wifi_mgmt_WifiInterfaceStatus_fields &embedded_wifi_mgmt_WifiInterfaceStatus_msg
 #define embedded_wifi_mgmt_GetInterfaceStatusResponse_fields &embedded_wifi_mgmt_GetInterfaceStatusResponse_msg
+#define embedded_wifi_mgmt_WifiPsSettings_fields &embedded_wifi_mgmt_WifiPsSettings_msg
 #define embedded_wifi_mgmt_WifiScanResult_fields &embedded_wifi_mgmt_WifiScanResult_msg
 #define embedded_wifi_mgmt_ScanDoneEvent_fields &embedded_wifi_mgmt_ScanDoneEvent_msg
 #define embedded_wifi_mgmt_ConnectResultEvent_fields &embedded_wifi_mgmt_ConnectResultEvent_msg
@@ -1123,6 +1315,10 @@ extern const pb_msgdesc_t embedded_wifi_mgmt_WifiMgmtNotification_msg;
 #define embedded_wifi_mgmt_WifiMgmtNotification_fields &embedded_wifi_mgmt_WifiMgmtNotification_msg
 
 /* Maximum encoded size of messages (where known) */
+/* embedded_wifi_mgmt_WifiConnectRequest_size depends on runtime parameters */
+/* embedded_wifi_mgmt_WifiScanParams_size depends on runtime parameters */
+/* embedded_wifi_mgmt_WifiScanRequest_size depends on runtime parameters */
+/* embedded_wifi_mgmt_WifiMgmtRequest_size depends on runtime parameters */
 #define EMBEDDED_WIFI_MGMT_PROTOS_WIFI_PB_H_MAX_SIZE embedded_wifi_mgmt_WifiMgmtNotification_size
 #define embedded_wifi_mgmt_ApDisableResultEvent_size 11
 #define embedded_wifi_mgmt_ApEnableResultEvent_size 11
@@ -1131,34 +1327,31 @@ extern const pb_msgdesc_t embedded_wifi_mgmt_WifiMgmtNotification_msg;
 #define embedded_wifi_mgmt_ConnectResultEvent_size 11
 #define embedded_wifi_mgmt_DisconnectResultEvent_size 8
 #define embedded_wifi_mgmt_GetInterfaceStatusRequest_size 6
-#define embedded_wifi_mgmt_GetInterfaceStatusResponse_size 101
+#define embedded_wifi_mgmt_GetInterfaceStatusResponse_size 123
 #define embedded_wifi_mgmt_GetPowerSaveConfigRequest_size 6
-#define embedded_wifi_mgmt_GetPowerSaveConfigResponse_size 24
 #define embedded_wifi_mgmt_GetRegulatoryDomainRequest_size 6
-#define embedded_wifi_mgmt_GetRegulatoryDomainResponse_size 6
+#define embedded_wifi_mgmt_GetRegulatoryDomainResponse_size 1289
 #define embedded_wifi_mgmt_GetWifiVersionRequest_size 0
 #define embedded_wifi_mgmt_GetWifiVersionResponse_size 53
-#define embedded_wifi_mgmt_InterfaceStatusEvent_size 101
-#define embedded_wifi_mgmt_ScanDoneEvent_size    3051
-#define embedded_wifi_mgmt_SetPowerSaveConfigRequest_size 30
-#define embedded_wifi_mgmt_SetRegulatoryDomainRequest_size 12
+#define embedded_wifi_mgmt_InterfaceStatusEvent_size 123
+#define embedded_wifi_mgmt_ScanDoneEvent_size    2347
+#define embedded_wifi_mgmt_SetPowerSaveConfigRequest_size 34
+#define embedded_wifi_mgmt_SetRegulatoryDomainRequest_size 1295
 #define embedded_wifi_mgmt_WifiApDisableRequest_size 6
 #define embedded_wifi_mgmt_WifiApEnableParams_size 125
 #define embedded_wifi_mgmt_WifiApEnableRequest_size 133
-#define embedded_wifi_mgmt_WifiConnectRequest_size 197
+#define embedded_wifi_mgmt_WifiBandChannel_size  12
 #define embedded_wifi_mgmt_WifiDirectedScanSsid_size 34
 #define embedded_wifi_mgmt_WifiDisconnectRequest_size 6
-#define embedded_wifi_mgmt_WifiEvent_size        3060
-#define embedded_wifi_mgmt_WifiInterfaceStatus_size 99
-#define embedded_wifi_mgmt_WifiMgmtNotification_size 3063
-#define embedded_wifi_mgmt_WifiMgmtRequest_size  1368
-#define embedded_wifi_mgmt_WifiMgmtResponse_size 109
-#define embedded_wifi_mgmt_WifiPowerSaveConfig_size 22
-#define embedded_wifi_mgmt_WifiPsSettings_size   18
-#define embedded_wifi_mgmt_WifiRegDomain_size    4
-#define embedded_wifi_mgmt_WifiScanParams_size   1354
-#define embedded_wifi_mgmt_WifiScanRequest_size  1363
-#define embedded_wifi_mgmt_WifiScanResult_size   93
+#define embedded_wifi_mgmt_WifiEvent_size        2356
+#define embedded_wifi_mgmt_WifiInterfaceStatus_size 121
+#define embedded_wifi_mgmt_WifiMgmtNotification_size 2359
+#define embedded_wifi_mgmt_WifiMgmtResponse_size 1298
+#define embedded_wifi_mgmt_WifiPowerSaveConfig_size 26
+#define embedded_wifi_mgmt_WifiPsSettings_size   22
+#define embedded_wifi_mgmt_WifiRegChanInfo_size  18
+#define embedded_wifi_mgmt_WifiRegDomain_size    1286
+#define embedded_wifi_mgmt_WifiScanResult_size   71
 #define embedded_wifi_mgmt_WifiStatusResponse_size 78
 #define embedded_wifi_mgmt_WifiVersion_size      51
 

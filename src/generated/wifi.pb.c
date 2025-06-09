@@ -6,13 +6,16 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
-PB_BIND(embedded_wifi_mgmt_WifiConnectRequest, embedded_wifi_mgmt_WifiConnectRequest, AUTO)
+PB_BIND(embedded_wifi_mgmt_WifiConnectRequest, embedded_wifi_mgmt_WifiConnectRequest, 2)
 
 
 PB_BIND(embedded_wifi_mgmt_WifiDisconnectRequest, embedded_wifi_mgmt_WifiDisconnectRequest, AUTO)
 
 
 PB_BIND(embedded_wifi_mgmt_WifiDirectedScanSsid, embedded_wifi_mgmt_WifiDirectedScanSsid, AUTO)
+
+
+PB_BIND(embedded_wifi_mgmt_WifiBandChannel, embedded_wifi_mgmt_WifiBandChannel, AUTO)
 
 
 PB_BIND(embedded_wifi_mgmt_WifiScanParams, embedded_wifi_mgmt_WifiScanParams, 2)
@@ -33,22 +36,22 @@ PB_BIND(embedded_wifi_mgmt_WifiApDisableRequest, embedded_wifi_mgmt_WifiApDisabl
 PB_BIND(embedded_wifi_mgmt_GetWifiVersionRequest, embedded_wifi_mgmt_GetWifiVersionRequest, AUTO)
 
 
-PB_BIND(embedded_wifi_mgmt_WifiPsSettings, embedded_wifi_mgmt_WifiPsSettings, AUTO)
-
-
 PB_BIND(embedded_wifi_mgmt_WifiPowerSaveConfig, embedded_wifi_mgmt_WifiPowerSaveConfig, AUTO)
 
 
 PB_BIND(embedded_wifi_mgmt_SetPowerSaveConfigRequest, embedded_wifi_mgmt_SetPowerSaveConfigRequest, AUTO)
 
 
+PB_BIND(embedded_wifi_mgmt_WifiRegChanInfo, embedded_wifi_mgmt_WifiRegChanInfo, AUTO)
+
+
+PB_BIND(embedded_wifi_mgmt_WifiRegDomain, embedded_wifi_mgmt_WifiRegDomain, 2)
+
+
 PB_BIND(embedded_wifi_mgmt_GetPowerSaveConfigRequest, embedded_wifi_mgmt_GetPowerSaveConfigRequest, AUTO)
 
 
-PB_BIND(embedded_wifi_mgmt_WifiRegDomain, embedded_wifi_mgmt_WifiRegDomain, AUTO)
-
-
-PB_BIND(embedded_wifi_mgmt_SetRegulatoryDomainRequest, embedded_wifi_mgmt_SetRegulatoryDomainRequest, AUTO)
+PB_BIND(embedded_wifi_mgmt_SetRegulatoryDomainRequest, embedded_wifi_mgmt_SetRegulatoryDomainRequest, 2)
 
 
 PB_BIND(embedded_wifi_mgmt_GetRegulatoryDomainRequest, embedded_wifi_mgmt_GetRegulatoryDomainRequest, AUTO)
@@ -66,16 +69,16 @@ PB_BIND(embedded_wifi_mgmt_WifiVersion, embedded_wifi_mgmt_WifiVersion, AUTO)
 PB_BIND(embedded_wifi_mgmt_GetWifiVersionResponse, embedded_wifi_mgmt_GetWifiVersionResponse, AUTO)
 
 
-PB_BIND(embedded_wifi_mgmt_GetPowerSaveConfigResponse, embedded_wifi_mgmt_GetPowerSaveConfigResponse, AUTO)
-
-
-PB_BIND(embedded_wifi_mgmt_GetRegulatoryDomainResponse, embedded_wifi_mgmt_GetRegulatoryDomainResponse, AUTO)
+PB_BIND(embedded_wifi_mgmt_GetRegulatoryDomainResponse, embedded_wifi_mgmt_GetRegulatoryDomainResponse, 2)
 
 
 PB_BIND(embedded_wifi_mgmt_WifiInterfaceStatus, embedded_wifi_mgmt_WifiInterfaceStatus, AUTO)
 
 
 PB_BIND(embedded_wifi_mgmt_GetInterfaceStatusResponse, embedded_wifi_mgmt_GetInterfaceStatusResponse, AUTO)
+
+
+PB_BIND(embedded_wifi_mgmt_WifiPsSettings, embedded_wifi_mgmt_WifiPsSettings, AUTO)
 
 
 PB_BIND(embedded_wifi_mgmt_WifiScanResult, embedded_wifi_mgmt_WifiScanResult, AUTO)
@@ -111,10 +114,22 @@ PB_BIND(embedded_wifi_mgmt_WifiEvent, embedded_wifi_mgmt_WifiEvent, 2)
 PB_BIND(embedded_wifi_mgmt_WifiMgmtRequest, embedded_wifi_mgmt_WifiMgmtRequest, 2)
 
 
-PB_BIND(embedded_wifi_mgmt_WifiMgmtResponse, embedded_wifi_mgmt_WifiMgmtResponse, AUTO)
+PB_BIND(embedded_wifi_mgmt_WifiMgmtResponse, embedded_wifi_mgmt_WifiMgmtResponse, 2)
 
 
 PB_BIND(embedded_wifi_mgmt_WifiMgmtNotification, embedded_wifi_mgmt_WifiMgmtNotification, 2)
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

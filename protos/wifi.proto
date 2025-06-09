@@ -198,8 +198,8 @@ message WifiConnectRequest {
   // nusers, passwds, identities, passwords are for multi-user EAP scenarios.
   // For simplicity, we can represent this with repeated fields for identity and password.
   // The C struct uses fixed arrays; nanopb can handle repeated fields with max_count.
-  repeated bytes enterprise_identities = 24;  // For EAP methods supporting multiple identities.
-  repeated bytes enterprise_passwords = 25;   // Corresponding passwords for multiple identities.
+  //repeated bytes enterprise_identities = 24;  // For EAP methods supporting multiple identities.
+  //repeated bytes enterprise_passwords = 25;   // Corresponding passwords for multiple identities.
   bool ignore_broadcast_ssid = 26;            // Whether to ignore broadcast SSID (hidden networks).
   WifiFrequencyBandwidth bandwidth = 27;      // Desired channel bandwidth.
 }
@@ -302,13 +302,6 @@ message WifiRegDomain {
 // For NET_REQUEST_WIFI_PS_CONFIG (Get)
 message GetPowerSaveConfigRequest {
   uint32 iface_index = 1;
-}
-
-// For NET_REQUEST_WIFI_REG_DOMAIN (Set)
-message WifiRegDomain {
-  string country_code = 1; // 2-character ISO 3166-1 alpha-2 country code (e.g., "US", "GB").
-  // Zephyr's wifi_reg_domain also has dfs_region and op_class rules.
-  // This can be extended if more detailed configuration is needed.
 }
 
 message SetRegulatoryDomainRequest {
@@ -540,7 +533,7 @@ message WifiMgmtResponse {
   oneof payload {
     WifiStatusResponse status_resp = 2; // Generic status for SET operations or simple GETs.
     GetWifiVersionResponse get_version_resp = 3;
-    GetPowerSaveConfigResponse get_ps_config_resp = 4;
+    //GetPowerSaveConfigResponse get_ps_config_resp = 4;
     GetRegulatoryDomainResponse get_reg_domain_resp = 5;
     GetInterfaceStatusResponse get_iface_status_resp = 6;
     // Add other specific responses here
