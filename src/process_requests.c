@@ -279,7 +279,7 @@ void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint8_t *re
             response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_status_resp_tag;
             response.payload.status_resp.success = false;
             response.payload.status_resp.error_code = -ENOTSUP;
-            set_status_error_msg_bytes(&response.payload.status_resp.error_message, "Unsupported request type");
+            set_status_error_msg_bytes(response.payload.status_resp.error_message, "Unsupported request type");
             break;
     }
 
@@ -289,7 +289,7 @@ void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint8_t *re
         response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_status_resp_tag; // Ensure status_resp is active
         response.payload.status_resp.success = false;
         response.payload.status_resp.error_code = -EBADMSG;
-        set_status_error_msg_bytes(&response.payload.status_resp.error_message, "Payload type mismatch for request ID");
+        set_status_error_msg_bytes(response.payload.status_resp.error_message, "Payload type mismatch for request ID");
     }
 
     pb_ostream_t ostream = pb_ostream_from_buffer(response_buffer, *response_buffer_len_io);
@@ -363,7 +363,6 @@ static void handle_connect_request(const embedded_wifi_mgmt_WifiConnectRequest *
         params.eap_passwd_length = req->eap_password.size;
         // params.anon_id = req->anonymous_id.bytes; // Map anonymous_id if used
         // params.aid_length = req->anonymous_id.size;
-        //params.verify_peer_cert = req->verify_peer_certificate;
     }
 
 

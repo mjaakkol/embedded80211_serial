@@ -193,7 +193,6 @@ message WifiConnectRequest {
   uint32 eap_version = 19;                     // EAP version.
   bytes eap_identity = 20;                    // EAP identity.
   bytes eap_password = 21;                    // EAP password.
-  bool verify_peer_certificate = 22;          // Whether to verify peer certificate in EAP-TLS. TODO: Check if needed
   bool ft_enabled = 23;                       // Fast Transition (802.11r) enabled.
   // nusers, passwds, identities, passwords are for multi-user EAP scenarios.
   // For simplicity, we can represent this with repeated fields for identity and password.
