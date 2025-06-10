@@ -205,6 +205,11 @@ typedef enum _embedded_wifi_mgmt_RequestType {
 typedef PB_BYTES_ARRAY_T(32) embedded_wifi_mgmt_WifiConnectRequest_ssid_t;
 typedef PB_BYTES_ARRAY_T(65) embedded_wifi_mgmt_WifiConnectRequest_psk_t;
 typedef PB_BYTES_ARRAY_T(64) embedded_wifi_mgmt_WifiConnectRequest_sae_password_t;
+typedef PB_BYTES_ARRAY_T(64) embedded_wifi_mgmt_WifiConnectRequest_anonymous_id_t;
+typedef PB_BYTES_ARRAY_T(32) embedded_wifi_mgmt_WifiConnectRequest_key_password_t;
+typedef PB_BYTES_ARRAY_T(32) embedded_wifi_mgmt_WifiConnectRequest_key2_password_t;
+typedef PB_BYTES_ARRAY_T(64) embedded_wifi_mgmt_WifiConnectRequest_eap_identity_t;
+typedef PB_BYTES_ARRAY_T(64) embedded_wifi_mgmt_WifiConnectRequest_eap_password_t;
 /* For NET_REQUEST_WIFI_CONNECT */
 typedef struct _embedded_wifi_mgmt_WifiConnectRequest {
     uint32_t iface_index;
@@ -221,14 +226,14 @@ typedef struct _embedded_wifi_mgmt_WifiConnectRequest {
     embedded_wifi_mgmt_WifiMfpOptions mfp; /* Management Frame Protection setting. */
     /* New fields from struct wifi_connect_req_params */
     embedded_wifi_mgmt_WifiBand band; /* Target band for connection. */
-    pb_callback_t anonymous_id; /* Anonymous identity for EAP. */
-    pb_callback_t key_password; /* Key password (e.g. for some EAP methods or specific configurations). */
-    pb_callback_t key2_password; /* Second key password if applicable. */
+    embedded_wifi_mgmt_WifiConnectRequest_anonymous_id_t anonymous_id; /* Anonymous identity for EAP. */
+    embedded_wifi_mgmt_WifiConnectRequest_key_password_t key_password; /* Key password (e.g. for some EAP methods or specific configurations). */
+    embedded_wifi_mgmt_WifiConnectRequest_key2_password_t key2_password; /* Second key password if applicable. */
     embedded_wifi_mgmt_WifiWpa3EnterpriseType wpa3_enterprise_type; /* WPA3 Enterprise mode. */
     uint32_t tls_cipher_suite; /* Specific TLS cipher suite (value or enum mapping needed). */
     uint32_t eap_version; /* EAP version. */
-    pb_callback_t eap_identity; /* EAP identity. */
-    pb_callback_t eap_password; /* EAP password. */
+    embedded_wifi_mgmt_WifiConnectRequest_eap_identity_t eap_identity; /* EAP identity. */
+    embedded_wifi_mgmt_WifiConnectRequest_eap_password_t eap_password; /* EAP password. */
     bool verify_peer_certificate; /* Whether to verify peer certificate in EAP-TLS. */
     bool ft_enabled; /* Fast Transition (802.11r) enabled. */
     /* nusers, passwds, identities, passwords are for multi-user EAP scenarios.
@@ -678,7 +683,7 @@ extern "C" {
 
 
 /* Initializer values for message structs */
-#define embedded_wifi_mgmt_WifiConnectRequest_init_default {0, {0, {0}}, _embedded_wifi_mgmt_WifiSecurityType_MIN, {0, {0}}, {0, {0}}, 0, {0}, 0, _embedded_wifi_mgmt_WifiMfpOptions_MIN, _embedded_wifi_mgmt_WifiBand_MIN, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, _embedded_wifi_mgmt_WifiWpa3EnterpriseType_MIN, 0, 0, {{NULL}, NULL}, {{NULL}, NULL}, 0, 0, 0, _embedded_wifi_mgmt_WifiFrequencyBandwidth_MIN}
+#define embedded_wifi_mgmt_WifiConnectRequest_init_default {0, {0, {0}}, _embedded_wifi_mgmt_WifiSecurityType_MIN, {0, {0}}, {0, {0}}, 0, {0}, 0, _embedded_wifi_mgmt_WifiMfpOptions_MIN, _embedded_wifi_mgmt_WifiBand_MIN, {0, {0}}, {0, {0}}, {0, {0}}, _embedded_wifi_mgmt_WifiWpa3EnterpriseType_MIN, 0, 0, {0, {0}}, {0, {0}}, 0, 0, 0, _embedded_wifi_mgmt_WifiFrequencyBandwidth_MIN}
 #define embedded_wifi_mgmt_WifiDisconnectRequest_init_default {0}
 #define embedded_wifi_mgmt_WifiDirectedScanSsid_init_default {{0, {0}}}
 #define embedded_wifi_mgmt_WifiBandChannel_init_default {0, 0}
@@ -716,7 +721,7 @@ extern "C" {
 #define embedded_wifi_mgmt_WifiMgmtRequest_init_default {_embedded_wifi_mgmt_RequestType_MIN, 0, {embedded_wifi_mgmt_WifiConnectRequest_init_default}}
 #define embedded_wifi_mgmt_WifiMgmtResponse_init_default {0, 0, {embedded_wifi_mgmt_WifiStatusResponse_init_default}}
 #define embedded_wifi_mgmt_WifiMgmtNotification_init_default {false, embedded_wifi_mgmt_WifiEvent_init_default}
-#define embedded_wifi_mgmt_WifiConnectRequest_init_zero {0, {0, {0}}, _embedded_wifi_mgmt_WifiSecurityType_MIN, {0, {0}}, {0, {0}}, 0, {0}, 0, _embedded_wifi_mgmt_WifiMfpOptions_MIN, _embedded_wifi_mgmt_WifiBand_MIN, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, _embedded_wifi_mgmt_WifiWpa3EnterpriseType_MIN, 0, 0, {{NULL}, NULL}, {{NULL}, NULL}, 0, 0, 0, _embedded_wifi_mgmt_WifiFrequencyBandwidth_MIN}
+#define embedded_wifi_mgmt_WifiConnectRequest_init_zero {0, {0, {0}}, _embedded_wifi_mgmt_WifiSecurityType_MIN, {0, {0}}, {0, {0}}, 0, {0}, 0, _embedded_wifi_mgmt_WifiMfpOptions_MIN, _embedded_wifi_mgmt_WifiBand_MIN, {0, {0}}, {0, {0}}, {0, {0}}, _embedded_wifi_mgmt_WifiWpa3EnterpriseType_MIN, 0, 0, {0, {0}}, {0, {0}}, 0, 0, 0, _embedded_wifi_mgmt_WifiFrequencyBandwidth_MIN}
 #define embedded_wifi_mgmt_WifiDisconnectRequest_init_zero {0}
 #define embedded_wifi_mgmt_WifiDirectedScanSsid_init_zero {{0, {0}}}
 #define embedded_wifi_mgmt_WifiBandChannel_init_zero {0, 0}
@@ -913,19 +918,19 @@ X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, bssid,             9) \
 X(a, STATIC,   SINGULAR, UINT32,   timeout_ms,       11) \
 X(a, STATIC,   SINGULAR, UENUM,    mfp,              12) \
 X(a, STATIC,   SINGULAR, UENUM,    band,             13) \
-X(a, CALLBACK, SINGULAR, BYTES,    anonymous_id,     14) \
-X(a, CALLBACK, SINGULAR, BYTES,    key_password,     15) \
-X(a, CALLBACK, SINGULAR, BYTES,    key2_password,    16) \
+X(a, STATIC,   SINGULAR, BYTES,    anonymous_id,     14) \
+X(a, STATIC,   SINGULAR, BYTES,    key_password,     15) \
+X(a, STATIC,   SINGULAR, BYTES,    key2_password,    16) \
 X(a, STATIC,   SINGULAR, UENUM,    wpa3_enterprise_type,  17) \
 X(a, STATIC,   SINGULAR, UINT32,   tls_cipher_suite,  18) \
 X(a, STATIC,   SINGULAR, UINT32,   eap_version,      19) \
-X(a, CALLBACK, SINGULAR, BYTES,    eap_identity,     20) \
-X(a, CALLBACK, SINGULAR, BYTES,    eap_password,     21) \
+X(a, STATIC,   SINGULAR, BYTES,    eap_identity,     20) \
+X(a, STATIC,   SINGULAR, BYTES,    eap_password,     21) \
 X(a, STATIC,   SINGULAR, BOOL,     verify_peer_certificate,  22) \
 X(a, STATIC,   SINGULAR, BOOL,     ft_enabled,       23) \
 X(a, STATIC,   SINGULAR, BOOL,     ignore_broadcast_ssid,  26) \
 X(a, STATIC,   SINGULAR, UENUM,    bandwidth,        27)
-#define embedded_wifi_mgmt_WifiConnectRequest_CALLBACK pb_default_field_callback
+#define embedded_wifi_mgmt_WifiConnectRequest_CALLBACK NULL
 #define embedded_wifi_mgmt_WifiConnectRequest_DEFAULT NULL
 
 #define embedded_wifi_mgmt_WifiDisconnectRequest_FIELDLIST(X, a) \
@@ -1315,7 +1320,6 @@ extern const pb_msgdesc_t embedded_wifi_mgmt_WifiMgmtNotification_msg;
 #define embedded_wifi_mgmt_WifiMgmtNotification_fields &embedded_wifi_mgmt_WifiMgmtNotification_msg
 
 /* Maximum encoded size of messages (where known) */
-/* embedded_wifi_mgmt_WifiConnectRequest_size depends on runtime parameters */
 /* embedded_wifi_mgmt_WifiScanParams_size depends on runtime parameters */
 /* embedded_wifi_mgmt_WifiScanRequest_size depends on runtime parameters */
 /* embedded_wifi_mgmt_WifiMgmtRequest_size depends on runtime parameters */
@@ -1341,6 +1345,7 @@ extern const pb_msgdesc_t embedded_wifi_mgmt_WifiMgmtNotification_msg;
 #define embedded_wifi_mgmt_WifiApEnableParams_size 125
 #define embedded_wifi_mgmt_WifiApEnableRequest_size 133
 #define embedded_wifi_mgmt_WifiBandChannel_size  12
+#define embedded_wifi_mgmt_WifiConnectRequest_size 497
 #define embedded_wifi_mgmt_WifiDirectedScanSsid_size 34
 #define embedded_wifi_mgmt_WifiDisconnectRequest_size 6
 #define embedded_wifi_mgmt_WifiEvent_size        2356
