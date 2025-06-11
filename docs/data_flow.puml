@@ -1,0 +1,19 @@
+@startuml
+participant SPI
+participant SPIM as "SPI Multiplexer"
+participant Proxy as "Wi-Fi data Proxy"
+participant WiFiM as "Net if"
+SPI --> SPIM: Interrupt
+SPI <-- SPIM: Read header
+SPI <-- SPIM: Read data
+SPIM --> Proxy: Pass Mgmt msg
+Proxy -> WiFiM: Send data
+Proxy <- WiFiM: Status
+Proxy --> SPIM: Status
+SPIM --> SPI: Transfer data
+... Idling ...
+hnote over WiFiM: RX data received
+WiFiM -> Proxy: RX callback
+Proxy --> SPIM: Outgoing msg
+SPIM --> SPI: Transfer header+data
+@enduml

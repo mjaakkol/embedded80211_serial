@@ -1,0 +1,35 @@
+@startuml
+() "UART"
+() "SPI"
+() "SDIO"
+() "USB"
+() "SerialBus"
+() "WiFi Mgmt"
+() "Net if"
+() "BT HCI"
+() "Thread Spinel"
+UART <-- [UART driver]
+SPI <-- [SPI driver]
+SDIO <-- [SDIO driver]
+USB <--[USB driver]
+"WiFi Mgmt" <-- [WiFi subsystem]
+"Net if" <-- [WiFi subsystem]
+"BT HCI" <-- [BT Controller subsystem]
+"Thread Spinel" <-- [Thread Controller subsystem]
+SerialBus <-- [UART multiplexer]
+SerialBus <-- [SDIO multiplexer]
+SerialBus <-- [SPI multiplexer]
+SerialBus <-- [USB multiplexer]
+[UART multiplexer] ..> UART: use
+[SDIO multiplexer] ..> SDIO: use
+[SPI multiplexer] ..> SPI: use
+[USB multiplexer] ..> USB: use
+[WiFi mgmt. proxy] ..> SerialBus
+[WiFi data proxy] ..> SerialBus
+[WiFi mgmt. proxy] ..> "WiFi Mgmt"
+[WiFi data proxy] ..> "Net if"
+[BT proxy] ..> SerialBus
+[BT proxy] ..> "BT HCI"
+[Thread proxy] ..> SerialBus
+[Thread proxy] ..> "Thread Spinel"
+@enduml
