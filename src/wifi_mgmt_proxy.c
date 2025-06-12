@@ -9,7 +9,7 @@
 #include <pb_encode.h>
 #include "generated/wifi.pb.h" // Path to your generated nanopb header
 
-LOG_MODULE_REGISTER(wifi_handler, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(wifi_mgmt_proxy, LOG_LEVEL_INF);
 
 // --- Nanopb Max Size Defines (ensure these match your .options file or Zephyr limits) ---
 // These are illustrative; actual limits come from Zephyr's wifi.h or your .options file.

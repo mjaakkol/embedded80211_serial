@@ -25,5 +25,5 @@ zephyr_nanopb_sources(app ${PROTO_DIR}/wifi.proto)
 
 target_sources(app PRIVATE
 	src/main.c
-	src/process_requests.c
+	src/wifi_mgmt_proxy.c
 )
