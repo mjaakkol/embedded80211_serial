@@ -1,0 +1,15 @@
+menu "Serial parameters"
+    config UART_BUFFER_SIZE
+        int "UART RX buffer size"
+        default 2048
+        help
+            Size of the UART RX buffer in bytes. This is the size of the buffer that is
+            used to store the incoming data from the UART. The buffer is used to store
+            the incoming data from the UART until it is processed by the application.
+            The buffer is allocated at RAM.
+
+    module = SERIAL
+    module-str = Serial module
+    source "subsys/logging/Kconfig.template.log_config"
+
+endmenu

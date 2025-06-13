@@ -8,6 +8,9 @@ cmake_minimum_required(VERSION 3.21.0)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
+add_compile_options(-Wno-unused-function -Wno-unused-variable)
+
+
 list(APPEND CMAKE_MODULE_PATH ${ZEPHYR_BASE}/modules/nanopb)
 include(nanopb)
 
@@ -22,8 +25,15 @@ set(PROTO_FILES ${PROTO_DIR}/wifi.proto)
 # The function will create targets for generating the .pb.c and .pb.h files.
 zephyr_nanopb_sources(app ${PROTO_DIR}/wifi.proto)
 
+# we need to be able to include generated protobuf header files
+zephyr_library_include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
+target_include_directories(app PUBLIC src)
+
 
 target_sources(app PRIVATE
 	src/main.c
 	src/wifi_mgmt_proxy.c
 )
+
+add_subdirectory(src/serial)

@@ -26,10 +26,11 @@ SerialBus <-- [USB multiplexer]
 [USB multiplexer] ..> USB: use
 [WiFi mgmt. proxy] ..> SerialBus
 [WiFi data proxy] ..> SerialBus
-[WiFi mgmt. proxy] ..> "WiFi Mgmt"
-[WiFi data proxy] ..> "Net if"
+[WiFi mgmt. proxy] ..> "WiFi Mgmt": use
+[WiFi mgmt. proxy] ..> "Net if": use
+[WiFi data proxy] ..> "Net if": use
 [BT proxy] ..> SerialBus
-[BT proxy] ..> "BT HCI"
-[Thread proxy] ..> SerialBus
-[Thread proxy] ..> "Thread Spinel"
+[BT proxy] ..> "BT HCI": use
+[Thread proxy] ..> SerialBus: use
+[Thread proxy] ..> "Thread Spinel": use
 @enduml

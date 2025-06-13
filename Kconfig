@@ -35,3 +35,5 @@ config STA_SAMPLE_START_WIFI_THREAD_STACK_SIZE
 	help
 	  Set the stack size for the Wi-Fi start thread.
 endmenu
+
+rsource "src/serial/Kconfig"
