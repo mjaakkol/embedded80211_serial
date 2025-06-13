@@ -51,7 +51,7 @@ static void usb_status_cb(enum usb_dc_status_code status, const uint8_t *param)
 static int init_serial_usb() {
     if (!device_is_ready(cdc_acm_dev)) {
         LOG_ERR("CDC ACM device not found or not ready!\n");
-        return;
+        return -ENODEV;
     }
 
     int ret;
@@ -61,9 +61,11 @@ static int init_serial_usb() {
     ret = usb_enable(usb_status_cb); // Pass status callback if not console
     if (ret != 0) {
         LOG_ERR("Failed to enable USB: %d\n", ret);
-        return;
+        return -ENODEV;
     }
     LOG_INF("USB enabled. Waiting for host connection...\n");
+
+    ring_buf_init(&rx_ringbuf, sizeof(rx_buffer_data), rx_buffer_data);
 
     initialize_uart(cdc_acm_dev, &rx_ringbuf);
 

@@ -62,7 +62,7 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
         if (bytes_read > 0) {
             int bytes_written = ring_buf_put(rx_data, bytes_read);
             if (bytes_written < bytes_read) {
-                printk("RX Ring buffer full, %d bytes dropped!\n", bytes_read - bytes_written);
+                LOG_INF("RX Ring buffer full, %d bytes dropped!\n", bytes_read - bytes_written);
             }
             // Optionally, signal a thread here that data is available
             // For example, using k_sem_give() or k_work_submit()
@@ -73,7 +73,7 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
 void initialize_uart(const struct device *dev, struct ring_buf *rx_ringbuf)
 {
     if (!device_is_ready(dev)) {
-        printk("UART device not found or not ready!\n");
+        LOG_ERR("UART device not found or not ready!\n");
         return;
     }
 
@@ -83,5 +83,5 @@ void initialize_uart(const struct device *dev, struct ring_buf *rx_ringbuf)
     // Enable RX interrupts
     uart_irq_rx_enable(dev);
 
-    printk("UART initialized and RX interrupts enabled");
+    LOG_INF("UART initialized and RX interrupts enabled");
 }
