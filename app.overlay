@@ -15,4 +15,13 @@ zephyr_udc0: &usbd {
         label = "CDC_ACM_0";
         status = "okay";
     };
+    cdc_serial_uart2: cdc_acm_uart2 { // This creates an instance named "CDC_ACM_1"
+        compatible = "zephyr,cdc-acm-uart";
+    };
+};
+
+/ {
+     chosen {
+         zephyr,console = &cdc_serial_uart2;
+     };
 };
