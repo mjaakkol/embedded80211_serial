@@ -406,6 +406,13 @@ int main(void)
 {
 	int ret = 0;
 
+	int counter = 12;
+
+	while(counter--) {
+		LOG_INF("Starting %s with CPU frequency: %d MHz", CONFIG_BOARD, SystemCoreClock/MHZ(1));
+		k_sleep(K_SECONDS(1));
+	}
+
 	net_mgmt_callback_init();
 
 #ifdef CONFIG_WIFI_READY_LIB

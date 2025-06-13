@@ -26,6 +26,14 @@ int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len)
     return 0;
 }
 
+enum ParsingState {
+    PARSING_STATE_TYPE,
+    PARSING_STATE_CRC,
+    PARSING_STATE_LENGTH1,
+    PARSING_STATE_LENGTH2,
+    PARSING_STATE_DATA,
+};
+
 
 /**
  * @brief UART interrupt callback function.
@@ -39,11 +47,14 @@ int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len)
  */
 static void uart_irq_callback(const struct device *dev, void *user_data)
 {
-    struct ring_buf *rx_ringbuf = (struct ring_buf *)user_data;
+    struct serial_config *config = (struct serial_config *)user_data;
+    struct ring_buf *rx_ringbuf = &config->rx_ringbuf;
+
+    LOG_INF("UART IRQ callback triggered");
 
     // Check if the interrupt is for received data
     while (uart_irq_is_pending(dev) && uart_irq_rx_ready(dev)) {
-        uint8_t rx_data[128]; // Temporary buffer to read from FIFO
+        uint8_t rx_data[32]; // Temporary buffer to read from FIFO
         int bytes_read;
 
         bytes_read = uart_fifo_read(dev, rx_data, sizeof(rx_data));
@@ -63,16 +74,15 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
     }
 }
 
-void initialize_uart(const struct device *dev, struct ring_buf *rx_ringbuf)
+void initialize_uart(struct serial_config *config)
 {
-    if (!device_is_ready(dev)) {
-        LOG_ERR("UART device not found or not ready!\n");
-        return;
-    }
+    LOG_INF("Initializing UART...");
+    const struct device *dev = config->serial_dev;
 
     // Set the interrupt callback function
-    uart_irq_callback_user_data_set(dev, uart_irq_callback, rx_ringbuf);
+    uart_irq_callback_user_data_set(dev, uart_irq_callback, config);
 
+    LOG_INF("About to enable interrupts");
     // Enable RX interrupts
     uart_irq_rx_enable(dev);
 

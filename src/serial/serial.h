@@ -5,11 +5,13 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/sys/ring_buffer.h>
 
-void initialize_uart(const struct device *dev, struct ring_buf *rx_ringbuf);
-int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len);
 
-//int (*serial_tx)(const uint8_t *data, size_t len);
-//int (*serial_rx)(const uint8_t *data, size_t len);
+struct serial_config {
+    const struct device *const serial_dev;
+    int (*serial_tx)(const uint8_t *data, size_t len);
+    int (*serial_rx)(const uint8_t *data, size_t len);
+    struct ring_buf rx_ringbuf;
+};
 
 
 enum SerialType {
@@ -28,5 +30,9 @@ struct header {
     uint8_t error: 1;
     uint16_t length;
 };
+
+void initialize_uart(struct serial_config *config);
+int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len);
+
 
 #endif // _SERIAL_H_

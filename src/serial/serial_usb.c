@@ -12,9 +12,14 @@ LOG_MODULE_REGISTER(serial_usb);
 
 const struct device *const cdc_acm_dev = DEVICE_DT_GET(UART_DEVICE_NODE);
 
-static uint8_t rx_buffer_data[CONFIG_UART_RX_BUFFER_SIZE];
-static struct ring_buf rx_ringbuf;
 static bool usb_connected = false;
+static struct serial_config config_serial = {
+    .serial_dev = (const struct device*) cdc_acm_dev,
+    .serial_tx = NULL,
+    .serial_rx = NULL, // This will be set later
+};
+
+static uint8_t rx_buffer[CONFIG_UART_RX_BUFFER_SIZE];
 
 // Only define this callback if USB CDC ACM is not the console
 // and if the USB stack is enabled.
@@ -50,8 +55,8 @@ static void usb_status_cb(enum usb_dc_status_code status, const uint8_t *param)
 }
 
 static int init_serial_usb() {
-    if (!device_is_ready(cdc_acm_dev)) {
-        LOG_ERR("CDC ACM device not found or not ready!\n");
+    if (!device_is_ready((const struct device*)cdc_acm_dev)) {
+        LOG_ERR("CDC ACM device not found or not ready!");
         return -ENODEV;
     }
 
@@ -64,12 +69,13 @@ static int init_serial_usb() {
         LOG_ERR("Failed to enable USB: %d\n", ret);
         return -ENODEV;
     }
-    LOG_INF("USB enabled. Waiting for host connection...\n");
+    LOG_INF("USB enabled. Waiting for host connection...");
 
-    ring_buf_init(&rx_ringbuf, sizeof(rx_buffer_data), rx_buffer_data);
+    ring_buf_init(&config_serial.rx_ringbuf, sizeof(rx_buffer), rx_buffer);
 
-    initialize_uart(cdc_acm_dev, &rx_ringbuf);
+    initialize_uart(&config_serial);
 
+    LOG_INF("USB CDC ACM initialized successfully");
     return 0;
 }
 
