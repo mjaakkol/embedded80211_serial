@@ -1,8 +1,10 @@
 target_include_directories(app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-#target_sources(app PRIVATE
-#        *.c
-#        )
+if(CONFIG_SERIAL OR CONFIG_USB_DEVICE_STACK)
+    target_sources(app PRIVATE
+        uart.c
+    )
+endif()
 
 target_sources_ifdef(CONFIG_USB_DEVICE_STACK app PRIVATE
      serial_usb.c

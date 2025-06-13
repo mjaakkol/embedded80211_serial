@@ -1,5 +1,5 @@
 menu "Serial parameters"
-    config UART_BUFFER_SIZE
+    config UART_RX_BUFFER_SIZE
         int "UART RX buffer size"
         default 2048
         help

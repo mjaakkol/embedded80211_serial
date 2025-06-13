@@ -18,7 +18,8 @@ enum SerialType {
     SERIAL_TYPE_HCI,
     SERIAL_TYPE_THREAD,
     SERIAL_TYPE_AT_CMD
-}
+};
+
 struct header {
     uint8_t type: 4;
     uint8_t crc : 1;

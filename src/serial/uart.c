@@ -1,7 +1,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
-#include <zephyr/sys/logging.h>
+#include <zephyr/logging/log.h>
 
 #include "serial.h"
 

@@ -2,7 +2,7 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/usb/usb_device.h>
-#include <zephyr/sys/logging.h>
+#include <zephyr/logging/log.h>
 
 #include "serial.h"
 
@@ -12,7 +12,7 @@ LOG_MODULE_REGISTER(serial_usb);
 
 const struct device *const cdc_acm_dev = DEVICE_DT_GET_ONE(UART_DEVICE_NODE);
 
-static uint8_t rx_buffer_data[CONFIG_USB_CDC_ACM_RING_BUFFER_SIZE];
+static uint8_t rx_buffer_data[CONFIG_UART_RX_BUFFER_SIZE];
 static struct ring_buf rx_ringbuf;
 static bool usb_connected = false;
 
