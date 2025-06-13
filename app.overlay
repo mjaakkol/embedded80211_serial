@@ -1,0 +1,18 @@
+&uart0 {
+    status = "okay";
+    current-speed = <115200>; // Set baud rate
+};
+
+
+zephyr_udc0: &usbd {
+    status = "okay";
+    cdc_serial_uart: cdc_acm_uart1 { // This creates an instance named "CDC_ACM_0"
+        compatible = "zephyr,cdc-acm-uart";
+		current-speed = <115200>;
+		parity = "none";
+		data-bits = <8>;
+		stop-bits = "0_5";
+        label = "CDC_ACM_0";
+        status = "okay";
+    };
+};
