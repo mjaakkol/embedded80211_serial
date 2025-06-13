@@ -39,14 +39,7 @@ int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len)
  */
 static void uart_irq_callback(const struct device *dev, void *user_data)
 {
-    ARG_UNUSED(user_data);
-
     struct ring_buf *rx_ringbuf = (struct ring_buf *)user_data;
-
-    // Ensure the interrupt is for our UART device
-    if (dev != uart_dev) {
-        return;
-    }
 
     // Check if the interrupt is for received data
     while (uart_irq_is_pending(dev) && uart_irq_rx_ready(dev)) {
@@ -60,7 +53,7 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
             break;
         }
         if (bytes_read > 0) {
-            int bytes_written = ring_buf_put(rx_data, bytes_read);
+            int bytes_written = ring_buf_put(rx_ringbuf, rx_data, bytes_read);
             if (bytes_written < bytes_read) {
                 LOG_INF("RX Ring buffer full, %d bytes dropped!\n", bytes_read - bytes_written);
             }

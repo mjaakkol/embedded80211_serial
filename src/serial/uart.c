@@ -5,6 +5,8 @@
 
 #include "serial.h"
 
+LOG_MODULE_REGISTER(serial_uart);
+
 #define UART_DEVICE_NODE DT_NODELABEL(uart0)
 
 static const struct device *const uart_dev = DEVICE_DT_GET(UART_DEVICE_NODE);
@@ -22,9 +24,9 @@ int  init_uart(void)
 
     ring_buf_init(&rx_ringbuf, sizeof(rx_buffer_data), rx_buffer_data);
 
-    initialize_uart(uart_dev, &rx_buffer_data);
+    initialize_uart(uart_dev, &rx_ringbuf);
 
-    LOG_INF("UART initialized successfully\n");
+    LOG_INF("UART initialized successfully");
 
     return 0;
 }

@@ -8,9 +8,9 @@
 
 LOG_MODULE_REGISTER(serial_usb);
 
- #define UART_DEVICE_NODE DT_NODELABEL(zephyr_udc0)
+ #define UART_DEVICE_NODE DT_NODELABEL(cdc_serial_uart)
 
-const struct device *const cdc_acm_dev = DEVICE_DT_GET_ONE(UART_DEVICE_NODE);
+const struct device *const cdc_acm_dev = DEVICE_DT_GET(UART_DEVICE_NODE);
 
 static uint8_t rx_buffer_data[CONFIG_UART_RX_BUFFER_SIZE];
 static struct ring_buf rx_ringbuf;
@@ -39,9 +39,10 @@ static void usb_status_cb(enum usb_dc_status_code status, const uint8_t *param)
     case USB_DC_RESUME:
         LOG_WRN("USB device resumed\n");
         // Check if still configured
-        if (usb_get_status(NULL) == USB_DC_CONFIGURED) {
-            usb_connected = true;
-        }
+        // TODO: This needs to be refactored per the latest Zephyr USB API changes
+        ///if (usb_get_status(NULL) == USB_DC_CONFIGURED) {
+        //    usb_connected = true;
+        //}
         break;
     default:
         break;

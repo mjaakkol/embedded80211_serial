@@ -8,8 +8,8 @@
 void initialize_uart(const struct device *dev, struct ring_buf *rx_ringbuf);
 int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len);
 
-int (*serial_tx)(const uint8_t *data, size_t len);
-int (*serial_rx)(uint8_t *data, size_t len);
+//int (*serial_tx)(const uint8_t *data, size_t len);
+//int (*serial_rx)(const uint8_t *data, size_t len);
 
 
 enum SerialType {
