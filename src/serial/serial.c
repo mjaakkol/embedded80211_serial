@@ -7,7 +7,7 @@
 
 #include "serial.h"
 
-LOG_MODULE_REGISTER(serial, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(serial, LOG_LEVEL_INF);
 
 static struct client_callbacks client_cb[SERIAL_TYPE_UNKNOWN];
 
@@ -27,8 +27,6 @@ int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len)
 
     return 0;
 }
-
-
 
 /**
  * @brief UART interrupt callback function.
@@ -99,27 +97,6 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
             LOG_ERR("Unknown parsing state: %d", config->parsing_state);
             break;
         }
-
-
-/*
-        uint8_t rx_data[32]; // Temporary buffer to read from FIFO
-        int bytes_read;
-
-        bytes_read = uart_fifo_read(dev, rx_data, sizeof(rx_data));
-        if (bytes_read < 0) {
-            // Should not happen if uart_irq_rx_ready() is true, but good practice
-            LOG_ERR("UART FIFO read error: %d\n", bytes_read);
-            break;
-        }
-        if (bytes_read > 0) {
-            int bytes_written = ring_buf_put(rx_ringbuf, rx_data, bytes_read);
-            if (bytes_written < bytes_read) {
-                LOG_INF("RX Ring buffer full, %d bytes dropped!\n", bytes_read - bytes_written);
-            }
-            // Optionally, signal a thread here that data is available
-            // For example, using k_sem_give() or k_work_submit()
-        }
-*/
     }
 }
 
@@ -160,8 +137,8 @@ static void serial_work_handler(struct k_work *work_item_ptr)
                 LOG_INF("Received complete packet of length %u", config->serial_header.length);
 
                 // Process the received data here
-                client_cb[config->type].commit_data(bytes_read, true); // Complete the packet
-
+                client_cb[config->type].commit_data(bytes_read); // Complete the packet
+                client_cb[config->type].message_complete(config->serial_header.length);
                 // Reset for next packet
                 config->parsing_state = PARSING_STATE_TYPE;
                 config->type = SERIAL_TYPE_UNKNOWN; // Reset type
@@ -169,7 +146,7 @@ static void serial_work_handler(struct k_work *work_item_ptr)
 
             } else {
                 LOG_DBG("Read %d bytes, total bytes read: %zu", bytes_read, config->bytes_read);
-                client_cb[config->type].commit_data(bytes_read, false); // Not complete yet
+                client_cb[config->type].commit_data(bytes_read); // Not complete yet
             }
         }
     }

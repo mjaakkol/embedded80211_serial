@@ -28,7 +28,8 @@ struct client_callbacks {
     //int (*serial_tx)(const uint8_t *data, size_t len);
     //int (*serial_rx)(const uint8_t *data, size_t len);
     bool (*acquire_buffer)(uint8_t **data, size_t len);
-    void (*commit_data)(size_t len, bool complete);
+    void (*commit_data)(size_t len);
+    void (*message_complete)(size_t len);
 };
 
 struct serial_config {

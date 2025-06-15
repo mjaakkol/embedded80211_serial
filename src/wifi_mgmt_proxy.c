@@ -3,6 +3,7 @@
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/sys/byteorder.h> // For potential byte order conversions if needed
+//#include <zephyr/sys/ring_buffer.h> // For ring buffer support
 #include <errno.h> // For error codes like EBADMSG, ENODEV, EINVAL, ENOTSUP
 
 #include <pb_decode.h>
@@ -11,7 +12,7 @@
 
 LOG_MODULE_REGISTER(wifi_mgmt_proxy, LOG_LEVEL_INF);
 
-#define WIFI_MGMT_THREAD_STACK_SIZE 4096
+#define WIFI_MGMT_THREAD_STACK_SIZE 2048
 #define WIFI_MGMT_THREAD_PRIORITY 7
 
 
@@ -27,88 +28,70 @@ LOG_MODULE_REGISTER(wifi_mgmt_proxy, LOG_LEVEL_INF);
 #define MAX_FIRMWARE_VERSION_LEN 31 // For a 32-byte buffer
 #define MAX_AP_PSK_LEN 64
 
+#define DATA_COMPLETE_EVENT BIT(0) // Event bit for data completion
+// Data structure for WiFi management
+
+
+K_EVENT_DEFINE(wifi_mgmt_event);
+
+static uint8_t wifi_mgmt_tx_buffer[sizeof(embedded_wifi_mgmt_WifiMgmtResponse)];
+static uint8_t wifi_mgmt_rx_buffer[sizeof(embedded_wifi_mgmt_WifiMgmtRequest)];
+static size_t message_length;
+
+static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint8_t *response_buffer, size_t* response_buffer_len_io);
+
+// --- WiFi Management Thread Entry Point ---
+
 static void wifi_mgmt_thread_entry_point(void *p1, void *p2, void *p3)
 {
     // This is the entry point for the WiFi management thread.
     // You can implement your thread logic here, such as handling incoming requests,
     // processing scan results, managing connections, etc.
 
-    LOG_INF("WiFi Management Thread started");
-
     while (true) {
-        // Main loop for handling WiFi management tasks
-        k_sleep(K_SECONDS(1)); // Example sleep to prevent busy-waiting
+        LOG_INF("WiFi Management Thread waiting for events...");
+        uint32_t event = k_event_wait(&wifi_mgmt_event, DATA_COMPLETE_EVENT, true, K_FOREVER);
+
+        if (event & DATA_COMPLETE_EVENT) {
+            // Handle the complete message received
+            LOG_INF("Data complete event received, length: %zu", message_length);
+
+            size_t response_length = 0; // Length of the response to be filled by processing function
+
+            process_wifi_mgmt_request(wifi_mgmt_rx_buffer, message_length, wifi_mgmt_tx_buffer, &response_length);
+
+            // Send the response out.
+        }
     }
 }
 
-static int wifi_mgmt_serial_tx(const uint8_t *data, size_t len)
+static bool acquire_buffer(uint8_t **data, size_t* len)
 {
-    // This function should handle the transmission of data over the serial interface.
-    // It can be implemented to send data to the WiFi management system.
-    // Return 0 on success, or a negative error code on failure.
-
-    if (data == NULL || len == 0) {
-        LOG_ERR("Invalid data or length for serial transmission");
-        return -EINVAL;
-    }
-
-    // Example implementation, replace with actual serial transmission logic
-    LOG_INF("Transmitting %zu bytes over serial", len);
-    return 0; // Indicate success
-}
-
-static int wifi_mgmt_serial_rx(const uint8_t *data, size_t len)
-{
-    // This function should handle the reception of data over the serial interface.
-    // It can be implemented to process incoming data for the WiFi management system.
-    // Return 0 on success, or a negative error code on failure.
-
-    if (data == NULL || len == 0) {
-        LOG_ERR("Invalid data or length for serial reception");
-        return -EINVAL;
-    }
-
-    // Example implementation, replace with actual serial reception logic
-    LOG_INF("Received %zu bytes over serial", len);
-    return 0; // Indicate success
-}
-
-static bool wifi_mgmt_acquire_buffer(uint8_t **data, size_t len)
-{
-    // This function should allocate a buffer of the specified length and return it.
-    // It should set *data to point to the allocated buffer.
-    // Return true on success, or false on failure (e.g., if memory allocation fails).
-
-    if (len == 0) {
-        LOG_ERR("Cannot acquire buffer of zero length");
+    // Check if the ring buffer has enough space
+    if (*len > (sizeof(wifi_mgmt_rx_buffer) - message_length)) {
+        LOG_WRN("Not enough space in ring buffer for %zu bytes, Abort", *len);
+        // TODO: This is severe error condition and should happen. Reseting things would be an appropriate action.
         return false;
     }
 
-    *data = k_malloc(len);
-    if (*data == NULL) {
-        LOG_ERR("Failed to allocate buffer of size %zu", len);
-        return false; // Memory allocation failed
-    }
-
-    LOG_INF("Acquired buffer of size %zu", len);
-    return true; // Buffer acquired successfully
+    *data = &wifi_mgmt_rx_buffer[message_length];
+    return true;
 }
 
-static void wifi_mgmt_release_buffer(uint8_t *data, size_t len)
+void commit_data(size_t len)
 {
-    // This function should release a previously acquired buffer.
-    // It should free the memory pointed to by data.
-    // If data is NULL, it should do nothing.
-
-    if (data == NULL) {
-        LOG_WRN("Attempted to release a NULL buffer");
-        return; // Nothing to release
-    }
-
-    k_free(data);
-    LOG_INF("Released buffer of size %zu", len);
+    message_length += len; // Update the total message length
 }
 
+void message_complete(size_t len)
+{
+    ARG_UNUSED(len); // The length is already stored in message_length and not needed in this proxy.
+    // This function is called when a complete message has been received.
+    // It can be used to signal the main thread or other components that a message is ready for processing.
+
+    LOG_INF("Message complete, length: %zu", message_length);
+    k_event_set(&wifi_mgmt_event, DATA_COMPLETE_EVENT); // Signal the event
+}
 
 
 K_THREAD_DEFINE(wifi_mgmt_proxy_thread_id,      // Name for the thread ID
@@ -118,8 +101,6 @@ K_THREAD_DEFINE(wifi_mgmt_proxy_thread_id,      // Name for the thread ID
                 WIFI_MGMT_THREAD_PRIORITY,       // Thread priority
                 0,                        // Thread options (e.g., K_FP_REGS for FPU)
                 0);                       // Scheduling delay (K_NO_WAIT for immediate start)
-
-
 
 /// Bulk code below
 
@@ -223,7 +204,7 @@ static void set_status_error_msg_bytes(char *target_bytes_array, const char *msg
 
 
 // --- Main processing function ---
-void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint8_t *response_buffer, size_t* response_buffer_len_io) {
+static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint8_t *response_buffer, size_t* response_buffer_len_io) {
     embedded_wifi_mgmt_WifiMgmtRequest request = embedded_wifi_mgmt_WifiMgmtRequest_init_zero;
     pb_istream_t stream = pb_istream_from_buffer(buffer, length);
 
