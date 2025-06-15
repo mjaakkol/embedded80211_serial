@@ -1,0 +1,13 @@
+[package]
+name = "cli_test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serialport = "4.7"
+serde = "1.0"
+prost = { version = "^0.14", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
+
+[build-dependencies]
+prost-build = "^0.14"
