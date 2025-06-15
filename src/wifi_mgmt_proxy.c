@@ -11,6 +11,10 @@
 
 LOG_MODULE_REGISTER(wifi_mgmt_proxy, LOG_LEVEL_INF);
 
+#define WIFI_MGMT_THREAD_STACK_SIZE 4096
+#define WIFI_MGMT_THREAD_PRIORITY 7
+
+
 // --- Nanopb Max Size Defines (ensure these match your .options file or Zephyr limits) ---
 // These are illustrative; actual limits come from Zephyr's wifi.h or your .options file.
 #define MAX_SSID_LEN_CB WIFI_SSID_MAX_LEN
@@ -22,6 +26,102 @@ LOG_MODULE_REGISTER(wifi_mgmt_proxy, LOG_LEVEL_INF);
 #define MAX_ERROR_MSG_LEN 63 // For a 64-byte buffer including null terminator if treated as C string
 #define MAX_FIRMWARE_VERSION_LEN 31 // For a 32-byte buffer
 #define MAX_AP_PSK_LEN 64
+
+static void wifi_mgmt_thread_entry_point(void *p1, void *p2, void *p3)
+{
+    // This is the entry point for the WiFi management thread.
+    // You can implement your thread logic here, such as handling incoming requests,
+    // processing scan results, managing connections, etc.
+
+    LOG_INF("WiFi Management Thread started");
+
+    while (true) {
+        // Main loop for handling WiFi management tasks
+        k_sleep(K_SECONDS(1)); // Example sleep to prevent busy-waiting
+    }
+}
+
+static int wifi_mgmt_serial_tx(const uint8_t *data, size_t len)
+{
+    // This function should handle the transmission of data over the serial interface.
+    // It can be implemented to send data to the WiFi management system.
+    // Return 0 on success, or a negative error code on failure.
+
+    if (data == NULL || len == 0) {
+        LOG_ERR("Invalid data or length for serial transmission");
+        return -EINVAL;
+    }
+
+    // Example implementation, replace with actual serial transmission logic
+    LOG_INF("Transmitting %zu bytes over serial", len);
+    return 0; // Indicate success
+}
+
+static int wifi_mgmt_serial_rx(const uint8_t *data, size_t len)
+{
+    // This function should handle the reception of data over the serial interface.
+    // It can be implemented to process incoming data for the WiFi management system.
+    // Return 0 on success, or a negative error code on failure.
+
+    if (data == NULL || len == 0) {
+        LOG_ERR("Invalid data or length for serial reception");
+        return -EINVAL;
+    }
+
+    // Example implementation, replace with actual serial reception logic
+    LOG_INF("Received %zu bytes over serial", len);
+    return 0; // Indicate success
+}
+
+static bool wifi_mgmt_acquire_buffer(uint8_t **data, size_t len)
+{
+    // This function should allocate a buffer of the specified length and return it.
+    // It should set *data to point to the allocated buffer.
+    // Return true on success, or false on failure (e.g., if memory allocation fails).
+
+    if (len == 0) {
+        LOG_ERR("Cannot acquire buffer of zero length");
+        return false;
+    }
+
+    *data = k_malloc(len);
+    if (*data == NULL) {
+        LOG_ERR("Failed to allocate buffer of size %zu", len);
+        return false; // Memory allocation failed
+    }
+
+    LOG_INF("Acquired buffer of size %zu", len);
+    return true; // Buffer acquired successfully
+}
+
+static void wifi_mgmt_release_buffer(uint8_t *data, size_t len)
+{
+    // This function should release a previously acquired buffer.
+    // It should free the memory pointed to by data.
+    // If data is NULL, it should do nothing.
+
+    if (data == NULL) {
+        LOG_WRN("Attempted to release a NULL buffer");
+        return; // Nothing to release
+    }
+
+    k_free(data);
+    LOG_INF("Released buffer of size %zu", len);
+}
+
+
+
+K_THREAD_DEFINE(wifi_mgmt_proxy_thread_id,      // Name for the thread ID
+                WIFI_MGMT_THREAD_STACK_SIZE,     // Stack size in bytes
+                wifi_mgmt_thread_entry_point,    // Thread entry function
+                NULL, NULL, NULL,         // Parameters to entry function (p1, p2, p3)
+                WIFI_MGMT_THREAD_PRIORITY,       // Thread priority
+                0,                        // Thread options (e.g., K_FP_REGS for FPU)
+                0);                       // Scheduling delay (K_NO_WAIT for immediate start)
+
+
+
+/// Bulk code below
 
 
 // --- Callback Context Structures ---
@@ -913,4 +1013,13 @@ static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfac
     }
 }
 
-// Implement other handlers (handle_set_twt_request, etc.) similarly.
+int init_proxy(void) {
+    LOG_INF("Initializing Wi-Fi Management Proxy");
+
+
+
+    LOG_INF("Wi-Fi Management Proxy initialized successfully");
+    return 0;
+}
+
+SYS_INIT(init_proxy, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);

@@ -15,8 +15,6 @@ const struct device *const cdc_acm_dev = DEVICE_DT_GET(UART_DEVICE_NODE);
 static bool usb_connected = false;
 static struct serial_config config_serial = {
     .serial_dev = (const struct device*) cdc_acm_dev,
-    .serial_tx = NULL,
-    .serial_rx = NULL, // This will be set later
 };
 
 static uint8_t rx_buffer[CONFIG_UART_RX_BUFFER_SIZE];

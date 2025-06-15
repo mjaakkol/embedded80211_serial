@@ -14,9 +14,7 @@ static const struct device *const uart_dev = DEVICE_DT_GET(UART_DEVICE_NODE);
 static uint8_t rx_buffer[CONFIG_UART_RX_BUFFER_SIZE];
 
 struct serial_config config_serial_uart = {
-    .serial_dev = (const struct device *)uart_dev,
-    .serial_tx = NULL,
-    .serial_rx = NULL, // This will be set later
+    .serial_dev = uart_dev,
 };
 
 int  init_uart(void)
