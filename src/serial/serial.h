@@ -32,6 +32,8 @@ struct client_callbacks {
     void (*message_complete)(size_t len);
 };
 
+extern struct client_callbacks client_cb[SERIAL_TYPE_UNKNOWN];
+
 struct serial_config {
     struct k_work work_item;
     const struct device *const serial_dev;

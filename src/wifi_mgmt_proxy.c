@@ -65,11 +65,11 @@ static void wifi_mgmt_thread_entry_point(void *p1, void *p2, void *p3)
     }
 }
 
-static bool acquire_buffer(uint8_t **data, size_t* len)
+bool wifi_mgmt_acquire_buffer(uint8_t **data, size_t len)
 {
     // Check if the ring buffer has enough space
-    if (*len > (sizeof(wifi_mgmt_rx_buffer) - message_length)) {
-        LOG_WRN("Not enough space in ring buffer for %zu bytes, Abort", *len);
+    if (len > (sizeof(wifi_mgmt_rx_buffer) - message_length)) {
+        LOG_WRN("Not enough space in ring buffer for %zu bytes, Abort", len);
         // TODO: This is severe error condition and should happen. Reseting things would be an appropriate action.
         return false;
     }
@@ -78,12 +78,12 @@ static bool acquire_buffer(uint8_t **data, size_t* len)
     return true;
 }
 
-void commit_data(size_t len)
+void wifi_mgmt_commit_data(size_t len)
 {
     message_length += len; // Update the total message length
 }
 
-void message_complete(size_t len)
+void wifi_mgmt_message_complete(size_t len)
 {
     ARG_UNUSED(len); // The length is already stored in message_length and not needed in this proxy.
     // This function is called when a complete message has been received.

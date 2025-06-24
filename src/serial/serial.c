@@ -9,7 +9,6 @@
 
 LOG_MODULE_REGISTER(serial, LOG_LEVEL_INF);
 
-static struct client_callbacks client_cb[SERIAL_TYPE_UNKNOWN];
 K_MUTEX_DEFINE(serial_tx_mutex);
 
 /**

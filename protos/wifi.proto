@@ -521,7 +521,8 @@ message WifiMgmtRequest {
     SetRegulatoryDomainRequest set_reg_domain_req = 10;
     GetRegulatoryDomainRequest get_reg_domain_req = 11;
     GetInterfaceStatusRequest get_iface_status_req = 12;
-    // Add other requests here
+    // Network requests are below here. Merged with Wi-Fi for now.
+    //RequestInterfaces get_l2_interfaces_req = 13;
   }
 }
 
@@ -535,11 +536,57 @@ message WifiMgmtResponse {
     //GetPowerSaveConfigResponse get_ps_config_resp = 4;
     GetRegulatoryDomainResponse get_reg_domain_resp = 5;
     GetInterfaceStatusResponse get_iface_status_resp = 6;
-    // Add other specific responses here
+    // Network responses are below here. Merged with Wi-Fi for now.
+    //RequestInterfacesResponse get_l2_interfaces_resp = 7;
   }
 }
 
 // Asynchronous notification message from Device to Host
 message WifiMgmtNotification {
   WifiEvent event = 1;
+}
+
+
+// Network L2 requests
+
+enum NetIfType {
+  NET_IF_TYPE_UNKNOWN = 0;
+  NET_IF_TYPE_WIFI = 1;
+  NET_IF_TYPE_OPENTHREAD = 2;
+}
+
+// Request registered network interfaces
+message RequestInterfaces {
+  // Request per type. Unknown type will request all types of interfaces
+  NetIfType net_if_type = 1;
+  // Request by index. Zero if no specific interface requested
+  uint32 index = 2;
+}
+
+message RequestInterfacesResponse {
+  repeated NetworkInterface net_ifs = 1;
+}
+
+// Network interface state per RFP 2863
+enum NetIfOperState {
+	NET_IF_OPER_STATE_UNKNOWN = 0;
+	NET_IF_OPER_STATE_NOTPRESENT = 1;     // Hardware not present
+	NET_IF_OPER_STATE_DOWN = 2;           // Interface is down
+	NET_IF_OPER_STATE_LOWERLAYERDOWN = 3; // Lower layer interface is down - not likely ever used in this case
+	NET_IF_OPER_STATE_TESTING = 4;         // Training mode
+	NET_IF_OPER_STATE_DORMANT = 5;        // Waiting external action (eg. Wi-Fi connection)
+	NET_IF_OPER_STATE_UP = 6;             // Interface is up and ready to rock-n-roll
+}
+
+message NetworkInterface {
+  // Index to L2 device
+  uint32 index = 1;
+  // Network interface type
+  NetIfType net_if_type = 2;
+  // MAC-address (lower 48 bits)
+  bytes mac_address = 3;
+  // Supports Zephyr TCP/IP offload
+  bool offload_supported = 4;
+  // Link layer MTU size
+  uint32 mtu = 5;
 }

@@ -31,10 +31,14 @@ zephyr_library_include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 target_include_directories(app PUBLIC src)
 
+#src/wifi_data.c
+
 
 target_sources(app PRIVATE
 	src/main.c
 	src/wifi_mgmt_proxy.c
+	src/config.c
+	src/wifi_data.c
 )
 
 add_subdirectory(src/serial)
