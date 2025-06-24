@@ -10,6 +10,7 @@
 LOG_MODULE_REGISTER(serial, LOG_LEVEL_INF);
 
 static struct client_callbacks client_cb[SERIAL_TYPE_UNKNOWN];
+K_MUTEX_DEFINE(serial_tx_mutex);
 
 /**
  * @brief Writes a block of data to the specified UART device using polling.
@@ -21,9 +22,15 @@ static struct client_callbacks client_cb[SERIAL_TYPE_UNKNOWN];
  */
 int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len)
 {
+    // Only one thread can write to the UART at a time.
+    // This also means that USB and serial UART are mutually exclusive, but
+    // that's OK as it is not expected that anyone would use USB and UART at
+    // the same time.
+    k_mutex_lock(&serial_tx_mutex, K_FOREVER);
     for (size_t i = 0; i < len; i++) {
         uart_poll_out(dev, data[i]);
     }
+    k_mutex_unlock(&serial_tx_mutex);
 
     return 0;
 }
@@ -41,7 +48,6 @@ int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len)
 static void uart_irq_callback(const struct device *dev, void *user_data)
 {
     struct serial_config *config = (struct serial_config *)user_data;
-    //struct ring_buf *rx_ringbuf = &config->rx_ringbuf;
 
     LOG_INF("UART IRQ callback triggered");
 

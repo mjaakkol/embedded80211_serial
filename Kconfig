@@ -34,6 +34,28 @@ config STA_SAMPLE_START_WIFI_THREAD_STACK_SIZE
 	default 4096
 	help
 	  Set the stack size for the Wi-Fi start thread.
+
+# Wi-Fi management bearer configuration
+choice WIFI_MGMT_BEARER
+	bool "Enable Wi-Fi management bearer"
+	default WIFI_MGMT_BEARER_SERIAL_USB
+	help
+	  Enable the Wi-Fi management bearer. This allows the sample to use the Wi-Fi management interface
+	  for operations such as scanning and connecting to networks.
+
+config WIFI_MGMT_BEARER_SERIAL_UART
+	bool "Enable Wi-Fi management bearer over UART"
+	help
+	  Enable the Wi-Fi management bearer over UART. This allows the sample to communicate with the Wi-Fi
+	  management interface using a serial connection.
+
+config WIFI_MGMT_BEARER_SERIAL_USB
+	bool "Enable Wi-Fi management bearer over USB"
+	help
+	  Enable the Wi-Fi management bearer over USB. This allows the sample to communicate with the Wi-Fi
+	  management interface using a USB connection.
+endchoice
+
 endmenu
 
 rsource "src/serial/Kconfig"

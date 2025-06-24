@@ -55,5 +55,8 @@ struct serial_config {
 void initialize_uart(struct serial_config *config);
 int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len);
 
+int serial_usb_tx(const struct device *dev, const uint8_t *data, size_t len);
+int serial_uart_tx(const struct device *dev, const uint8_t *data, size_t len);
+
 
 #endif // _SERIAL_H_
