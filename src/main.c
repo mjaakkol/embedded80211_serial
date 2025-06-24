@@ -195,23 +195,12 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
 	}
 }
 
-static void print_dhcp_ip(struct net_mgmt_event_callback *cb)
-{
-	/* Get DHCP info from struct net_if_dhcpv4 and print */
-	const struct net_if_dhcpv4 *dhcpv4 = cb->info;
-	const struct in_addr *addr = &dhcpv4->requested_ip;
-	char dhcp_info[128];
-
-	net_addr_ntop(AF_INET, addr, dhcp_info, sizeof(dhcp_info));
-
-	LOG_INF("DHCP IP address: %s", dhcp_info);
-}
 static void net_mgmt_event_handler(struct net_mgmt_event_callback *cb,
 				    uint32_t mgmt_event, struct net_if *iface)
 {
 	switch (mgmt_event) {
 	case NET_EVENT_IPV4_DHCP_BOUND:
-		print_dhcp_ip(cb);
+		//print_dhcp_ip(cb);
 		break;
 	default:
 		break;
@@ -286,11 +275,6 @@ int start_app(void)
 		LOG_INF("QSPI Encryption disabled");
 	}
 #endif /* CONFIG_BOARD_NRF700XDK_NRF5340 */
-
-	LOG_INF("Static IP address (overridable): %s/%s -> %s",
-		CONFIG_NET_CONFIG_MY_IPV4_ADDR,
-		CONFIG_NET_CONFIG_MY_IPV4_NETMASK,
-		CONFIG_NET_CONFIG_MY_IPV4_GW);
 
 	while (1) {
 #ifdef CONFIG_WIFI_READY_LIB
