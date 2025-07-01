@@ -69,7 +69,7 @@ bool wifi_mgmt_acquire_buffer(uint8_t **data, size_t len)
 {
     // Check if the ring buffer has enough space
     if (len > (sizeof(wifi_mgmt_rx_buffer) - message_length)) {
-        LOG_WRN("Not enough space in ring buffer for %zu bytes, Abort", len);
+        LOG_WRN("Not enough space in buffer for %zu bytes, Abort", len);
         // TODO: This is severe error condition and should happen. Reseting things would be an appropriate action.
         return false;
     }
