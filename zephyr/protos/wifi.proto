@@ -496,12 +496,13 @@ enum RequestType {
     REQUEST_TYPE_SCAN = 3;
     REQUEST_TYPE_AP_ENABLE = 4;
     REQUEST_TYPE_AP_DISABLE = 5;
-    REQUEST_TYPE_GET_VERSION = 6;
+    REQUEST_TYPE_GET_WIFI_VERSION = 6;
     REQUEST_TYPE_SET_PS_CONFIG = 7;
     REQUEST_TYPE_GET_PS_CONFIG = 8;
     REQUEST_TYPE_SET_REG_DOMAIN = 9;
     REQUEST_TYPE_GET_REG_DOMAIN = 10;
     REQUEST_TYPE_GET_IFACE_STATUS = 11;
+    REQUEST_TYPE_GET_PROTOCOL_VERSION = 12;
     // Add other request types as needed
 }
 
@@ -521,6 +522,7 @@ message WifiMgmtRequest {
     SetRegulatoryDomainRequest set_reg_domain_req = 10;
     GetRegulatoryDomainRequest get_reg_domain_req = 11;
     GetInterfaceStatusRequest get_iface_status_req = 12;
+    // Version
     // Network requests are below here. Merged with Wi-Fi for now.
     //RequestInterfaces get_l2_interfaces_req = 13;
   }
@@ -536,8 +538,10 @@ message WifiMgmtResponse {
     //GetPowerSaveConfigResponse get_ps_config_resp = 4;
     GetRegulatoryDomainResponse get_reg_domain_resp = 5;
     GetInterfaceStatusResponse get_iface_status_resp = 6;
+    // Version
+    ProtocolVersionResponse get_protocol_version_resp = 7;
     // Network responses are below here. Merged with Wi-Fi for now.
-    //RequestInterfacesResponse get_l2_interfaces_resp = 7;
+    RequestInterfacesResponse get_l2_interfaces_resp = 8;
   }
 }
 
@@ -547,7 +551,16 @@ message WifiMgmtNotification {
 }
 
 
-// Network L2 requests
+message ProtocolVersionResponse {
+  uint32 major = 1; // Major version number
+  uint32 minor = 2; // Minor version number
+}
+
+
+// -----------------------------------------------------------------------------
+// Network Interface Management (L2) Requests and Responses
+// -----------------------------------------------------------------------------
+
 
 enum NetIfType {
   NET_IF_TYPE_UNKNOWN = 0;

@@ -291,7 +291,7 @@ static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint
                 handle_ap_disable_request(&request.payload.ap_disable_req, &response.payload.status_resp);
             } else { payload_type_mismatch = true; }
             break;
-        case embedded_wifi_mgmt_RequestType_REQUEST_TYPE_GET_VERSION:
+        case embedded_wifi_mgmt_RequestType_REQUEST_TYPE_GET_WIFI_VERSION:
              if (request.which_payload == embedded_wifi_mgmt_WifiMgmtRequest_get_version_req_tag) {
                 response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_get_version_resp_tag;
                 handle_get_version_request(&request.payload.get_version_req, &response.payload.get_version_resp);
@@ -355,6 +355,16 @@ static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint
         //         handle_set_twt_request(&request.payload.set_twt_req, &response.payload.status_resp);
         //     } else { payload_type_mismatch = true; }
         //     break;
+
+        case embedded_wifi_mgmt_RequestType_REQUEST_TYPE_GET_PROTOCOL_VERSION:
+            response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_get_protocol_version_resp_tag;
+
+            embedded_wifi_mgmt_ProtocolVersionResponse version_resp = embedded_wifi_mgmt_ProtocolVersionResponse_init_zero;
+            version_resp.major = 1; // Set your protocol major version
+            version_resp.minor = 2; // Set your protocol minor version
+            response.payload.get_protocol_version_resp = version_resp;
+            break;
+
         default:
             LOG_WRN("Unknown or unhandled RequestType enum: %d", request.request_id);
             response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_status_resp_tag;
