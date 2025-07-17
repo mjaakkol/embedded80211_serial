@@ -24,7 +24,7 @@ set(PROTO_FILES ${PROTO_DIR}/wifi.proto)
 
 # Generate C sources from .proto files
 # The function will create targets for generating the .pb.c and .pb.h files.
-zephyr_nanopb_sources(app ${PROTO_DIR}/wifi.proto)
+zephyr_nanopb_sources(app ${PROTO_FILES})
 
 # we need to be able to include generated protobuf header files
 zephyr_library_include_directories(${CMAKE_CURRENT_BINARY_DIR})

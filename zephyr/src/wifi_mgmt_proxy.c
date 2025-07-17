@@ -8,7 +8,7 @@
 
 #include <pb_decode.h>
 #include <pb_encode.h>
-#include "generated/wifi.pb.h" // Path to your generated nanopb header
+#include "protos/wifi.pb.h" // Path to your generated nanopb header
 
 LOG_MODULE_REGISTER(wifi_mgmt_proxy, LOG_LEVEL_INF);
 
