@@ -1,0 +1,111 @@
+
+<svg viewBox="0 0 1850 180" xmlns="http://www.w3.org/2000/svg" style="background-color:#FFFFFF">
+  <polygon points="50,50 50,130 250,130 250,50" fill="#FFFFFF" style="stroke:#000000;stroke-width:2" />
+  <polygon points="250,50 250,130 300,130 300,50" fill="#78B4F0" style="stroke:#000000;stroke-width:2" />
+  <polygon points="300,50 300,130 350,130 350,50" fill="#F0B478" style="stroke:#000000;stroke-width:2" />
+  <polygon points="350,50 350,130 450,130 450,50" fill="#23C2D7" style="stroke:#000000;stroke-width:2" />
+  <polygon points="450,50 450,130 700,130 700,50" fill="#FFFFFF" style="stroke:#000000;stroke-width:2" />
+  <polygon points="700,50 700,130 850,130 850,50" fill="#A871B7" style="stroke:#000000;stroke-width:2" />
+  <polygon points="850,50 850,130 1650,130 1650,50" fill="#DCEB00" style="stroke:#000000;stroke-width:2" />
+  <polygon points="1650,50 1650,130 1720,130 1770,50" fill="#6871E8" style="stroke:#000000;stroke-width:2" />
+  <polygon points="1780,50 1730,130 1800,130 1800,50" fill="#6871E8" style="stroke:#000000;stroke-width:2" />
+  <line x1="100" y1="50" x2="100" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="100" y1="110" x2="100" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="150" y1="50" x2="150" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="150" y1="110" x2="150" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="200" y1="50" x2="200" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="200" y1="110" x2="200" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="400" y1="50" x2="400" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="400" y1="110" x2="400" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="500" y1="50" x2="500" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="500" y1="110" x2="500" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="550" y1="50" x2="550" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="550" y1="110" x2="550" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="600" y1="50" x2="600" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="600" y1="110" x2="600" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="650" y1="50" x2="650" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="650" y1="110" x2="650" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="750" y1="50" x2="750" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="750" y1="110" x2="750" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="800" y1="50" x2="800" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="800" y1="110" x2="800" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="900" y1="50" x2="900" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="900" y1="110" x2="900" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="950" y1="50" x2="950" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="950" y1="110" x2="950" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="1000" y1="50" x2="1000" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="1000" y1="110" x2="1000" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="1050" y1="50" x2="1050" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="1050" y1="110" x2="1050" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="1100" y1="50" x2="1100" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="1100" y1="110" x2="1100" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="1150" y1="50" x2="1150" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="1150" y1="110" x2="1150" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="1200" y1="50" x2="1200" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="1200" y1="110" x2="1200" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="1250" y1="50" x2="1250" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="1250" y1="110" x2="1250" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="1300" y1="50" x2="1300" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="1300" y1="110" x2="1300" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="1350" y1="50" x2="1350" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="1350" y1="110" x2="1350" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="1400" y1="50" x2="1400" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="1400" y1="110" x2="1400" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="1450" y1="50" x2="1450" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="1450" y1="110" x2="1450" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="1500" y1="50" x2="1500" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="1500" y1="110" x2="1500" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="1550" y1="50" x2="1550" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="1550" y1="110" x2="1550" y2="130" style="stroke:#000000;stroke-width:2" />
+  <line x1="1600" y1="50" x2="1600" y2="70" style="stroke:#000000;stroke-width:2" />
+  <line x1="1600" y1="110" x2="1600" y2="130" style="stroke:#000000;stroke-width:2" />
+  <text x="150" y="90" fill="#000000" dominant-baseline="middle" text-anchor="middle" font-size="16">Type</text>
+  <text x="275" y="90" fill="#000000" dominant-baseline="middle" text-anchor="middle" font-size="16">NoAck</text>
+  <text x="325" y="90" fill="#000000" dominant-baseline="middle" text-anchor="middle" font-size="16">Host</text>
+  <text x="400" y="90" fill="#000000" dominant-baseline="middle" text-anchor="middle" font-size="16">ErrorType</text>
+  <text x="575" y="90" fill="#000000" dominant-baseline="middle" text-anchor="middle" font-size="16">Reserved</text>
+  <text x="775" y="90" fill="#000000" dominant-baseline="middle" text-anchor="middle" font-size="16">Sequence number</text>
+  <text x="1250" y="90" fill="#000000" dominant-baseline="middle" text-anchor="middle" font-size="16">Length</text>
+  <text x="1697.5" y="90" fill="#000000" dominant-baseline="middle" text-anchor="middle" font-size="16">Data</text>
+  <text x="75" y="40" fill="#000000" dominant-baseline="auto" text-anchor="middle" font-size="16">0</text>
+  <text x="275" y="40" fill="#000000" dominant-baseline="auto" text-anchor="middle" font-size="16">4</text>
+  <text x="325" y="40" fill="#000000" dominant-baseline="auto" text-anchor="middle" font-size="16">5</text>
+  <text x="375" y="40" fill="#000000" dominant-baseline="auto" text-anchor="middle" font-size="16">6</text>
+  <text x="475" y="40" fill="#000000" dominant-baseline="auto" text-anchor="middle" font-size="16">8</text>
+  <text x="725" y="40" fill="#000000" dominant-baseline="auto" text-anchor="middle" font-size="16">13</text>
+  <text x="875" y="40" fill="#000000" dominant-baseline="auto" text-anchor="middle" font-size="16">16</text>
+  <text x="1675" y="40" fill="#000000" dominant-baseline="auto" text-anchor="middle" font-size="16">32</text>
+  <text x="1725" y="150" fill="#000000" dominant-baseline="hanging" text-anchor="middle" font-size="16">N</text>
+  <text x="1250" y="150" fill="#000000" dominant-baseline="hanging" text-anchor="middle" font-size="16">16</text>
+  <text x="775" y="150" fill="#000000" dominant-baseline="hanging" text-anchor="middle" font-size="16">3</text>
+  <text x="575" y="150" fill="#000000" dominant-baseline="hanging" text-anchor="middle" font-size="16">5</text>
+  <text x="400" y="150" fill="#000000" dominant-baseline="hanging" text-anchor="middle" font-size="16">2</text>
+  <text x="325" y="150" fill="#000000" dominant-baseline="hanging" text-anchor="middle" font-size="16">1</text>
+  <text x="275" y="150" fill="#000000" dominant-baseline="hanging" text-anchor="middle" font-size="16">1</text>
+  <text x="150" y="150" fill="#000000" dominant-baseline="hanging" text-anchor="middle" font-size="16">4</text>
+  <line x1="1650" y1="145" x2="1800" y2="145" style="stroke:#000000;stroke-width:2" />
+  <line x1="1650" y1="140" x2="1650" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="1800" y1="140" x2="1800" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="850" y1="145" x2="1650" y2="145" style="stroke:#000000;stroke-width:2" />
+  <line x1="850" y1="140" x2="850" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="1650" y1="140" x2="1650" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="700" y1="145" x2="850" y2="145" style="stroke:#000000;stroke-width:2" />
+  <line x1="700" y1="140" x2="700" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="850" y1="140" x2="850" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="450" y1="145" x2="700" y2="145" style="stroke:#000000;stroke-width:2" />
+  <line x1="450" y1="140" x2="450" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="700" y1="140" x2="700" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="350" y1="145" x2="450" y2="145" style="stroke:#000000;stroke-width:2" />
+  <line x1="350" y1="140" x2="350" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="450" y1="140" x2="450" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="300" y1="145" x2="350" y2="145" style="stroke:#000000;stroke-width:2" />
+  <line x1="300" y1="140" x2="300" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="350" y1="140" x2="350" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="250" y1="145" x2="300" y2="145" style="stroke:#000000;stroke-width:2" />
+  <line x1="250" y1="140" x2="250" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="300" y1="140" x2="300" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="50" y1="145" x2="250" y2="145" style="stroke:#000000;stroke-width:2" />
+  <line x1="50" y1="140" x2="50" y2="150" style="stroke:#000000;stroke-width:2" />
+  <line x1="250" y1="140" x2="250" y2="150" style="stroke:#000000;stroke-width:2" />
+  <polygon points="40,90 30,100 30,80" fill="#000000" />
+</svg>

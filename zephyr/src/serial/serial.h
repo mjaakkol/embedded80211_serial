@@ -24,6 +24,14 @@ enum SerialType {
     SERIAL_TYPE_UNKNOWN,
 };
 
+// Error types for serial communication
+enum ErrorType {
+    ERROR_TYPE_NO_ERROR,
+    ERROR_TYPE_INCORRECT_SEQUENCE_NUMBER,
+    ERROR_TYPE_BUFFER_OVERFLOW,
+    ERROR_TYPE_RESERVED_1
+}
+
 struct client_callbacks {
     //int (*serial_tx)(const uint8_t *data, size_t len);
     //int (*serial_rx)(const uint8_t *data, size_t len);

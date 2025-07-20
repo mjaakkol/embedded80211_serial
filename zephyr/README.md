@@ -1,1 +1,1 @@
-# cfg80211_serial
+#Zephyr subsystem for the project

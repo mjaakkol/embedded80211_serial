@@ -1,0 +1,66 @@
+{
+  "elements": {
+    "network_order": true,
+    "inner_subtitles": true,
+    "field_position": true,
+    "field_length": true,
+    "wrap_line": true,
+    "start_symbol": true
+  },
+  "style": {
+    "background_color": "#FFFFFF",
+    "field_color": "#FFFFFF",
+    "text_color": "#000000",
+    "subtitle_color": "#000000",
+    "unit_width": 50,
+    "dyn_units": 3
+  },
+  "fields": [
+    {
+      "name": "Type",
+      "length": 4,
+      "wrap": false
+    },
+    {
+      "name": "NoAck",
+      "length": 1,
+      "wrap": false,
+      "color": "#78B4F0"
+    },
+    {
+      "name": "Host",
+      "length": 1,
+      "wrap": false,
+      "color": "#F0B478"
+    },
+    {
+      "name": "ErrorType",
+      "length": 2,
+      "wrap": false,
+      "color": "#23C2D7"
+    },
+    {
+      "name": "Reserved",
+      "length": 5,
+      "wrap": false
+    },
+    {
+      "name": "Sequence number",
+      "length": 3,
+      "wrap": false,
+      "color": "#A871B7"
+    },
+    {
+      "name": "Length",
+      "length": 16,
+      "wrap": false,
+      "color": "#DCEB00"
+    },
+    {
+      "name": "Data",
+      "length": "N",
+      "wrap": false,
+      "color": "#6871E8"
+    }
+  ]
+}
