@@ -24,14 +24,17 @@ Serial MAC is providing means to manage the lowest level of interactions between
 
 The link protocol is defined as:
 ```mermaid
-packet
-0-3: "Type"
-4: "No Ack"
-5: "Host"
-6-7: "Error Type"
-8-12: "Reserved"
-13-15: "Sequence Number"
-16-31: "Length"
+---
+title: "Serial bus protocol header"
+---
+packet-beta
+    0-3: "Type"
+    4: "No Ack"
+    5: "Host"
+    6-7: "Error Type"
+    8-12: "Reserved"
+    13-15: "Sequence Number"
+    16-31: "Length"
 ```
 Diagram is supported in visualized format in later Mermaid plug-in.
 
