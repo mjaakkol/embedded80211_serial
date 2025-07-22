@@ -21,6 +21,8 @@ enum Commands {
     List,
 }
 
+mod protocol;
+
 fn main() {
     let cli = Cli::parse();
 
