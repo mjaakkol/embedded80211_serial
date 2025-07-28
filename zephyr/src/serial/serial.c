@@ -11,6 +11,11 @@ LOG_MODULE_REGISTER(serial, LOG_LEVEL_INF);
 
 K_MUTEX_DEFINE(serial_tx_mutex);
 
+#define SEQUENCE_NUMBER_WRAP 8// 3 bits for sequence number
+
+static uint8_t rx_sequence_number = 0;
+static uint8_t tx_sequence_number = 0;
+
 /**
  * @brief Writes a block of data to the specified UART device using polling.
  *
@@ -57,18 +62,18 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
         case PARSING_STATE_TYPE:
             if (uart_fifo_read(dev, (uint8_t*)&config->serial_header, 1) == 1) {
                 LOG_DBG("Received Serial Type: %u", config->serial_header.type);
-                config->parsing_state = PARSING_STATE_CRC;
+                config->parsing_state = PARSING_STATE_SEQUENCE_NUMBER;
                 config->bytes_read = 0; // Reset bytes read for new packet
             } else {
                 LOG_ERR("Failed to read Serial Type");
             }
             break;
-        case PARSING_STATE_CRC:
-            if (uart_fifo_read(dev, (uint8_t*)&config->serial_header.crc, 1) == 1) {
-                LOG_DBG("Received Serial CRC: %u", config->serial_header.crc);
+        case PARSING_STATE_SEQUENCE_NUMBER:
+            if (uart_fifo_read(dev, ((uint8_t*)&config->serial_header)+1, 1) == 1) {
+                LOG_DBG("Received Serial Seq: %u", config->serial_header.sequence_number);
                 config->parsing_state = PARSING_STATE_LENGTH1;
             } else {
-                LOG_ERR("Failed to read Serial CRC");
+                LOG_ERR("Failed to read Serial Sequence Number");
             }
             break;
         case PARSING_STATE_LENGTH1:
@@ -141,14 +146,32 @@ static void serial_work_handler(struct k_work *work_item_ptr)
                 // All data for this packet has been read
                 LOG_INF("Received complete packet of length %u", config->serial_header.length);
 
-                // Process the received data here
-                client_cb[config->type].commit_data(bytes_read); // Complete the packet
-                client_cb[config->type].message_complete(config->serial_header.length);
-                // Reset for next packet
-                config->parsing_state = PARSING_STATE_TYPE;
-                config->type = SERIAL_TYPE_UNKNOWN; // Reset type
-                config->bytes_read = 0;
+                // We cannot process the packet errors before as we have to read the entire packet first
 
+                // The host is not sending an error packet.
+                if (config->serial_header.error != ERROR_TYPE_NO_ERROR) {
+                    // We need to check that the sequence number is correct
+                    if (rx_sequence_number != config->serial_header.sequence_number) {
+                        LOG_ERR("Incorrect sequence number: expected %u, received %u",
+                                rx_sequence_number, config->serial_header.sequence_number);
+                        config->serial_header.error = ERROR_TYPE_INCORRECT_SEQUENCE_NUMBER;
+
+                        config->serial_header.sequence_number = rx_sequence_number;
+
+                        // We are not working TX and RX in parallel, so this is safe
+                        for (uint8_t* buf = (uint8_t*)&config->serial_header; buf < ((uint8_t*)&config->serial_header + sizeof(config->serial_header)); buf++) {
+                            uart_poll_out(dev, *buf);
+                        }
+                    } else {
+                        // Process the received data here
+                        client_cb[config->type].commit_data(bytes_read); // Complete the packet
+                        client_cb[config->type].message_complete(config->serial_header.length);
+                    }
+                    // Reset for next packet
+                    config->parsing_state = PARSING_STATE_TYPE;
+                    config->type = SERIAL_TYPE_UNKNOWN; // Reset type
+                    config->bytes_read = 0;
+                }
             } else {
                 LOG_DBG("Read %d bytes, total bytes read: %zu", bytes_read, config->bytes_read);
                 client_cb[config->type].commit_data(bytes_read); // Not complete yet

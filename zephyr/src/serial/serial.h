@@ -8,7 +8,7 @@
 // Parsing states for serial data
 enum ParsingState {
     PARSING_STATE_TYPE,
-    PARSING_STATE_CRC,
+    PARSING_STATE_SEQUENCE_NUMBER,
     PARSING_STATE_LENGTH1,
     PARSING_STATE_LENGTH2,
     PARSING_STATE_DATA,
@@ -30,7 +30,7 @@ enum ErrorType {
     ERROR_TYPE_INCORRECT_SEQUENCE_NUMBER,
     ERROR_TYPE_BUFFER_OVERFLOW,
     ERROR_TYPE_RESERVED_1
-}
+};
 
 struct client_callbacks {
     //int (*serial_tx)(const uint8_t *data, size_t len);
@@ -48,11 +48,12 @@ struct serial_config {
     enum ParsingState parsing_state;
     enum SerialType type;
     struct SerialHeader {
-        enum SerialType type;
-        uint16_t crc; // CRC16 checksum
-        uint8_t no_ack; // No ACK flag
-        uint8_t host; // Host flag
-        uint8_t error; // Error flag
+        enum SerialType type: 4; // 4 bits for type
+        bool no_ack: 1; // No ACK flag
+        bool host: 1; // Host flag
+        uint8_t error: 2; // Error flag
+        uint8_t reserved: 5; // Reserved bits
+        uint8_t sequence_number: 3; // Sequence number for tracking packets
         uint16_t length; // Length of the data payload
     } serial_header;
     //  Number of bytes read so far. This will be used to check if we have read the entire packet.
