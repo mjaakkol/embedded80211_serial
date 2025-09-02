@@ -1,10 +1,22 @@
+use std::io::{self, Write};
 use clap::{Parser, Subcommand};
 
+mod protocol;
+
+use protocol::{create_version_query, parse_version_response};
 #[derive(Parser)]
-#[command(version, about, long_about = None)]
+#[command(name = "cli-serial")]
+#[command(version = "1.0")]
+#[command(about = "cli test application for cfg80211_serial", long_about = None)]
 struct Cli {
      #[arg(short, long, action = clap::ArgAction::Count)]
     debug: u8,
+
+    #[arg(short, long,)]
+    port: String,
+
+    #[arg(short, long, default_value_t = 115200)]
+    baud_rate: u32,
 
     #[command(subcommand)]
     command: Commands,
@@ -19,14 +31,26 @@ enum Commands {
         list: bool,
     },
     List,
+    Version
 }
 
-mod protocol;
+
+
+fn init_serial_port(port_name: &str, baud_rate: u32) -> Result<Box<dyn serialport::SerialPort>, serialport::Error> {
+    // Initialize the serial port here
+    let port = serialport::new(port_name, baud_rate)
+        .timeout(std::time::Duration::from_millis(100))
+        .open()?;
+    Ok(port)
+}
 
 fn main() {
     let cli = Cli::parse();
 
-    println!("Hello, world!");
+    let mut port = init_serial_port(&cli.port, cli.baud_rate).unwrap_or_else(|e| {
+        eprintln!("Failed to open serial port: {e}");
+        std::process::exit(1);
+    });
 
     match cli.command {
         Commands::Test { list } => {
@@ -46,6 +70,20 @@ fn main() {
             } else {
                 println!("No serial ports found.");
             }
+        }
+        Commands::Version => {
+            let version_query = create_version_query();
+            if let Err(e) = port.write_all(&version_query) {
+                eprintln!("Failed to write version query: {e}");
+            }
+
+            let mut raw_response = vec![0; 64];
+            if let Err(e) = port.read(raw_response.as_mut_slice()) {
+                eprintln!("Failed to read version response: {e}");
+            }
+
+            let response = parse_version_response(&raw_response);
+            println!("Version: {response}");
         }
     }
 }
