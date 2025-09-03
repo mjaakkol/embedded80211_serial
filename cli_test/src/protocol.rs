@@ -84,7 +84,9 @@ pub fn parse_version_response(data: &[u8]) -> String {
         println!("Length mismatch in response {} vs actual {}", length, data.len() - 4);
     }
 
-    let resp = wifi_mgmt::GetWifiVersionResponse::decode(data[3..]).expect("Failed to decode version response");
+    let buf = BytesMut::from(&data[4..]);
+
+    let resp = wifi_mgmt::GetWifiVersionResponse::decode(buf).expect("Failed to decode version response");
     if let Some(version) = resp.version {
         format!("Major: {}, Minor: {} Patch: {} Firmware: {}", version.driver_major, version.driver_minor, version.driver_patch, version.firmware_version)
     } else {
