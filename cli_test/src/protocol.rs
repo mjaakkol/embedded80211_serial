@@ -57,7 +57,34 @@ pub fn create_version_query() -> BytesMut {
 }
 
 pub fn parse_version_response(data: &[u8]) -> String {
-    let resp = wifi_mgmt::GetWifiVersionResponse::decode(data).expect("Failed to decode version response");
+    let stype = (data[0] >> 4) & 0x0F;
+    let no_ack = (data[0] >> 3) & 0x01;
+    let host = (data[0] >> 2) & 0x01;
+    let error = (data[0] >> 0) & 0x03;
+    let sequence_number = (data[1] >> 5) & 0x07;
+    let length = ((data[1] & 0x1F) as u16) << 8 | (data[2] as u16);
+
+    if stype != SerialType::WiFiMgmt.to_u8() {
+        return "Invalid response type".into();
+    }
+
+    if no_ack != 0 {
+        println!("Unexpected no_ack in response");
+    }
+
+    if host != 1 {
+        println!("Response from device expected");
+    }
+
+    if error != 0 {
+        println!("Error in response {error}");
+    }
+
+    if length as usize != data.len() - 4 {
+        println!("Length mismatch in response {} vs actual {}", length, data.len() - 4);
+    }
+
+    let resp = wifi_mgmt::GetWifiVersionResponse::decode(data[3..]).expect("Failed to decode version response");
     if let Some(version) = resp.version {
         format!("Major: {}, Minor: {} Patch: {} Firmware: {}", version.driver_major, version.driver_minor, version.driver_patch, version.firmware_version)
     } else {
