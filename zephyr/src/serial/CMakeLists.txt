@@ -18,15 +18,9 @@ if(CONFIG_USB_DEVICE_STACK)
     )
 endif()
 
-if(CONFIG_SERIAL)
-    target_sources(app PRIVATE
-        uart.c
-    )
-endif()
-
-#target_sources_ifdef(CONFIG_USB_DEVICE_STACK app PRIVATE
-#     serial_usb.c
-#)
-#target_sources_ifdef(CONFIG_SERIAL app PRIVATE
-#     uart.c
-#)
+# Focusing in USB now
+#if(CONFIG_SERIAL)
+#    target_sources(app PRIVATE
+#        uart.c
+#    )
+#endif()
