@@ -21,7 +21,7 @@ static uint8_t wifi_data_tx_buffer[1600];
 
 
 static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
-				     uint32_t mgmt_event, struct net_if *iface)
+				     uint64_t mgmt_event, struct net_if *iface)
 {
 	switch (mgmt_event) {
 	case NET_EVENT_WIFI_CONNECT_RESULT:
@@ -41,7 +41,7 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
         // Handle disconnect completion, e.g., reset state or notify user
         break;
 	default:
-        LOG_WRN("Unhandled Wi-Fi management event: %u", mgmt_event);
+        LOG_WRN("Unhandled Wi-Fi management event: %llu", mgmt_event);
 		break;
 	}
 }
