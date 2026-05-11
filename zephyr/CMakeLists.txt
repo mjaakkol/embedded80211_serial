@@ -20,7 +20,7 @@ project(embedded80211_serial)
 target_include_directories(app PUBLIC ${ZEPHYR_BASE}/subsys/net/ip)
 
 set(PROTO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/protos)
-set(PROTO_FILES ${PROTO_DIR}/wifi.proto)
+set(PROTO_FILES ${PROTO_DIR}/wifi.proto ${PROTO_DIR}/network_interface.proto)
 
 # Generate C sources from .proto files
 # The function will create targets for generating the .pb.c and .pb.h files.
