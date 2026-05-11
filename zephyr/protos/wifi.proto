@@ -167,8 +167,13 @@ enum WifiFrequencyBandwidth {
 // -----------------------------------------------------------------------------
 // Request Messages
 // -----------------------------------------------------------------------------
+//
+// Mapping convention used below:
+//   Zephyr API: net_mgmt(<NET_REQUEST_*>, iface, data, len)
+//   Primary header: <zephyr/net/wifi_mgmt.h>
 
 // For NET_REQUEST_WIFI_CONNECT
+// Zephyr struct mapping: struct wifi_connect_req_params
 message WifiConnectRequest {
   uint32 iface_index = 1;
   bytes ssid = 2;                     // SSID (max 32 bytes in Zephyr)
@@ -205,6 +210,7 @@ message WifiConnectRequest {
 
 
 // For NET_REQUEST_WIFI_DISCONNECT
+// Zephyr API usage: net_mgmt(NET_REQUEST_WIFI_DISCONNECT, iface, NULL, 0)
 message WifiDisconnectRequest {
   uint32 iface_index = 1;
 }
@@ -219,7 +225,8 @@ message WifiBandChannel {
   uint32 channel = 2; // Specific channel number, or 0 for any channel in that band.
 }
 
-// Parameters for NET_REQUEST_WIFI_SCAN (based on wifi_scan_params_v2)
+// Parameters for NET_REQUEST_WIFI_SCAN
+// Zephyr struct mapping: struct wifi_scan_params
 message WifiScanParams {
   WifiScanType scan_type = 1;
   uint32 bands = 2;                        // Bitmap of bands to be scanned (e.g., WIFI_BAND_2_4_GHZ | WIFI_BAND_5_GHZ).
@@ -236,6 +243,7 @@ message WifiScanRequest {
 }
 
 // For NET_REQUEST_WIFI_AP_ENABLE
+// Zephyr struct mapping: struct wifi_connect_req_params (AP mode)
 message WifiApEnableParams {
   bytes ssid = 1;
   uint32 channel = 2;
@@ -254,17 +262,20 @@ message WifiApEnableRequest {
 }
 
 // For NET_REQUEST_WIFI_AP_DISABLE
+// Zephyr API usage: net_mgmt(NET_REQUEST_WIFI_AP_DISABLE, iface, NULL, 0)
 message WifiApDisableRequest {
   uint32 iface_index = 1;
 }
 
 // For NET_REQUEST_WIFI_VERSION
+// Zephyr struct mapping: struct wifi_version
 message GetWifiVersionRequest {
   // No parameters needed, version is typically global for the Wi-Fi driver/firmware.
 }
 
 
-// Corresponds to Zephyr's struct wifi_ps_config
+// For NET_REQUEST_WIFI_PS_CONFIG
+// Zephyr struct mapping: struct wifi_ps_config
 message WifiPowerSaveConfig {
   WifiPsSettings ps_settings = 1;
   WifiPowerSaveType type = 2;
@@ -277,7 +288,8 @@ message SetPowerSaveConfigRequest {
   WifiPowerSaveConfig config = 2;
 }
 
-// New message corresponding to C's struct wifi_reg_chan_info
+// Used by NET_REQUEST_WIFI_REG_DOMAIN
+// Zephyr struct mapping: struct wifi_reg_chan_info
 message WifiRegChanInfo {
   uint32 center_frequency_mhz = 1; // Center frequency in MHz
   uint32 max_power_dbm = 2;        // Max power in dBm
@@ -286,7 +298,8 @@ message WifiRegChanInfo {
   bool dfs = 5;                    // If DFS is required on this channel
 }
 
-// Updated message corresponding to C's struct wifi_reg_domain
+// Used by NET_REQUEST_WIFI_REG_DOMAIN
+// Zephyr struct mapping: struct wifi_reg_domain
 // Used in SetRegulatoryDomainRequest and GetRegulatoryDomainResponse
 message WifiRegDomain {
   string country_code = 1; // 2-character ISO 3166-1 alpha-2 country code (e.g., "US", "GB").
@@ -313,7 +326,8 @@ message GetRegulatoryDomainRequest {
   uint32 iface_index = 1;
 }
 
-// For polling current interface status
+// For NET_REQUEST_WIFI_IFACE_STATUS
+// Zephyr struct mapping: struct wifi_iface_status
 message GetInterfaceStatusRequest {
   uint32 iface_index = 1;
 }
@@ -324,6 +338,7 @@ message GetInterfaceStatusRequest {
 // -----------------------------------------------------------------------------
 
 // Generic status response for operations that don't return specific data.
+// Zephyr mapping: negative errno style status from net_mgmt request handling.
 message WifiStatusResponse {
   bool success = 1;         // True if operation was accepted/successful, false otherwise.
   int32 error_code = 2;     // Zephyr error code (e.g., from errno.h, 0 for success).
@@ -349,6 +364,7 @@ message GetRegulatoryDomainResponse {
 }
 
 message WifiInterfaceStatus {
+  // Zephyr struct mapping: struct wifi_iface_status
   // iface_index is typically part of the event/response wrapper
   WifiInterfaceState state = 1;
   WifiMode mode = 2; // Corresponds to C's wifi_iface_mode
@@ -410,6 +426,9 @@ message WifiPsSettings {
 // -----------------------------------------------------------------------------
 // Notification Messages (Asynchronous events from device to host)
 // -----------------------------------------------------------------------------
+// Zephyr callback path:
+//   net_mgmt_init_event_callback(cb, handler, <NET_EVENT_* mask>)
+//   net_mgmt_add_event_callback(cb)
 
 // Individual scan result, part of NET_MGMT_EVENT_WIFI_SCAN_RESULT event
 message WifiScanResult {
@@ -488,6 +507,8 @@ message WifiEvent {
 // -----------------------------------------------------------------------------
 // Top-Level Messages for Serial Communication
 // -----------------------------------------------------------------------------
+// Wrapper messages below are transport-level containers for requests,
+// synchronous responses, and asynchronous notifications around net_mgmt.
 
 enum RequestType {
     REQUEST_TYPE_UNKNOWN = 0;
@@ -522,9 +543,6 @@ message WifiMgmtRequest {
     SetRegulatoryDomainRequest set_reg_domain_req = 10;
     GetRegulatoryDomainRequest get_reg_domain_req = 11;
     GetInterfaceStatusRequest get_iface_status_req = 12;
-    // Version
-    // Network requests are below here. Merged with Wi-Fi for now.
-    //RequestInterfaces get_l2_interfaces_req = 13;
   }
 }
 
@@ -540,8 +558,6 @@ message WifiMgmtResponse {
     GetInterfaceStatusResponse get_iface_status_resp = 6;
     // Version
     ProtocolVersionResponse get_protocol_version_resp = 7;
-    // Network responses are below here. Merged with Wi-Fi for now.
-    RequestInterfacesResponse get_l2_interfaces_resp = 8;
   }
 }
 
@@ -557,49 +573,5 @@ message ProtocolVersionResponse {
 }
 
 
-// -----------------------------------------------------------------------------
-// Network Interface Management (L2) Requests and Responses
-// -----------------------------------------------------------------------------
 
 
-enum NetIfType {
-  NET_IF_TYPE_UNKNOWN = 0;
-  NET_IF_TYPE_WIFI = 1;
-  NET_IF_TYPE_OPENTHREAD = 2;
-}
-
-// Request registered network interfaces
-message RequestInterfaces {
-  // Request per type. Unknown type will request all types of interfaces
-  NetIfType net_if_type = 1;
-  // Request by index. Zero if no specific interface requested
-  uint32 index = 2;
-}
-
-message RequestInterfacesResponse {
-  repeated NetworkInterface net_ifs = 1;
-}
-
-// Network interface state per RFP 2863
-enum NetIfOperState {
-	NET_IF_OPER_STATE_UNKNOWN = 0;
-	NET_IF_OPER_STATE_NOTPRESENT = 1;     // Hardware not present
-	NET_IF_OPER_STATE_DOWN = 2;           // Interface is down
-	NET_IF_OPER_STATE_LOWERLAYERDOWN = 3; // Lower layer interface is down - not likely ever used in this case
-	NET_IF_OPER_STATE_TESTING = 4;         // Training mode
-	NET_IF_OPER_STATE_DORMANT = 5;        // Waiting external action (eg. Wi-Fi connection)
-	NET_IF_OPER_STATE_UP = 6;             // Interface is up and ready to rock-n-roll
-}
-
-message NetworkInterface {
-  // Index to L2 device
-  uint32 index = 1;
-  // Network interface type
-  NetIfType net_if_type = 2;
-  // MAC-address (lower 48 bits)
-  bytes mac_address = 3;
-  // Supports Zephyr TCP/IP offload
-  bool offload_supported = 4;
-  // Link layer MTU size
-  uint32 mtu = 5;
-}

@@ -1,0 +1,494 @@
+syntax = "proto3";
+
+package embedded_wifi_mgmt;
+
+// -----------------------------------------------------------------------------
+// Network Interface Management (L2) Requests and Responses mapping to
+// Zephyr net_if API:
+// https://docs.zephyrproject.org/latest/doxygen/html/group__net__if.html
+// -----------------------------------------------------------------------------
+
+// ---- Common IP address types ------------------------------------------------
+
+// IPv4 address (4 bytes, network byte order)
+message IPv4Address {
+  bytes addr = 1;
+}
+
+// IPv6 address (16 bytes, network byte order)
+message IPv6Address {
+  bytes addr = 1;
+}
+
+// ---- Enumerations -----------------------------------------------------------
+
+// Network interface type
+enum NetIfType {
+  NET_IF_TYPE_UNKNOWN = 0;
+  NET_IF_TYPE_WIFI = 1;
+  NET_IF_TYPE_OPENTHREAD = 2;
+}
+
+// Network interface operational state per RFC 2863 (net_if_oper_state)
+enum NetIfOperState {
+  NET_IF_OPER_STATE_UNKNOWN = 0;
+  NET_IF_OPER_STATE_NOTPRESENT = 1;      // Hardware not present
+  NET_IF_OPER_STATE_DOWN = 2;            // Interface is down
+  NET_IF_OPER_STATE_LOWERLAYERDOWN = 3;  // Lower layer interface is down
+  NET_IF_OPER_STATE_TESTING = 4;         // Testing mode
+  NET_IF_OPER_STATE_DORMANT = 5;         // Waiting external action (e.g. Wi-Fi association)
+  NET_IF_OPER_STATE_UP = 6;              // Interface is up and running
+}
+
+// Network interface flags (net_if_flag)
+enum NetIfFlag {
+  NET_IF_FLAG_UP = 0;                   // Interface is admin up
+  NET_IF_FLAG_POINTOPOINT = 1;          // Point-to-point interface
+  NET_IF_FLAG_PROMISC = 2;              // Promiscuous mode
+  NET_IF_FLAG_NO_AUTO_START = 3;        // Do not auto-start after init
+  NET_IF_FLAG_SUSPENDED = 4;            // Interface is suspended (power management)
+  NET_IF_FLAG_FORWARD_MULTICASTS = 5;   // Forward received multicasts from other interfaces
+  NET_IF_FLAG_IPV4 = 6;                 // Interface supports IPv4
+  NET_IF_FLAG_IPV6 = 7;                 // Interface supports IPv6
+  NET_IF_FLAG_RUNNING = 8;              // Interface up and running (ready to tx/rx)
+  NET_IF_FLAG_LOWER_UP = 9;             // Driver signals L1 is up
+  NET_IF_FLAG_DORMANT = 10;             // Driver signals dormant
+  NET_IF_FLAG_IPV6_NO_ND = 11;          // IPv6 Neighbor Discovery disabled
+  NET_IF_FLAG_IPV6_NO_MLD = 12;         // IPv6 Multicast Listener Discovery disabled
+  NET_IF_FLAG_NO_TX_LOCK = 13;          // TX mutex locking disabled
+}
+
+// IP address assignment type (net_addr_type)
+enum NetAddrType {
+  NET_ADDR_TYPE_ANY = 0;
+  NET_ADDR_TYPE_AUTOCONF = 1;    // Stateless address autoconfiguration
+  NET_ADDR_TYPE_DHCP = 2;        // Assigned via DHCP
+  NET_ADDR_TYPE_MANUAL = 3;      // Manually configured
+  NET_ADDR_TYPE_OVERRIDABLE = 4; // Can be overridden by DHCP/autoconf
+}
+
+// IP address state (net_addr_state)
+enum NetAddrState {
+  NET_ADDR_STATE_ANY = 0;
+  NET_ADDR_STATE_TENTATIVE = 1;   // DAD in progress, address not yet usable
+  NET_ADDR_STATE_PREFERRED = 2;   // Address is preferred and usable
+  NET_ADDR_STATE_DEPRECATED = 3;  // Address is deprecated but still valid
+}
+
+// ---- Interface Information --------------------------------------------------
+
+// Full network interface descriptor
+message NetworkInterface {
+  // Interface index (net_if_get_by_iface / net_if_get_by_index)
+  uint32 index = 1;
+  // Network interface type
+  NetIfType net_if_type = 2;
+  // Link layer (MAC) address
+  bytes mac_address = 3;
+  // True if TCP/IP offloading is active (net_if_is_ip_offloaded)
+  bool offload_supported = 4;
+  // Link layer MTU in bytes (net_if_get_mtu)
+  uint32 mtu = 5;
+  // Interface name (net_if_get_name)
+  string name = 6;
+  // Operational state (net_if_oper_state)
+  NetIfOperState oper_state = 7;
+  // True if admin up (net_if_is_admin_up)
+  bool admin_up = 8;
+  // True if carrier present (net_if_is_carrier_ok)
+  bool carrier_ok = 9;
+  // True if dormant (net_if_is_dormant)
+  bool dormant = 10;
+  // True if promiscuous mode active (net_if_is_promisc)
+  bool promisc = 11;
+}
+
+// IPv4 unicast address and associated configuration
+message IPv4AddrInfo {
+  IPv4Address addr = 1;
+  IPv4Address netmask = 2;
+  NetAddrType addr_type = 3;
+  NetAddrState addr_state = 4;
+  bool is_infinite = 5;          // True if lifetime is infinite
+}
+
+// IPv6 unicast address and associated configuration
+message IPv6AddrInfo {
+  IPv6Address addr = 1;
+  NetAddrType addr_type = 2;
+  NetAddrState addr_state = 3;
+  bool is_infinite = 4;          // True if lifetime is infinite
+}
+
+// IPv6 prefix information (net_if_ipv6_prefix)
+message IPv6PrefixInfo {
+  IPv6Address prefix = 1;
+  uint32 len = 2;            // Prefix length in bits
+  uint32 lifetime_s = 3;     // Lifetime in seconds
+  bool is_infinite = 4;      // True if prefix never expires
+}
+
+// ---- Interface Enumeration Requests -----------------------------------------
+
+// Request network interfaces (maps to net_if_foreach / net_if_get_by_index)
+message RequestInterfaces {
+  // Filter by type; NET_IF_TYPE_UNKNOWN requests all types
+  NetIfType net_if_type = 1;
+  // Filter by index; 0 means no specific interface (return all matching)
+  uint32 index = 2;
+}
+
+message RequestInterfacesResponse {
+  repeated NetworkInterface net_ifs = 1;
+}
+
+// ---- Interface State Control ------------------------------------------------
+
+// Bring interface up or down (net_if_up / net_if_down)
+message SetIfaceAdminState {
+  uint32 index = 1;
+  bool admin_up = 2;   // true → net_if_up, false → net_if_down
+}
+
+// Signal carrier presence (net_if_carrier_on / net_if_carrier_off)
+message SetIfaceCarrierState {
+  uint32 index = 1;
+  bool carrier_on = 2; // true → carrier on, false → carrier off
+}
+
+// Mark interface dormant (net_if_dormant_on / net_if_dormant_off)
+message SetIfaceDormantState {
+  uint32 index = 1;
+  bool dormant = 2;
+}
+
+// Set or clear an interface flag (net_if_flag_set / net_if_flag_clear)
+message SetIfaceFlag {
+  uint32 index = 1;
+  NetIfFlag flag = 2;
+  bool set = 3;        // true → set flag, false → clear flag
+}
+
+// Query a single interface flag (net_if_flag_is_set)
+message GetIfaceFlag {
+  uint32 index = 1;
+  NetIfFlag flag = 2;
+}
+
+message GetIfaceFlagResponse {
+  NetIfFlag flag = 1;
+  bool is_set = 2;
+}
+
+// Get interface operational state (net_if_oper_state / net_if_oper_state_change_time)
+message GetIfaceOperState {
+  uint32 index = 1;
+}
+
+message GetIfaceOperStateResponse {
+  NetIfOperState oper_state = 1;
+  // Milliseconds since boot when state last changed; 0 if never changed
+  int64 change_time_ms = 2;
+}
+
+// Get interface name (net_if_get_name)
+message GetIfaceName {
+  uint32 index = 1;
+}
+
+message GetIfaceNameResponse {
+  string name = 1;
+}
+
+// Set interface name (net_if_set_name)
+message SetIfaceName {
+  uint32 index = 1;
+  string name = 2;
+}
+
+// Get interface MTU (net_if_get_mtu)
+message GetIfaceMtu {
+  uint32 index = 1;
+}
+
+message GetIfaceMtuResponse {
+  uint32 mtu = 1;
+}
+
+// Set interface MTU (net_if_set_mtu)
+message SetIfaceMtu {
+  uint32 index = 1;
+  uint32 mtu = 2;
+}
+
+// Set link (MAC) address (net_if_set_link_addr)
+message SetLinkAddr {
+  uint32 index = 1;
+  bytes addr = 2;    // Link layer address bytes
+  uint32 type = 3;   // net_link_type value
+}
+
+// Set or unset promiscuous mode (net_if_set_promisc / net_if_unset_promisc)
+message SetIfacePromisc {
+  uint32 index = 1;
+  bool enable = 2;
+}
+
+// ---- IPv4 Address Management ------------------------------------------------
+
+// Add a unicast IPv4 address (net_if_ipv4_addr_add)
+message AddIPv4Addr {
+  uint32 index = 1;
+  IPv4Address addr = 2;
+  NetAddrType addr_type = 3;
+  uint32 vlifetime_s = 4;    // Validity in seconds; 0 = infinite
+}
+
+// Remove a unicast IPv4 address (net_if_ipv4_addr_rm)
+message RmIPv4Addr {
+  uint32 index = 1;
+  IPv4Address addr = 2;
+}
+
+// Get all IPv4 configuration for an interface
+// (net_if_ipv4_addr_foreach, net_if_ipv4_get_gw, net_if_ipv4_get_ttl, etc.)
+message GetIPv4Config {
+  uint32 index = 1;
+}
+
+message GetIPv4ConfigResponse {
+  repeated IPv4AddrInfo addrs = 1;
+  repeated IPv4Address mcast_addrs = 2;
+  IPv4Address gateway = 3;
+  uint32 ttl = 4;
+  uint32 mcast_ttl = 5;
+}
+
+// Set IPv4 default gateway (net_if_ipv4_set_gw)
+message SetIPv4Gateway {
+  uint32 index = 1;
+  IPv4Address gw = 2;
+}
+
+// Set IPv4 netmask for an address (net_if_ipv4_set_netmask_by_addr)
+message SetIPv4Netmask {
+  uint32 index = 1;
+  IPv4Address addr = 2;
+  IPv4Address netmask = 3;
+}
+
+// Set IPv4 unicast or multicast TTL
+// (net_if_ipv4_set_ttl / net_if_ipv4_set_mcast_ttl)
+message SetIPv4TTL {
+  uint32 index = 1;
+  uint32 ttl = 2;
+  bool is_multicast = 3;
+}
+
+// Add IPv4 multicast group address (net_if_ipv4_maddr_add)
+message AddIPv4McastAddr {
+  uint32 index = 1;
+  IPv4Address addr = 2;
+}
+
+// Remove IPv4 multicast group address (net_if_ipv4_maddr_rm)
+message RmIPv4McastAddr {
+  uint32 index = 1;
+  IPv4Address addr = 2;
+}
+
+// Join or leave an IPv4 multicast group
+// (net_if_ipv4_maddr_join / net_if_ipv4_maddr_leave)
+message JoinLeaveIPv4McastAddr {
+  uint32 index = 1;
+  IPv4Address addr = 2;
+  bool join = 3;     // true → join, false → leave
+}
+
+// Add IPv4 router (net_if_ipv4_router_add)
+message AddIPv4Router {
+  uint32 index = 1;
+  IPv4Address addr = 2;
+  bool is_default = 3;
+  uint32 lifetime_s = 4;  // Router lifetime; 0 = never expires
+}
+
+// Remove IPv4 router (net_if_ipv4_router_rm)
+message RmIPv4Router {
+  uint32 index = 1;
+  IPv4Address addr = 2;
+}
+
+// ---- IPv6 Address Management ------------------------------------------------
+
+// Add a unicast IPv6 address (net_if_ipv6_addr_add)
+message AddIPv6Addr {
+  uint32 index = 1;
+  IPv6Address addr = 2;
+  NetAddrType addr_type = 3;
+  uint32 vlifetime_s = 4;    // Validity in seconds; 0 = infinite
+}
+
+// Remove a unicast IPv6 address (net_if_ipv6_addr_rm)
+message RmIPv6Addr {
+  uint32 index = 1;
+  IPv6Address addr = 2;
+}
+
+// Get all IPv6 configuration for an interface
+// (net_if_ipv6_addr_foreach, net_if_ipv6_maddr_foreach, etc.)
+message GetIPv6Config {
+  uint32 index = 1;
+}
+
+message GetIPv6ConfigResponse {
+  repeated IPv6AddrInfo addrs = 1;
+  repeated IPv6Address mcast_addrs = 2;
+  repeated IPv6PrefixInfo prefixes = 3;
+  uint32 hop_limit = 4;           // net_if_ipv6_get_hop_limit
+  uint32 mcast_hop_limit = 5;     // net_if_ipv6_get_mcast_hop_limit
+  uint32 reachable_time_ms = 6;   // net_if_ipv6_get_reachable_time
+  uint32 retrans_timer_ms = 7;    // net_if_ipv6_get_retrans_timer
+}
+
+// Add an IPv6 prefix (net_if_ipv6_prefix_add)
+message AddIPv6Prefix {
+  uint32 index = 1;
+  IPv6Address prefix = 2;
+  uint32 len = 3;         // Prefix length in bits
+  uint32 lifetime_s = 4;  // Seconds; 0 = infinite
+}
+
+// Remove an IPv6 prefix (net_if_ipv6_prefix_rm)
+message RmIPv6Prefix {
+  uint32 index = 1;
+  IPv6Address prefix = 2;
+  uint32 len = 3;
+}
+
+// Add IPv6 multicast group address (net_if_ipv6_maddr_add)
+message AddIPv6McastAddr {
+  uint32 index = 1;
+  IPv6Address addr = 2;
+}
+
+// Remove IPv6 multicast group address (net_if_ipv6_maddr_rm)
+message RmIPv6McastAddr {
+  uint32 index = 1;
+  IPv6Address addr = 2;
+}
+
+// Join or leave an IPv6 multicast group
+// (net_if_ipv6_maddr_join / net_if_ipv6_maddr_leave)
+message JoinLeaveIPv6McastAddr {
+  uint32 index = 1;
+  IPv6Address addr = 2;
+  bool join = 3;     // true → join, false → leave
+}
+
+// Add IPv6 router (net_if_ipv6_router_add)
+message AddIPv6Router {
+  uint32 index = 1;
+  IPv6Address addr = 2;
+  bool is_default = 3;
+  uint32 lifetime_s = 4;  // Router lifetime; 0 = never expires
+}
+
+// Remove IPv6 router (net_if_ipv6_router_rm)
+message RmIPv6Router {
+  uint32 index = 1;
+  IPv6Address addr = 2;
+}
+
+// Set IPv6 unicast or multicast hop limit
+// (net_if_ipv6_set_hop_limit / net_if_ipv6_set_mcast_hop_limit)
+message SetIPv6HopLimit {
+  uint32 index = 1;
+  uint32 hop_limit = 2;
+  bool is_multicast = 3;
+}
+
+// Set IPv6 neighbor reachability base time (net_if_ipv6_set_base_reachable_time)
+message SetIPv6ReachableTime {
+  uint32 index = 1;
+  uint32 reachable_time_ms = 2;
+}
+
+// Set IPv6 retransmit timer (net_if_ipv6_set_retrans_timer)
+message SetIPv6RetransTimer {
+  uint32 index = 1;
+  uint32 retrans_timer_ms = 2;
+}
+
+// ---- Top-level Request / Response -------------------------------------------
+
+// Top-level request (host → device)
+message NetIfRequest {
+  uint32 request_id = 1;
+
+  oneof payload {
+    // --- Interface enumeration ---
+    // net_if_foreach / net_if_get_by_index / net_if_get_by_name
+    RequestInterfaces get_interfaces = 2;
+
+    // --- Interface state ---
+    SetIfaceAdminState   set_admin_state   = 3;   // net_if_up / net_if_down
+    SetIfaceCarrierState set_carrier_state = 4;   // net_if_carrier_on/off
+    SetIfaceDormantState set_dormant_state = 5;   // net_if_dormant_on/off
+    SetIfaceFlag         set_flag          = 6;   // net_if_flag_set/clear
+    GetIfaceFlag         get_flag          = 7;   // net_if_flag_is_set
+    GetIfaceOperState    get_oper_state    = 8;   // net_if_oper_state
+    GetIfaceName         get_name          = 9;   // net_if_get_name
+    SetIfaceName         set_name          = 10;  // net_if_set_name
+    GetIfaceMtu          get_mtu           = 11;  // net_if_get_mtu
+    SetIfaceMtu          set_mtu           = 12;  // net_if_set_mtu
+    SetLinkAddr          set_link_addr     = 13;  // net_if_set_link_addr
+    SetIfacePromisc      set_promisc       = 14;  // net_if_set/unset_promisc
+
+    // --- IPv4 address management ---
+    AddIPv4Addr           add_ipv4_addr         = 15; // net_if_ipv4_addr_add
+    RmIPv4Addr            rm_ipv4_addr          = 16; // net_if_ipv4_addr_rm
+    GetIPv4Config         get_ipv4_config       = 17; // net_if_ipv4_addr_foreach + getters
+    SetIPv4Gateway        set_ipv4_gw           = 18; // net_if_ipv4_set_gw
+    SetIPv4Netmask        set_ipv4_netmask      = 19; // net_if_ipv4_set_netmask_by_addr
+    SetIPv4TTL            set_ipv4_ttl          = 20; // net_if_ipv4_set_ttl/mcast_ttl
+    AddIPv4McastAddr      add_ipv4_mcast_addr   = 21; // net_if_ipv4_maddr_add
+    RmIPv4McastAddr       rm_ipv4_mcast_addr    = 22; // net_if_ipv4_maddr_rm
+    JoinLeaveIPv4McastAddr join_leave_ipv4_mcast = 23; // net_if_ipv4_maddr_join/leave
+    AddIPv4Router         add_ipv4_router       = 24; // net_if_ipv4_router_add
+    RmIPv4Router          rm_ipv4_router        = 25; // net_if_ipv4_router_rm
+
+    // --- IPv6 address management ---
+    AddIPv6Addr            add_ipv6_addr          = 26; // net_if_ipv6_addr_add
+    RmIPv6Addr             rm_ipv6_addr           = 27; // net_if_ipv6_addr_rm
+    GetIPv6Config          get_ipv6_config        = 28; // net_if_ipv6_addr_foreach + getters
+    AddIPv6Prefix          add_ipv6_prefix        = 29; // net_if_ipv6_prefix_add
+    RmIPv6Prefix           rm_ipv6_prefix         = 30; // net_if_ipv6_prefix_rm
+    AddIPv6McastAddr       add_ipv6_mcast_addr    = 31; // net_if_ipv6_maddr_add
+    RmIPv6McastAddr        rm_ipv6_mcast_addr     = 32; // net_if_ipv6_maddr_rm
+    JoinLeaveIPv6McastAddr join_leave_ipv6_mcast  = 33; // net_if_ipv6_maddr_join/leave
+    AddIPv6Router          add_ipv6_router        = 34; // net_if_ipv6_router_add
+    RmIPv6Router           rm_ipv6_router         = 35; // net_if_ipv6_router_rm
+    SetIPv6HopLimit        set_ipv6_hop_limit     = 36; // net_if_ipv6_set_hop_limit/mcast
+    SetIPv6ReachableTime   set_ipv6_reachable     = 37; // net_if_ipv6_set_base_reachable_time
+    SetIPv6RetransTimer    set_ipv6_retrans_timer = 38; // net_if_ipv6_set_retrans_timer
+  }
+}
+
+// Top-level response (device → host)
+message NetIfResponse {
+  uint32 request_id = 1;
+  // 0 = success; negative errno value on error (e.g. -EINVAL, -ENODEV)
+  int32  status = 2;
+
+  oneof payload {
+    RequestInterfacesResponse interfaces  = 3;
+    GetIfaceFlagResponse      flag        = 4;
+    GetIfaceOperStateResponse oper_state  = 5;
+    GetIfaceNameResponse      name        = 6;
+    GetIfaceMtuResponse       mtu         = 7;
+    GetIPv4ConfigResponse     ipv4_config = 8;
+    GetIPv6ConfigResponse     ipv6_config = 9;
+  }
+}
+

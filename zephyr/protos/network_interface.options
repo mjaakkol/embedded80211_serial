@@ -1,0 +1,71 @@
+# nanopb options for network_interface.proto
+# Sizes are derived from Zephyr net_if.h API constraints and default Kconfig values.
+# Adjust the max_count/max_size values to match your project's Kconfig if you
+# increase CONFIG_NET_IF_MAX_IPV4_COUNT, CONFIG_NET_IF_MAX_IPV6_COUNT, etc.
+
+# ---------------------------------------------------------------------------
+# IPv4Address / IPv6Address wrappers
+# ---------------------------------------------------------------------------
+
+# IPv4 address: always 4 bytes (struct in_addr)
+embedded_wifi_mgmt.IPv4Address.addr            max_size:4  fixed_length:true
+
+# IPv6 address: always 16 bytes (struct in6_addr)
+embedded_wifi_mgmt.IPv6Address.addr            max_size:16 fixed_length:true
+
+# ---------------------------------------------------------------------------
+# NetworkInterface descriptor
+# ---------------------------------------------------------------------------
+
+# MAC address: 6 bytes (EUI-48)
+embedded_wifi_mgmt.NetworkInterface.mac_address  max_size:6 fixed_length:true
+
+# Interface name: Zephyr IFNAMSIZ is 16, including NUL terminator → 15 chars usable
+embedded_wifi_mgmt.NetworkInterface.name         max_size:16
+
+# ---------------------------------------------------------------------------
+# Interface enumeration response
+# ---------------------------------------------------------------------------
+
+# Number of reported interfaces:
+# Typical Zephyr embedded target has 1-2; 4 covers Wi-Fi STA + SAP + Ethernet + OT
+embedded_wifi_mgmt.RequestInterfacesResponse.net_ifs   max_count:4
+
+# ---------------------------------------------------------------------------
+# Interface name request/response
+# ---------------------------------------------------------------------------
+
+embedded_wifi_mgmt.GetIfaceNameResponse.name   max_size:16
+embedded_wifi_mgmt.SetIfaceName.name           max_size:16
+
+# ---------------------------------------------------------------------------
+# Link (MAC) address set
+# ---------------------------------------------------------------------------
+
+# Link address: 6 bytes for Ethernet/Wi-Fi (EUI-48); 8 bytes for IEEE 802.15.4 (EUI-64).
+# Use 8 to cover both.
+embedded_wifi_mgmt.SetLinkAddr.addr            max_size:8
+
+# ---------------------------------------------------------------------------
+# IPv4 configuration response (per interface)
+# ---------------------------------------------------------------------------
+
+# Unicast IPv4 addresses: default CONFIG_NET_IF_MAX_IPV4_COUNT=1, allow up to 4
+embedded_wifi_mgmt.GetIPv4ConfigResponse.addrs          max_count:4
+
+# Multicast IPv4 groups: default CONFIG_NET_IF_MAX_IPV4_MADDR=1, allow up to 4
+embedded_wifi_mgmt.GetIPv4ConfigResponse.mcast_addrs    max_count:4
+
+# ---------------------------------------------------------------------------
+# IPv6 configuration response (per interface)
+# ---------------------------------------------------------------------------
+
+# Unicast IPv6 addresses: default CONFIG_NET_IF_MAX_IPV6_COUNT=3 (LL + global + tentative)
+embedded_wifi_mgmt.GetIPv6ConfigResponse.addrs          max_count:4
+
+# Multicast IPv6 groups: default CONFIG_NET_IF_MAX_IPV6_MADDR=1, allow up to 6
+# (solicited-node per unicast addr + all-nodes + all-routers + user groups)
+embedded_wifi_mgmt.GetIPv6ConfigResponse.mcast_addrs    max_count:6
+
+# IPv6 prefixes: default CONFIG_NET_IF_MAX_IPV6_PREFIX_COUNT=2, allow up to 4
+embedded_wifi_mgmt.GetIPv6ConfigResponse.prefixes       max_count:4
