@@ -24,4 +24,10 @@ zephyr_udc0: &usbd {
      chosen {
          zephyr,console = &cdc_serial_uart2;
      };
+
+     vserial: virtual-serial {
+         compatible = "nordic,vserial";
+         status = "okay";
+         label = "VSERIAL";
+     };
 };

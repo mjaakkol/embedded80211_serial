@@ -80,6 +80,33 @@ config SERIAL_HOST_ROLE
 	  Zephyr networking stack.
 endchoice
 
+# Virtual serial over protocol configuration
+config VSERIAL_ENABLE
+	bool "Enable virtual serial device over common link protocol"
+	default y
+	help
+	  Enable a virtual serial device that operates over the common link protocol.
+	  This exposes serial port semantics over the protocol, with support for
+	  baud rate, stop bits, and parity shadowing for readback compatibility.
+
+if VSERIAL_ENABLE
+
+config VSERIAL_RX_BUF_SIZE
+	int "Virtual serial RX buffer size"
+	default 256
+	range 64 4096
+	help
+	  Size of the receive ring buffer for virtual serial data.
+
+config VSERIAL_TX_BUF_SIZE
+	int "Virtual serial TX buffer size"
+	default 256
+	range 64 4096
+	help
+	  Size of the transmit buffer for virtual serial data.
+
+endif # VSERIAL_ENABLE
+
 endmenu
 
 rsource "src/serial/Kconfig"
