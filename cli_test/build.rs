@@ -1,5 +1,5 @@
 use std::io::Result;
 fn main() -> Result<()> {
-    prost_build::compile_protos(&["../zephyr/protos/wifi.proto"], &["../zephyr/protos/"])?;
+    prost_build::compile_protos(&["../protos/wifi.proto"], &["../protos/"])?;
     Ok(())
 }
