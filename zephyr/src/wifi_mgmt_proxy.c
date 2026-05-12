@@ -2,15 +2,18 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/wifi_mgmt.h>
-#include <zephyr/sys/byteorder.h> // For potential byte order conversions if needed
-//#include <zephyr/sys/ring_buffer.h> // For ring buffer support
-#include <errno.h> // For error codes like EBADMSG, ENODEV, EINVAL, ENOTSUP
+#include <zephyr/sys/byteorder.h>
+#include <errno.h>
 
 #include <pb_decode.h>
 #include <pb_encode.h>
-#include "protos/wifi.pb.h" // Path to your generated nanopb header
+#include "protos/wifi.pb.h"
+#include "wifi_mgmt_proxy.h"
 
 LOG_MODULE_REGISTER(wifi_mgmt_proxy, LOG_LEVEL_INF);
+
+/* Serial device used for response TX, set by wifi_mgmt_proxy_set_device(). */
+static const struct device *wifi_mgmt_serial_dev;
 
 #define WIFI_MGMT_THREAD_STACK_SIZE 2048
 #define WIFI_MGMT_THREAD_PRIORITY 7
@@ -38,6 +41,11 @@ static uint8_t wifi_mgmt_tx_buffer[sizeof(embedded_wifi_mgmt_WifiMgmtResponse)];
 static uint8_t wifi_mgmt_rx_buffer[sizeof(embedded_wifi_mgmt_WifiMgmtRequest)];
 static size_t message_length;
 
+void wifi_mgmt_proxy_set_device(const struct device *dev)
+{
+    wifi_mgmt_serial_dev = dev;
+}
+
 static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint8_t *response_buffer, size_t* response_buffer_len_io);
 
 // --- WiFi Management Thread Entry Point ---
@@ -53,14 +61,34 @@ static void wifi_mgmt_thread_entry_point(void *p1, void *p2, void *p3)
         uint32_t event = k_event_wait(&wifi_mgmt_event, DATA_COMPLETE_EVENT, true, K_FOREVER);
 
         if (event & DATA_COMPLETE_EVENT) {
-            // Handle the complete message received
             LOG_INF("Data complete event received, length: %zu", message_length);
 
-            size_t response_length = 0; // Length of the response to be filled by processing function
+            size_t response_length = sizeof(wifi_mgmt_tx_buffer);
 
-            process_wifi_mgmt_request(wifi_mgmt_rx_buffer, message_length, wifi_mgmt_tx_buffer, &response_length);
+            process_wifi_mgmt_request(wifi_mgmt_rx_buffer, message_length,
+                                      wifi_mgmt_tx_buffer, &response_length);
 
-            // Send the response out.
+            /* Transmit response over serial if we have a device and a payload. */
+            if (wifi_mgmt_serial_dev != NULL && response_length > 0) {
+                extern uint8_t serial_get_tx_sequence_number(void);
+                extern void serial_advance_tx_sequence_number(void);
+
+                struct SerialHeader hdr = {
+                    .type = SERIAL_TYPE_WIFI_MGMT,
+                    .no_ack = false,
+                    .host = true,
+                    .error = ERROR_TYPE_NO_ERROR,
+                    .reserved = 0,
+                    .sequence_number = serial_get_tx_sequence_number(),
+                    .length = sys_cpu_to_be16((uint16_t)response_length),
+                };
+                WIFI_MGMT_TX(wifi_mgmt_serial_dev, (const uint8_t *)&hdr, sizeof(hdr));
+                WIFI_MGMT_TX(wifi_mgmt_serial_dev, wifi_mgmt_tx_buffer, response_length);
+                serial_advance_tx_sequence_number();
+            }
+
+            /* Reset RX buffer for next message. */
+            message_length = 0;
         }
     }
 }

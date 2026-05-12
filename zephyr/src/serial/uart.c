@@ -4,6 +4,8 @@
 #include <zephyr/logging/log.h>
 
 #include "serial.h"
+#include "../wifi_mgmt_proxy.h"
+#include "../net_if_mgmt_proxy.h"
 
 LOG_MODULE_REGISTER(serial_uart);
 
@@ -28,6 +30,9 @@ int  init_uart(void)
     ring_buf_init(&config_serial_uart.rx_ringbuf, sizeof(rx_buffer), rx_buffer);
 
     initialize_uart(&config_serial_uart);
+
+    wifi_mgmt_proxy_set_device(uart_dev);
+    net_if_mgmt_proxy_set_device(uart_dev);
 
     LOG_INF("UART initialized successfully");
 

@@ -39,6 +39,10 @@ target_sources(app PRIVATE
 	src/wifi_mgmt_proxy.c
 	src/config.c
 	src/wifi_data.c
+	src/net_if_mgmt_proxy.c
+	src/bt_proxy.c
+	src/ot_proxy.c
+	src/vserial.c
 )
 
 add_subdirectory(src/serial)

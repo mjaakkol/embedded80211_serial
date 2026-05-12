@@ -11,8 +11,6 @@ LOG_MODULE_REGISTER(serial, LOG_LEVEL_INF);
 
 K_MUTEX_DEFINE(serial_tx_mutex);
 
-#define SEQUENCE_NUMBER_WRAP 8// 3 bits for sequence number
-
 static uint8_t rx_sequence_number = 0;
 static uint8_t tx_sequence_number = 0;
 
@@ -87,12 +85,27 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
         case PARSING_STATE_LENGTH2:
             if (uart_fifo_read(dev, ((uint8_t *)&config->serial_header.length) + 1, 1) == 1) {
                 LOG_DBG("Received Serial Length (byte 2): %u", config->serial_header.length);
-                config->serial_header.length = sys_be16_to_cpu(config->serial_header.length); // Convert to host byte order
-                if (config->serial_header.length > 0) {
-                    config->parsing_state = PARSING_STATE_DATA;
+                config->serial_header.length = sys_be16_to_cpu(config->serial_header.length);
+                if (config->serial_header.length == 0) {
+                    LOG_ERR("Invalid Serial Length: 0");
+                    config->parsing_state = PARSING_STATE_TYPE;
+                } else if (config->serial_header.length > SERIAL_MAX_PAYLOAD_LEN) {
+                    LOG_ERR("Payload too long: %u > %u", config->serial_header.length,
+                            SERIAL_MAX_PAYLOAD_LEN);
+                    /* Send LENGTH_TOO_LONG error ACK */
+                    struct SerialHeader ack = {
+                        .type = config->serial_header.type,
+                        .no_ack = false,
+                        .host = true,
+                        .error = ERROR_TYPE_LENGTH_TOO_LONG,
+                        .reserved = 0,
+                        .sequence_number = config->serial_header.sequence_number,
+                        .length = sys_cpu_to_be16(0),
+                    };
+                    serial_data_tx(dev, (const uint8_t *)&ack, sizeof(ack));
+                    config->parsing_state = PARSING_STATE_TYPE;
                 } else {
-                    LOG_ERR("Invalid Serial Length: %u", config->serial_header.length);
-                    config->parsing_state = PARSING_STATE_TYPE; // Reset to start
+                    config->parsing_state = PARSING_STATE_DATA;
                 }
             } else {
                 LOG_ERR("Failed to read Serial Length byte 2");
@@ -110,6 +123,50 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
     }
 }
 
+static void send_ack(const struct device *dev, enum SerialType type,
+                     uint8_t sequence_number, enum ErrorType error)
+{
+    struct SerialHeader ack = {
+        .type = type,
+        .no_ack = false,
+        .host = true,
+        .error = error,
+        .reserved = 0,
+        .sequence_number = sequence_number,
+        .length = sys_cpu_to_be16(0),
+    };
+    serial_data_tx(dev, (const uint8_t *)&ack, sizeof(ack));
+}
+
+static void handle_protocol_info(const struct device *dev, uint8_t sequence_number)
+{
+    /* Protocol information response payload: version (1 byte), supported types bitmask
+     * (2 bytes, LE), next expected rx sequence number (1 byte). */
+    uint8_t payload[4];
+    payload[0] = SERIAL_PROTOCOL_VERSION;
+    payload[1] = (uint8_t)(SERIAL_SUPPORTED_TYPES_MASK & 0xFF);
+    payload[2] = (uint8_t)((SERIAL_SUPPORTED_TYPES_MASK >> 8) & 0xFF);
+    payload[3] = rx_sequence_number;
+
+    uint16_t len_be = sys_cpu_to_be16(sizeof(payload));
+    struct SerialHeader hdr = {
+        .type = SERIAL_TYPE_PROTOCOL_INFO,
+        .no_ack = false,
+        .host = true,
+        .error = ERROR_TYPE_NO_ERROR,
+        .reserved = 0,
+        .sequence_number = tx_sequence_number,
+        .length = len_be,
+    };
+
+    serial_data_tx(dev, (const uint8_t *)&hdr, sizeof(hdr));
+    serial_data_tx(dev, payload, sizeof(payload));
+
+    tx_sequence_number = (tx_sequence_number >= SEQUENCE_NUMBER_MAX) ? 0
+                         : tx_sequence_number + 1;
+    ARG_UNUSED(sequence_number);
+}
+
 static void serial_work_handler(struct k_work *work_item_ptr)
 {
     struct serial_config *config =
@@ -117,21 +174,58 @@ static void serial_work_handler(struct k_work *work_item_ptr)
 
     const struct device *dev = config->serial_dev;
 
-    // 1. Acquire technology specific buffer
-    // 2. Read data from UART into the buffer
-    // 3. Commit changes once all data is read
-    // 4a. If not all data is received, exit and wait for next interrupt
-    // 4b. If all data is received, process the buffer signaling to the
-    //receive technology that the buffer is ready
-
-    uint8_t* data_buffer;
+    uint8_t *data_buffer;
 
     while (config->bytes_read < config->serial_header.length) {
         size_t buffer_size = config->serial_header.length - config->bytes_read;
 
-        client_cb[config->type].acquire_buffer(&data_buffer, buffer_size);
+        /* Protocol Info frames are handled inline — no client buffer needed. */
+        if (config->serial_header.type == SERIAL_TYPE_PROTOCOL_INFO) {
+            uint8_t discard[64];
+            size_t to_read = MIN(buffer_size, sizeof(discard));
+            int n = uart_fifo_read(dev, discard, to_read);
+            if (n < 0) {
+                LOG_ERR("UART FIFO read error: %d", n);
+                break;
+            }
+            config->bytes_read += (size_t)n;
+            if (config->bytes_read >= config->serial_header.length) {
+                handle_protocol_info(dev, config->serial_header.sequence_number);
+            }
+            continue;
+        }
 
-        // Read data from UART into the buffer
+        /* Validate client callback is wired for this traffic type. */
+        if (config->type >= SERIAL_TYPE_UNKNOWN ||
+            client_cb[config->type].acquire_buffer == NULL) {
+            LOG_ERR("No buffer callback for type %d, dropping", config->type);
+            uint8_t discard[64];
+            size_t to_read = MIN(buffer_size, sizeof(discard));
+            int n = uart_fifo_read(dev, discard, to_read);
+            if (n < 0) {
+                break;
+            }
+            config->bytes_read += (size_t)n;
+            if (config->bytes_read >= config->serial_header.length) {
+                send_ack(dev, config->type, config->serial_header.sequence_number,
+                         ERROR_TYPE_LENGTH_TOO_LONG); /* reuse: unrecognised handler */
+                config->parsing_state = PARSING_STATE_TYPE;
+                config->type = SERIAL_TYPE_UNKNOWN;
+                config->bytes_read = 0;
+            }
+            continue;
+        }
+
+        if (!client_cb[config->type].acquire_buffer(&data_buffer, buffer_size)) {
+            LOG_ERR("Buffer acquisition failed for type %d", config->type);
+            send_ack(dev, config->type, config->serial_header.sequence_number,
+                     ERROR_TYPE_OUT_OF_BUFFERS);
+            config->parsing_state = PARSING_STATE_TYPE;
+            config->type = SERIAL_TYPE_UNKNOWN;
+            config->bytes_read = 0;
+            break;
+        }
+
         int bytes_read = uart_fifo_read(dev, data_buffer + config->bytes_read, buffer_size);
         if (bytes_read < 0) {
             LOG_ERR("UART FIFO read error: %d", bytes_read);
@@ -139,43 +233,46 @@ static void serial_work_handler(struct k_work *work_item_ptr)
         } else if (bytes_read == 0) {
             LOG_DBG("No more data available, waiting for next interrupt");
             break;
-        } else {
-            config->bytes_read += bytes_read;
+        }
 
-            if (config->bytes_read >= config->serial_header.length) {
-                // All data for this packet has been read
-                LOG_INF("Received complete packet of length %u", config->serial_header.length);
+        config->bytes_read += bytes_read;
 
-                // We cannot process the packet errors before as we have to read the entire packet first
+        if (config->bytes_read >= config->serial_header.length) {
+            LOG_INF("Received complete packet of length %u", config->serial_header.length);
 
-                // The host is not sending an error packet.
-                if (config->serial_header.error != ERROR_TYPE_NO_ERROR) {
-                    // We need to check that the sequence number is correct
-                    if (rx_sequence_number != config->serial_header.sequence_number) {
-                        LOG_ERR("Incorrect sequence number: expected %u, received %u",
-                                rx_sequence_number, config->serial_header.sequence_number);
-                        config->serial_header.error = ERROR_TYPE_INCORRECT_SEQUENCE_NUMBER;
-
-                        config->serial_header.sequence_number = rx_sequence_number;
-
-                        // We are not working TX and RX in parallel, so this is safe
-                        for (uint8_t* buf = (uint8_t*)&config->serial_header; buf < ((uint8_t*)&config->serial_header + sizeof(config->serial_header)); buf++) {
-                            uart_poll_out(dev, *buf);
-                        }
-                    } else {
-                        // Process the received data here
-                        client_cb[config->type].commit_data(bytes_read); // Complete the packet
-                        client_cb[config->type].message_complete(config->serial_header.length);
-                    }
-                    // Reset for next packet
-                    config->parsing_state = PARSING_STATE_TYPE;
-                    config->type = SERIAL_TYPE_UNKNOWN; // Reset type
-                    config->bytes_read = 0;
-                }
+            /* Validate sequence number. */
+            if (rx_sequence_number != config->serial_header.sequence_number) {
+                LOG_ERR("Incorrect sequence number: expected %u, received %u",
+                        rx_sequence_number, config->serial_header.sequence_number);
+                send_ack(dev, config->type, rx_sequence_number,
+                         ERROR_TYPE_INCORRECT_SEQUENCE_NUMBER);
+                /* Reset expected sequence to 0 per AGENTS spec. */
+                rx_sequence_number = 0;
             } else {
-                LOG_DBG("Read %d bytes, total bytes read: %zu", bytes_read, config->bytes_read);
-                client_cb[config->type].commit_data(bytes_read); // Not complete yet
+                /* Sequence OK — commit data and notify client. */
+                client_cb[config->type].commit_data(config->serial_header.length);
+                client_cb[config->type].message_complete(config->serial_header.length);
+
+                /* Advance and wrap rx sequence number. */
+                rx_sequence_number = (rx_sequence_number >= SEQUENCE_NUMBER_MAX) ? 0
+                                     : rx_sequence_number + 1;
+
+                /* Send ACK to host unless no_ack was requested. */
+                if (!config->serial_header.no_ack) {
+                    send_ack(dev, config->type,
+                             config->serial_header.sequence_number,
+                             ERROR_TYPE_NO_ERROR);
+                }
             }
+
+            /* Reset parser for next frame. */
+            config->parsing_state = PARSING_STATE_TYPE;
+            config->type = SERIAL_TYPE_UNKNOWN;
+            config->bytes_read = 0;
+        } else {
+            LOG_DBG("Read %d bytes, total: %zu/%u", bytes_read, config->bytes_read,
+                    config->serial_header.length);
+            client_cb[config->type].commit_data(bytes_read);
         }
     }
 
@@ -187,14 +284,23 @@ void initialize_uart(struct serial_config *config)
     LOG_INF("Initializing UART...");
     const struct device *dev = config->serial_dev;
 
-    k_work_init(&config->work_item, serial_work_handler); // Initialize work item, no handler set yet
+    k_work_init(&config->work_item, serial_work_handler);
 
-    // Set the interrupt callback function
     uart_irq_callback_user_data_set(dev, uart_irq_callback, config);
 
     LOG_INF("About to enable interrupts");
-    // Enable RX interrupts
     uart_irq_rx_enable(dev);
 
     LOG_INF("UART initialized and RX interrupts enabled");
+}
+
+uint8_t serial_get_tx_sequence_number(void)
+{
+    return tx_sequence_number;
+}
+
+void serial_advance_tx_sequence_number(void)
+{
+    tx_sequence_number = (tx_sequence_number >= SEQUENCE_NUMBER_MAX) ? 0
+                         : tx_sequence_number + 1;
 }

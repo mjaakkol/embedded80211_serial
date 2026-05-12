@@ -56,6 +56,30 @@ config WIFI_MGMT_BEARER_SERIAL_USB
 	  management interface using a USB connection.
 endchoice
 
+# Host/device role configuration
+choice SERIAL_ROLE
+	bool "Serial role selection"
+	default SERIAL_DEVICE_ROLE
+	help
+	  Select whether this node operates as an RCP device (responds to host
+	  commands over serial) or as a Zephyr host-driver (issues commands to a
+	  remote device over serial).
+
+config SERIAL_DEVICE_ROLE
+	bool "RCP device role"
+	help
+	  This node acts as a Radio Co-Processor device. It receives management
+	  and data frames from a host over the serial link and calls the
+	  corresponding Zephyr Wi-Fi / net_if / BT APIs.
+
+config SERIAL_HOST_ROLE
+	bool "Zephyr host-driver role"
+	help
+	  This node acts as the serial host driver. It sends management and data
+	  frames to a remote RCP device and exposes the results to the local
+	  Zephyr networking stack.
+endchoice
+
 endmenu
 
 rsource "src/serial/Kconfig"

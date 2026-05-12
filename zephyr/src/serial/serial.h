@@ -6,6 +6,15 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/ring_buffer.h>
 
+/* Wire protocol version. Bump when wire format changes are not backward compatible. */
+#define SERIAL_PROTOCOL_VERSION 2
+
+/* Maximum payload length per frame (AGENTS.md: max 4096 bytes). */
+#define SERIAL_MAX_PAYLOAD_LEN 4096U
+
+/* Sequence number wraps after 15 (4-bit range 0..15). */
+#define SEQUENCE_NUMBER_MAX 15U
+
 // Parsing states for serial data
 enum ParsingState {
     PARSING_STATE_TYPE,
@@ -15,27 +24,39 @@ enum ParsingState {
     PARSING_STATE_DATA,
 };
 
-// Serial types for different protocols
+// Serial types for different protocols (max 16 types, 4-bit field)
 enum SerialType {
-    SERIAL_TYPE_WIFI_MGMT,
-    SERIAL_TYPE_WIFI_DATA,
-    SERIAL_TYPE_HCI,
-    SERIAL_TYPE_THREAD,
-    SERIAL_TYPE_AT_CMD,
-    SERIAL_TYPE_UNKNOWN,
+    SERIAL_TYPE_WIFI_MGMT      = 0,
+    SERIAL_TYPE_WIFI_DATA      = 1,
+    SERIAL_TYPE_NET_IF_MGMT    = 2,  /* Network L2 interface management */
+    SERIAL_TYPE_HCI            = 3,  /* Bluetooth HCI */
+    SERIAL_TYPE_THREAD         = 4,  /* OpenThread Spinel */
+    SERIAL_TYPE_NET_OFFLOADING = 5,  /* Network offloading (reserved) */
+    SERIAL_TYPE_AT_CMD         = 6,  /* AT commands (reserved) */
+    SERIAL_TYPE_PROTOCOL_INFO  = 7,  /* Protocol information */
+    SERIAL_TYPE_VSERIAL        = 8,  /* Virtual serial interface */
+    SERIAL_TYPE_UNKNOWN        = 9,  /* Must be last — used as array size sentinel */
 };
 
-// Error types for serial communication
+/* Bitmask of supported traffic types for Protocol Information response. */
+#define SERIAL_SUPPORTED_TYPES_MASK ( \
+    (1U << SERIAL_TYPE_WIFI_MGMT)   | \
+    (1U << SERIAL_TYPE_WIFI_DATA)   | \
+    (1U << SERIAL_TYPE_NET_IF_MGMT) | \
+    (1U << SERIAL_TYPE_HCI)         | \
+    (1U << SERIAL_TYPE_THREAD)      | \
+    (1U << SERIAL_TYPE_PROTOCOL_INFO) | \
+    (1U << SERIAL_TYPE_VSERIAL))
+
+// Error types for serial communication (2-bit field, values 0..3)
 enum ErrorType {
-    ERROR_TYPE_NO_ERROR,
-    ERROR_TYPE_INCORRECT_SEQUENCE_NUMBER,
-    ERROR_TYPE_BUFFER_OVERFLOW,
-    ERROR_TYPE_RESERVED_1
+    ERROR_TYPE_NO_ERROR                  = 0,
+    ERROR_TYPE_INCORRECT_SEQUENCE_NUMBER = 1,
+    ERROR_TYPE_OUT_OF_BUFFERS            = 2,
+    ERROR_TYPE_LENGTH_TOO_LONG           = 3,  /* Also used for unrecognized command */
 };
 
 struct client_callbacks {
-    //int (*serial_tx)(const uint8_t *data, size_t len);
-    //int (*serial_rx)(const uint8_t *data, size_t len);
     bool (*acquire_buffer)(uint8_t **data, size_t len);
     void (*commit_data)(size_t len);
     void (*message_complete)(size_t len);
@@ -49,15 +70,15 @@ struct serial_config {
     enum ParsingState parsing_state;
     enum SerialType type;
     struct SerialHeader {
-        enum SerialType type: 4; // 4 bits for type
-        bool no_ack: 1; // No ACK flag
-        bool host: 1; // Host flag
-        uint8_t error: 2; // Error flag
-        uint8_t reserved: 5; // Reserved bits
-        uint8_t sequence_number: 3; // Sequence number for tracking packets
-        uint16_t length; // Length of the data payload
+        enum SerialType type: 4;     /* Traffic type (SerialType) */
+        bool no_ack: 1;              /* No ACK requested */
+        bool host: 1;                /* 1 = device→host direction */
+        uint8_t error: 2;            /* Error code (ErrorType) */
+        uint8_t reserved: 4;         /* Reserved, must be zero */
+        uint8_t sequence_number: 4;  /* Sequence number 0..15 */
+        uint16_t length;             /* Payload length in bytes */
     } serial_header;
-    //  Number of bytes read so far. This will be used to check if we have read the entire packet.
+    /* Number of bytes read so far for the current packet payload. */
     size_t bytes_read;
     struct ring_buf rx_ringbuf;
 };
@@ -69,6 +90,9 @@ int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len);
 
 int serial_usb_tx(const struct device *dev, const uint8_t *data, size_t len);
 int serial_uart_tx(const struct device *dev, const uint8_t *data, size_t len);
+
+uint8_t serial_get_tx_sequence_number(void);
+void serial_advance_tx_sequence_number(void);
 
 
 #endif // _SERIAL_H_
