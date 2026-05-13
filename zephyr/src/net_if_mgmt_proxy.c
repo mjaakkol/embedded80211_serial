@@ -7,7 +7,7 @@
 
 #include <pb_decode.h>
 #include <pb_encode.h>
-#include "protos/network_interface.pb.h"
+#include "network_interface.pb.h"
 #include "net_if_mgmt_proxy.h"
 
 LOG_MODULE_REGISTER(net_if_mgmt_proxy, LOG_LEVEL_INF);

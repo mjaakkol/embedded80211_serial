@@ -7,7 +7,7 @@
 
 #include <pb_decode.h>
 #include <pb_encode.h>
-#include "protos/wifi.pb.h"
+#include "wifi.pb.h"
 #include "wifi_mgmt_proxy.h"
 
 LOG_MODULE_REGISTER(wifi_mgmt_proxy, LOG_LEVEL_INF);
