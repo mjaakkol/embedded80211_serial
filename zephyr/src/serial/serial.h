@@ -7,7 +7,7 @@
 #include <zephyr/sys/ring_buffer.h>
 
 /* Wire protocol version. Bump when wire format changes are not backward compatible. */
-#define SERIAL_PROTOCOL_VERSION 2
+#define SERIAL_PROTOCOL_VERSION 1
 
 /* Maximum payload length per frame (AGENTS.md: max 4096 bytes). */
 #define SERIAL_MAX_PAYLOAD_LEN 4096U
@@ -37,16 +37,6 @@ enum SerialType {
     SERIAL_TYPE_VSERIAL        = 8,  /* Virtual serial interface */
     SERIAL_TYPE_UNKNOWN        = 9,  /* Must be last — used as array size sentinel */
 };
-
-/* Bitmask of supported traffic types for Protocol Information response. */
-#define SERIAL_SUPPORTED_TYPES_MASK ( \
-    (1U << SERIAL_TYPE_WIFI_MGMT)   | \
-    (1U << SERIAL_TYPE_WIFI_DATA)   | \
-    (1U << SERIAL_TYPE_NET_IF_MGMT) | \
-    (1U << SERIAL_TYPE_HCI)         | \
-    (1U << SERIAL_TYPE_THREAD)      | \
-    (1U << SERIAL_TYPE_PROTOCOL_INFO) | \
-    (1U << SERIAL_TYPE_VSERIAL))
 
 // Error types for serial communication (2-bit field, values 0..3)
 enum ErrorType {

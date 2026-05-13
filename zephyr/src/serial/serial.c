@@ -138,14 +138,34 @@ static void send_ack(const struct device *dev, enum SerialType type,
     serial_data_tx(dev, (const uint8_t *)&ack, sizeof(ack));
 }
 
+static uint16_t serial_get_supported_types_mask(void)
+{
+    uint16_t mask = 0;
+
+    for (int i = 0; i < SERIAL_TYPE_UNKNOWN; i++) {
+        if (client_cb[i].acquire_buffer != NULL &&
+            client_cb[i].commit_data != NULL &&
+            client_cb[i].message_complete != NULL) {
+            mask |= (uint16_t)(1U << i);
+        }
+    }
+
+    /* Protocol info is implemented in the serial layer itself. */
+    mask |= (uint16_t)(1U << SERIAL_TYPE_PROTOCOL_INFO);
+
+    return mask;
+}
+
 static void handle_protocol_info(const struct device *dev, uint8_t sequence_number)
 {
     /* Protocol information response payload: version (1 byte), supported types bitmask
      * (2 bytes, LE), next expected rx sequence number (1 byte). */
     uint8_t payload[4];
+    uint16_t supported_types = serial_get_supported_types_mask();
+
     payload[0] = SERIAL_PROTOCOL_VERSION;
-    payload[1] = (uint8_t)(SERIAL_SUPPORTED_TYPES_MASK & 0xFF);
-    payload[2] = (uint8_t)((SERIAL_SUPPORTED_TYPES_MASK >> 8) & 0xFF);
+    payload[1] = (uint8_t)(supported_types & 0xFF);
+    payload[2] = (uint8_t)((supported_types >> 8) & 0xFF);
     payload[3] = rx_sequence_number;
 
     uint16_t len_be = sys_cpu_to_be16(sizeof(payload));
