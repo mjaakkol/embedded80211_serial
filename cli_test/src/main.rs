@@ -1,9 +1,7 @@
-use std::io::{self, Write};
+use std::io::{Read, Write};
 use clap::{Parser, Subcommand};
 
-mod protocol;
-
-use protocol::{create_version_query, parse_version_response};
+use cli_test::protocol::{create_scan_query, create_version_query, parse_scan_response, parse_version_response};
 #[derive(Parser)]
 #[command(name = "cli-serial")]
 #[command(version = "1.0")]
@@ -31,7 +29,11 @@ enum Commands {
         list: bool,
     },
     List,
-    Version
+    Version,
+    Scan {
+        #[arg(short, long, default_value_t = 0)]
+        iface_index: u32,
+    },
 }
 
 
@@ -75,15 +77,36 @@ fn main() {
             let version_query = create_version_query();
             if let Err(e) = port.write_all(&version_query) {
                 eprintln!("Failed to write version query: {e}");
+                return;
             }
 
             let mut raw_response = vec![0; 64];
             if let Err(e) = port.read(raw_response.as_mut_slice()) {
                 eprintln!("Failed to read version response: {e}");
+                return;
             }
 
             let response = parse_version_response(&raw_response);
             println!("Version: {response}");
+        }
+        Commands::Scan { iface_index } => {
+            let scan_query = create_scan_query(iface_index);
+            if let Err(e) = port.write_all(&scan_query) {
+                eprintln!("Failed to write scan request: {e}");
+                return;
+            }
+
+            let mut raw_response = vec![0; 512];
+            match port.read(raw_response.as_mut_slice()) {
+                Ok(bytes_read) => {
+                    raw_response.truncate(bytes_read);
+                    let response = parse_scan_response(&raw_response);
+                    println!("{response}");
+                }
+                Err(e) => {
+                    eprintln!("Failed to read scan response: {e}");
+                }
+            }
         }
     }
 }
