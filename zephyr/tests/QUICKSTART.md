@@ -15,7 +15,7 @@ chmod +x build_tests.sh run_tests.sh
 ## What Gets Tested
 
 ✅ **Protocol Constants** (8 tests)
-- Protocol version = 2
+- Protocol version constant = 1
 - Max payload = 4096 bytes
 - Sequence numbers 0-15 (4-bit)
 - 10 traffic types
@@ -78,11 +78,12 @@ cd tests
 ### Option 2: Manual Build
 ```bash
 cd tests
-cmake -B build \
-  -DZephyr_DIR:PATH=/opt/nordic/ncs/v3.3.0/zephyr/cmake \
-  -DBOARD=native_sim .
-cmake --build build
-ctest -V --test-dir build
+export ZEPHYR_BASE=/opt/nordic/ncs/v3.3.0/zephyr
+export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/0c0f19d91c/opt/zephyr-sdk
+export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
+
+west build -p always -b qemu_cortex_m3 .
+(cd build/tests && west build -t run)
 ```
 
 ### Option 3: Run Specific Suite
@@ -143,17 +144,18 @@ pwd  # Should end in /cfg80211_serial/zephyr/tests
 ```bash
 export ZEPHYR_BASE=/opt/nordic/ncs/v3.3.0/zephyr
 export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/0c0f19d91c/opt/zephyr-sdk
+export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 ```
 
 ### Test Fails: "Sequence should wrap to 0 after max"
 **Issue:** TX sequence counter not wrapping correctly
-**Check:** `serial_get_tx_sequence_number()` and `serial_advance_tx_sequence_number()` in serial.c
+**Check:** sequence wrap logic and header sequence field handling in `sequence_number_test.c` and `serial.h`
 
 ## What Each Test File Tests
 
 ### protocol_test.c (8 tests)
 Tests protocol-level constants and structures defined in `serial.h`:
-- SERIAL_PROTOCOL_VERSION = 2
+- SERIAL_PROTOCOL_VERSION = 1
 - SERIAL_MAX_PAYLOAD_LEN = 4096
 - SEQUENCE_NUMBER_MAX = 15
 - SerialType enum (10 types)
@@ -171,14 +173,11 @@ Tests frame construction and wire format:
 - Reserved bit compliance
 - Endianness
 
-### sequence_number_test.c (11 tests)
-Tests sequence number management APIs:
-- `serial_get_tx_sequence_number()`
-- `serial_advance_tx_sequence_number()`
+### sequence_number_test.c (3 tests)
+Tests sequence number behavior invariants:
 - Wraparound at 15
-- Monotonicity over 20+ ops
-- Range 0-15 (4-bit) enforcement
-- Stress test (1000 ops)
+- Header sequence encode/decode
+- Per-config independence
 
 ### error_handling_test.c (16 tests)
 Tests error handling and validation:

@@ -3,7 +3,7 @@
 #
 # Usage: ./build_tests.sh [options]
 # Options:
-#   --board <board>   Specify Zephyr board (default: native_sim)
+#   --board <board>   Specify Zephyr board (default: qemu_cortex_m3)
 #   --clean           Remove build directory before building
 #   --verbose         Show full build output
 
@@ -11,7 +11,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
-BOARD="${BOARD:-native_sim}"
+BOARD="${BOARD:-qemu_cortex_m3}"
 CLEAN=0
 VERBOSE=0
 
@@ -42,8 +42,14 @@ echo "  Board: $BOARD"
 echo "  Build dir: $BUILD_DIR"
 
 # Set NCS environment
-export ZEPHYR_BASE=/opt/nordic/ncs/v3.3.0/zephyr
-export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/0c0f19d91c/opt/zephyr-sdk
+export ZEPHYR_BASE="${ZEPHYR_BASE:-/opt/nordic/ncs/v3.3.0/zephyr}"
+export ZEPHYR_SDK_INSTALL_DIR="${ZEPHYR_SDK_INSTALL_DIR:-/opt/nordic/ncs/toolchains/0c0f19d91c/opt/zephyr-sdk}"
+export ZEPHYR_TOOLCHAIN_VARIANT="${ZEPHYR_TOOLCHAIN_VARIANT:-zephyr}"
+
+if ! command -v west >/dev/null 2>&1; then
+    echo "ERROR: west not found in PATH"
+    exit 1
+fi
 
 # Clean if requested
 if [ $CLEAN -eq 1 ]; then
@@ -52,24 +58,18 @@ if [ $CLEAN -eq 1 ]; then
 fi
 
 # Build
-echo "Running CMake configuration..."
-cmake -B "$BUILD_DIR" \
-    -DBOARD="$BOARD" \
-    -DZephyr_DIR:PATH="$ZEPHYR_BASE/cmake" \
-    "$SCRIPT_DIR"
-
-echo "Building tests..."
+echo "Running west build..."
 if [ $VERBOSE -eq 1 ]; then
-    cmake --build "$BUILD_DIR" --verbose
+    west build -p always -b "$BOARD" "$SCRIPT_DIR" -v
 else
-    cmake --build "$BUILD_DIR"
+    west build -p always -b "$BOARD" "$SCRIPT_DIR"
 fi
 
 echo ""
 echo "✓ Build complete!"
 echo ""
-echo "Test binary: $BUILD_DIR/zephyr/zephyr.elf"
+echo "Test binary: $BUILD_DIR/tests/zephyr/zephyr.elf"
 echo ""
 echo "To run tests:"
-echo "  ctest -V --test-dir $BUILD_DIR"
+echo "  (cd $BUILD_DIR/tests && west build -t run)"
 echo ""

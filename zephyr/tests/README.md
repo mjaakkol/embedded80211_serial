@@ -1,17 +1,17 @@
 # Common Link Protocol Test Suite
 
-This directory contains comprehensive unit tests for the Zephyr embedded 802.11 serial protocol implementation.
+This directory contains Zephyr unit tests for the embedded 802.11 serial common link protocol, including the multiplexer routing path.
 
 ## Test Files
 
 ### 1. **protocol_test.c** — Protocol Core
 Tests protocol constants, enums, and data structures:
-- Protocol version (v2 with 4-bit sequence numbers)
+- Protocol version constant
 - Maximum payload length (4096 bytes)
 - Sequence number range (0-15)
 - SerialType enum (10 traffic types)
 - ErrorType enum (4 error codes)
-- Supported types bitmask
+- Supported types bitmask via multiplexer API
 - SerialHeader bitfield structure and layout
 - Reserved bits compliance
 
@@ -45,17 +45,12 @@ Tests frame construction, serialization, and validation:
 - ✅ Direction indication
 - ✅ Endianness validation
 
-### 3. **sequence_number_test.c** — Sequence Number Management
-Tests TX sequence number tracking and protocol compliance:
-- Get/advance sequence number API
-- Sequence number fits in 4-bit field
-- Wraparound at boundary (15 → 0)
-- Monotonic increment through multiple cycles
-- Separate TX/RX sequence counters (mandate)
-- Initialization at zero (mandate)
-- Monotonicity over 1000+ operations
-- Sequence independence from traffic type
-- Rapid advance operations
+### 3. **sequence_number_test.c** — Sequence Number Behavior
+Tests sequence-number invariants and representation:
+- 4-bit range behavior
+- Wraparound math at boundary (15 → 0)
+- Header sequence encode/decode
+- Per-config sequence independence
 
 **Coverage:**
 - ✅ Sequence retrieval and advancement
@@ -88,40 +83,41 @@ Tests error codes, error responses, and error conditions:
 - ✅ No-ACK suppresses responses
 - ✅ Errors on all traffic types
 
+### 5. **multiplexer_link_protocol_test.c** — Multiplexer Link Protocol Path
+Single integrated test case that validates:
+- Protocol-info bit exposure in supported mask
+- Missing interface routing failure (-ENODEV)
+- Mock interface registration success
+- Successful routed send path with payload/type integrity checks
+
 ## Running the Tests
 
 ### Build Tests
 ```bash
 cd /Users/mikko/projects/cfg80211_serial/zephyr/tests
-cmake -B build -DZephyr_DIR:PATH=/opt/nordic/ncs/v3.3.0/zephyr/cmake
-cmake --build build
+export ZEPHYR_BASE=/opt/nordic/ncs/v3.3.0/zephyr
+export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/0c0f19d91c/opt/zephyr-sdk
+export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
+west build -p always -b qemu_cortex_m3 .
 ```
 
 ### Run on Emulator or Hardware
 ```bash
-# Run on QEMU (if board supports it)
-west test -d build
-
-# Or run directly with the test binary
-./build/zephyr/zephyr.elf
-```
-
-### Alternative: Use ztest directly
-```bash
-cd build
-ninja
-ctest -V
+# Run on QEMU
+cd build/tests
+west build -t run
 ```
 
 ## Test Statistics
 
 | Category | Tests | Lines of Code |
 |----------|-------|---------------|
-| Protocol Core | 8 | ~220 |
-| Frame Parsing | 12 | ~280 |
-| Sequence Numbers | 11 | ~320 |
-| Error Handling | 13 | ~320 |
-| **Total** | **44** | **~1140** |
+| Protocol Core | 11 | ~220 |
+| Frame Parsing | 13 | ~240 |
+| Sequence Numbers | 3 | ~90 |
+| Error Handling | 16 | ~250 |
+| Multiplexer Path | 1 | ~120 |
+| **Total** | **44** | **~920** |
 
 ## Test Assertions
 
@@ -159,9 +155,8 @@ From AGENTS.md, these requirements are tested:
 ## Known Limitations
 
 1. **No RX sequence counter tests** — Only TX counter is implemented in serial.h
-2. **No actual frame TX/RX** — Tests only cover structure/constants, not I/O
-3. **No traffic type client callbacks** — Tests don't verify full message routing
-4. **No protocol state machine** — Parsing state machine not unit-tested in detail
+2. **No full transport integration** — Tests focus on protocol/multiplexer logic rather than real serial hardware I/O
+3. **No protocol parser state-machine stepping** — Parsing transitions are covered by invariants, not full byte-stream simulation
 
 ## Future Test Enhancements
 
@@ -183,14 +178,10 @@ Tests are organized by complexity:
 ## Debugging Tests
 
 Enable verbose logging:
+Use ztest output from `west build -t run` and rerun with a pristine build when changing config:
 ```bash
-west build -t menuconfig  # Then enable LOG and ZTEST_ASSERT_VERBOSE
-```
-
-Run individual test:
-```bash
-# Via ztest
-ctest -V -R "test_protocol_version"
+west build -p always -b qemu_cortex_m3 .
+cd build/tests && west build -t run
 ```
 
 ## Compliance
@@ -201,4 +192,4 @@ These tests validate compliance with AGENTS.md specification:
 - ✅ Sequence number wrapping (0-15)
 - ✅ Error conditions (4 types, 2-bit encoding)
 - ✅ Protocol information response fields
-- ✅ Backward compatibility (v2 protocol)
+- ✅ Multiplexer routed send path (single integrated test case)

@@ -1,17 +1,17 @@
 # Common Link Protocol Test Case Reference
 
-Complete list of all test cases in the protocol test suite.
+Complete list of current test cases in the protocol test suite.
 
 ## Protocol Core Tests (protocol_test.c)
 
 | Test ID | Test Name | Purpose | Assertions |
 |---------|-----------|---------|-----------|
-| PRO-001 | `test_protocol_version` | Verify protocol version is 2 | Version = 2 |
+| PRO-001 | `test_protocol_version` | Verify protocol version constant | Version = 1 |
 | PRO-002 | `test_max_payload_length` | Verify max payload is 4096 bytes | Max = 4096 |
 | PRO-003 | `test_sequence_number_max` | Verify sequence wraps at 15 | SEQUENCE_NUMBER_MAX = 15 |
 | PRO-004 | `test_serial_type_enum_values` | Verify all SerialType enum values | 10 types, 0-9 in order |
 | PRO-005 | `test_error_type_enum_values` | Verify all ErrorType enum values | 4 error codes, 0-3 |
-| PRO-006 | `test_supported_types_mask` | Verify supported types bitmask | 7 types supported (no NET_OFFLOADING, AT_CMD) |
+| PRO-006 | `test_supported_types_mask` | Verify supported types bitmask API | Includes PROTOCOL_INFO bit |
 | PRO-007 | `test_serial_header_structure` | Verify SerialHeader bitfield layout | 4-byte struct, fields set correctly |
 | PRO-008 | `test_sequence_number_wraparound` | Verify sequence wraps after 15 | 15 → 0 wrapping |
 | PRO-009 | `test_parsing_state_enum` | Verify parsing state transitions | 5 states, 0-4 |
@@ -40,17 +40,15 @@ Complete list of all test cases in the protocol test suite.
 
 | Test ID | Test Name | Purpose | Assertions |
 |---------|-----------|---------|-----------|
-| SEQ-001 | `test_get_and_advance_sequence` | Get/advance API | Multiple reads same, after advance differs |
-| SEQ-002 | `test_sequence_in_4bit_range` | Sequence fits in 4 bits | Seq ≤ 15 |
-| SEQ-003 | `test_sequence_wraparound` | Test wraparound at max | 15 → 0 |
-| SEQ-004 | `test_sequence_increment_loop` | Multiple cycles | 32 increments (2 cycles of 16) |
-| SEQ-005 | `test_separate_tx_counter` | TX sequence is separate | TX counter valid |
-| SEQ-006 | `test_sequence_starts_at_zero` | Init at zero (AGENTS.md) | First seq valid |
-| SEQ-007 | `test_sequence_monotonicity` | Strictly increasing | 20+ increments monotonic |
-| SEQ-008 | `test_sequence_in_frame` | Frame header gets seq | Header.seq = counter |
-| SEQ-009 | `test_rapid_advance` | Stress test 1000 ops | All seqs valid |
-| SEQ-010 | `test_sequence_never_exceeds_max` | Never > 15 after any op | 1000+ ops never exceed |
-| SEQ-011 | `test_sequence_independent_of_type` | Seq independent of type | WiFi and NetIF same seq |
+| SEQ-001 | `test_sequence_wrap_math` | Test wraparound math at max | 15 → 0 after 16 steps |
+| SEQ-002 | `test_sequence_field_encode_decode` | Sequence in header field | Seq 0..15 round-trip in bitfield |
+| SEQ-003 | `test_sequence_per_config_independence` | Per-config sequence isolation | Two configs keep independent values |
+
+## Multiplexer Link Protocol Test (multiplexer_link_protocol_test.c)
+
+| Test ID | Test Name | Purpose | Assertions |
+|---------|-----------|---------|-----------|
+| MUX-001 | `test_multiplexer_link_protocol_single_case` | Integrated multiplexer route path | Protocol-info mask bit, route failure without iface, mock iface registration, routed send success and payload/config integrity |
 
 ## Error Handling Tests (error_handling_test.c)
 
@@ -75,77 +73,22 @@ Complete list of all test cases in the protocol test suite.
 
 ## Test Summary
 
-- **Total Tests:** 44
-- **Test Suites:** 4
-- **Lines of Test Code:** ~1,140
-- **Total Assertions:** 100+
-- **Coverage Areas:**
+- Total Tests: 44
+- Test Suites: 5
+- Coverage Areas:
   - Protocol constants and structures
   - Frame construction and parsing
-  - Sequence number management
+  - Sequence number behavior
+  - Multiplexer routed send path
   - Error handling and validation
 
-## Running Specific Tests
+## Running the Suite
 
-### By Suite
 ```bash
-ctest -R "protocol_core" -V --test-dir build
-ctest -R "frame_parsing" -V --test-dir build
-ctest -R "sequence_numbers" -V --test-dir build
-ctest -R "error_handling" -V --test-dir build
+export ZEPHYR_BASE=/opt/nordic/ncs/v3.3.0/zephyr
+export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/0c0f19d91c/opt/zephyr-sdk
+export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
+
+west build -p always -b qemu_cortex_m3 .
+cd build/tests && west build -t run
 ```
-
-### By Test Name
-```bash
-ctest -R "test_protocol_version" -V --test-dir build
-ctest -R "test_sequence_wraparound" -V --test-dir build
-```
-
-### All Tests with Verbose Output
-```bash
-ctest -V --test-dir build
-```
-
-## Test Coverage Matrix
-
-| Requirement | Protocol | Frames | Sequence | Error | Status |
-|-------------|----------|--------|----------|-------|--------|
-| Frame format ≤64 bits | ✓ | ✓ | — | — | ✓ |
-| Traffic types (10) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Payload length max 4096 | ✓ | ✓ | — | ✓ | ✓ |
-| Sequence 0-15 wrap | ✓ | ✓ | ✓ | — | ✓ |
-| Error codes (4) | ✓ | ✓ | — | ✓ | ✓ |
-| ACK with error | — | ✓ | — | ✓ | ✓ |
-| No-ACK flag | — | ✓ | — | — | ✓ |
-| Direction bit | — | ✓ | — | — | ✓ |
-| Reserved bits = 0 | — | ✓ | — | — | ✓ |
-| Protocol info response | ✓ | — | — | — | Partial |
-
-## Notes
-
-- **PRO-007:** Tests bitfield structure; actual wire format depends on endianness and compiler
-- **FRM-013:** Assumes little-endian CPU with big-endian length field (sys_cpu_to_be16)
-- **SEQ-006:** Tests init state; actual initialization verified at runtime
-- **ERR-010:** Unrecognized command uses LENGTH_TOO_LONG per AGENTS.md
-- **ERR-012:** no_ack flag prevents ACK responses (receiver behavior)
-
-## AGENTS.md Compliance
-
-These tests validate adherence to AGENTS.md requirements:
-
-✅ **Common Link Protocol (Mandatory)**
-- Frame format: header ≤64 bits, type/length/sequence fields
-- Payload: max 4096 bytes, 32-bit aligned (tested indirectly)
-- Sequence: 0-15 (4-bit), wrap-around
-- Error handling: 4 error codes, ACK with error field
-- Protocol info: version, types, sequence (structure tested)
-
-✅ **Technology-Specific (Mandatory)**
-- All 10 traffic types defined and testable
-- 7 types supported (no NET_OFFLOADING, AT_CMD)
-- Error handling for each type
-
-✅ **Compatibility (Mandatory)**
-- Protocol version 2 (4-bit sequence)
-- Backward compatibility maintained in test structure
-

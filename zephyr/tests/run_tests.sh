@@ -5,6 +5,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
+BOARD="${BOARD:-qemu_cortex_m3}"
 
 echo "========================================"
 echo "Common Link Protocol Test Suite Runner"
@@ -14,7 +15,7 @@ echo ""
 # Set NCS environment
 export ZEPHYR_BASE=${ZEPHYR_BASE:-/opt/nordic/ncs/v3.3.0/zephyr}
 export ZEPHYR_SDK_INSTALL_DIR=${ZEPHYR_SDK_INSTALL_DIR:-/opt/nordic/ncs/toolchains/0c0f19d91c/opt/zephyr-sdk}
-export CMAKE_PREFIX_PATH="${ZEPHYR_BASE}/cmake"
+export ZEPHYR_TOOLCHAIN_VARIANT=${ZEPHYR_TOOLCHAIN_VARIANT:-zephyr}
 
 if [ ! -d "$ZEPHYR_BASE" ]; then
     echo "ERROR: ZEPHYR_BASE not found at: $ZEPHYR_BASE"
@@ -22,41 +23,29 @@ if [ ! -d "$ZEPHYR_BASE" ]; then
     exit 1
 fi
 
-# Configure and build
-echo "Step 1: Configuring build..."
-cmake -B "$BUILD_DIR" \
-    -DBOARD=native_sim \
-    -DZephyr_DIR:PATH="$ZEPHYR_BASE/cmake" \
-    "$SCRIPT_DIR" || {
-    echo "ERROR: CMake configuration failed"
+if ! command -v west >/dev/null 2>&1; then
+    echo "ERROR: west not found in PATH"
     exit 1
-}
-
-echo ""
-echo "Step 2: Building tests..."
-cmake --build "$BUILD_DIR" || {
-    echo "ERROR: Build failed"
-    exit 1
-}
-
-echo ""
-echo "Step 3: Running tests..."
-echo "========================================"
-echo ""
-
-# Run tests with verbose output
-cd "$BUILD_DIR" || exit 1
-ctest -V --output-on-failure
-
-TEST_RESULT=$?
-
-echo ""
-echo "========================================"
-if [ $TEST_RESULT -eq 0 ]; then
-    echo "✓ All tests passed!"
-else
-    echo "✗ Some tests failed (exit code: $TEST_RESULT)"
 fi
+
+# Configure and build
+echo "Step 1: Building tests for board: $BOARD"
+west build -p always -b "$BOARD" "$SCRIPT_DIR" || {
+    echo "ERROR: west build failed"
+    exit 1
+}
+
+echo ""
+echo "Step 2: Running tests..."
+cd "$BUILD_DIR/tests" || exit 1
+west build -t run || {
+    echo "ERROR: Test run failed"
+    exit 1
+}
+
+echo ""
+echo "========================================"
+echo "✓ All tests passed!"
 echo "========================================"
 
-exit $TEST_RESULT
+exit 0

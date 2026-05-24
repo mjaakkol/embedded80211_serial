@@ -2,7 +2,7 @@
 
 ## Overview
 
-Comprehensive Zephyr unit test suite for the embedded 802.11 serial (cfg80211) common link protocol implementation. **44 test cases** covering protocol constants, frame structure, sequence management, and error handling.
+Comprehensive Zephyr unit test suite for the embedded 802.11 serial (cfg80211) common link protocol implementation. **44 test cases** covering protocol constants, frame structure, sequence behavior, error handling, and multiplexer routing.
 
 ## Quick Links
 
@@ -14,7 +14,7 @@ Comprehensive Zephyr unit test suite for the embedded 802.11 serial (cfg80211) c
 
 ```
 Total Tests:        44
-Test Code:          962 lines
+Test Code:          ~920 lines
 Documentation:      615 lines
 Expected Runtime:   <1 second
 AGENTS.md Coverage: 85%+ (core protocol)
@@ -34,7 +34,7 @@ Validates protocol-level constants and definitions:
 - SerialHeader bitfield structure
 
 **Key Tests:**
-- `test_protocol_version` — Version = 2
+- `test_protocol_version` — Version constant check
 - `test_max_payload_length` — 4096 bytes limit
 - `test_sequence_number_max` — Wraps at 15
 - `test_serial_type_enum_values` — All 10 types defined
@@ -63,31 +63,37 @@ Tests frame construction, serialization, and validation:
 
 ---
 
-### 3. Sequence Number Tests (11 tests)
+### 3. Sequence Number Tests (3 tests)
 **File:** `sequence_number_test.c`
 
-Tests TX sequence number management API:
-- `serial_get_tx_sequence_number()` function
-- `serial_advance_tx_sequence_number()` function
+Tests sequence behavior invariants:
 - Range enforcement (0-15, 4-bit field)
 - Wraparound at boundary (15 → 0)
-- Monotonic increment over multiple cycles
-- Separate TX/RX counter mandate
-- Initialization at zero
-- Rapid operation stress test (1000 ops)
-- Type-independence
+- Header field encode/decode
+- Per-config independence
 
 **Key Tests:**
-- `test_sequence_in_4bit_range` — Range 0-15
-- `test_sequence_wraparound` — 15 → 0
-- `test_sequence_increment_loop` — 32 increments
-- `test_rapid_advance` — 1000 operations
-- `test_sequence_monotonicity` — 20+ increments
+- `test_sequence_wrap_math` — 15 → 0
+- `test_sequence_field_encode_decode` — Header sequence field check
+- `test_sequence_per_config_independence` — Independent config state
 
 ---
 
-### 4. Error Handling Tests (16 tests)
+### 4. Multiplexer Link Protocol (1 test)
+**File:** `multiplexer_link_protocol_test.c`
+
+Single integrated test case for multiplexer behavior:
+- Supported type mask includes protocol-info bit
+- Unconfigured route fails with expected error
+- Mock interface registration succeeds
+- Routed send succeeds with payload/type/config integrity
+
+---
+
+### 5. Error Handling Tests (16 tests)
 **File:** `error_handling_test.c`
+
+---
 
 Tests error codes, error responses, and error conditions:
 - All error types (NO_ERROR=0, INCORRECT_SEQUENCE=1, OUT_OF_BUFFERS=2, LENGTH_TOO_LONG=3)
@@ -148,16 +154,15 @@ chmod +x run_tests.sh
 ```bash
 cd zephyr/tests
 
-# Configure
-cmake -B build \
-  -DZephyr_DIR:PATH=/opt/nordic/ncs/v3.3.0/zephyr/cmake \
-  -DBOARD=native_sim .
+export ZEPHYR_BASE=/opt/nordic/ncs/v3.3.0/zephyr
+export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/0c0f19d91c/opt/zephyr-sdk
+export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 
-# Build
-cmake --build build
+west build -p always -b qemu_cortex_m3 .
 
 # Run
-ctest -V --test-dir build
+cd build/tests
+west build -t run
 ```
 
 ### Run Specific Tests
@@ -232,12 +237,13 @@ Total:            1,613 lines
 
 ### Test Breakdown
 ```
-Protocol Core:       8 tests (18%)
-Frame Parsing:      13 tests (30%)
-Sequence:           11 tests (25%)
-Error Handling:     16 tests (36%)
+Protocol Core:       11 tests (25%)
+Frame Parsing:       13 tests (30%)
+Sequence:             3 tests (7%)
+Multiplexer:          1 test  (2%)
+Error Handling:      16 tests (36%)
                   ─────────────
-Total:             44 tests (100%)
+Total:               44 tests (100%)
 ```
 
 ### Assertions per Suite
@@ -254,8 +260,8 @@ Total:             ~105 assertions
 
 ## Supported Boards
 
-- ✅ **native_sim** (native POSIX emulator) — default
-- ✅ **QEMU boards** (if Zephyr configured for them)
+- ✅ **qemu_cortex_m3** (default)
+- ✅ **Other QEMU boards** (if Zephyr configured for them)
 - ✅ **Hardware boards** (nrf7002dk, nrf52840dk, etc.)
 
 Note: Tests only use Zephyr core APIs, no hardware drivers needed.
@@ -273,6 +279,7 @@ Set environment:
 ```bash
 export ZEPHYR_BASE=/opt/nordic/ncs/v3.3.0/zephyr
 export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/0c0f19d91c/opt/zephyr-sdk
+export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 ```
 
 ---
@@ -356,7 +363,7 @@ Full details → [TEST_REFERENCE.md](TEST_REFERENCE.md)
 ## Version Information
 
 - **Test Suite Version:** 1.0
-- **Protocol Version Tested:** 2 (4-bit sequences)
+- **Protocol Version Tested:** 1
 - **AGENTS.md Version:** Current (as of project start)
 - **Zephyr Version:** 3.3.0 (NCS)
 - **Last Updated:** May 11, 2026
