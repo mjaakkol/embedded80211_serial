@@ -52,13 +52,10 @@ struct client_callbacks {
     void (*message_complete)(size_t len);
 };
 
-extern struct client_callbacks client_cb[SERIAL_TYPE_UNKNOWN];
-
 struct serial_config {
     struct k_work work_item;
     const struct device *const serial_dev;
     enum ParsingState parsing_state;
-    enum SerialType type;
     struct SerialHeader {
         enum SerialType type: 4;     /* Traffic type (SerialType) */
         bool no_ack: 1;              /* No ACK requested */
@@ -70,6 +67,8 @@ struct serial_config {
     } serial_header;
     /* Number of bytes read so far for the current packet payload. */
     size_t bytes_read;
+    uint8_t rx_sequence_number;
+    uint8_t tx_sequence_number;
     struct ring_buf rx_ringbuf;
 };
 
@@ -78,11 +77,15 @@ struct serial_config {
 void initialize_uart(struct serial_config *config);
 int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len);
 
+int serial_send_frame(struct serial_config *config,
+                      enum SerialType type,
+                      enum ErrorType error,
+                      bool no_ack,
+                      const uint8_t *payload,
+                      size_t len);
+
 int serial_usb_tx(const struct device *dev, const uint8_t *data, size_t len);
 int serial_uart_tx(const struct device *dev, const uint8_t *data, size_t len);
-
-uint8_t serial_get_tx_sequence_number(void);
-void serial_advance_tx_sequence_number(void);
 
 
 #endif // _SERIAL_H_

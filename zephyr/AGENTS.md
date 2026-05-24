@@ -21,6 +21,8 @@ The Zephyr part of the project implements:
 ### Architecture
 - Serial interfaces (SDIO/USB/UART/SPI) must expose a common abstraction via shared headers.
 - Common link protocol behavior must remain transport-independent.
+- Common link protocol component shall be able to multiplex supported serial interface technologies over single interface.
+- There can be one or many serial interfaces supported by multiplexer.
 - Transport-specific adaptation must stay isolated from protocol core logic.
 - Wi-Fi management path must decode protobuf requests, call Zephyr Wi-Fi management APIs, and encode protobuf responses/events.
 - Wi-Fi data path should bypass management proxy logic and flow directly to Zephyr networking path.

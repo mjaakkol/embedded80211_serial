@@ -4,8 +4,7 @@
 #include <zephyr/logging/log.h>
 
 #include "serial.h"
-#include "../wifi_mgmt_proxy.h"
-#include "../net_if_mgmt_proxy.h"
+#include "../multiplexer.h"
 
 LOG_MODULE_REGISTER(serial_uart);
 
@@ -31,8 +30,9 @@ int  init_uart(void)
 
     initialize_uart(&config_serial_uart);
 
-    wifi_mgmt_proxy_set_device(uart_dev);
-    net_if_mgmt_proxy_set_device(uart_dev);
+    (void)serial_mux_register_interface(SERIAL_MUX_IFACE_UART,
+                                        uart_dev,
+                                        &config_serial_uart);
 
     LOG_INF("UART initialized successfully");
 

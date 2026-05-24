@@ -107,6 +107,159 @@ config VSERIAL_TX_BUF_SIZE
 
 endif # VSERIAL_ENABLE
 
+menu "Serial multiplexer"
+
+config SERIAL_PROTOCOL_MULTIPLEXER
+	bool "Enable serial protocol multiplexer"
+	default y
+	help
+	  Enable a technology multiplexer that maps protocol traffic types to
+	  selected serial interfaces. This allows routing one or many technology
+	  proxies over the same interface.
+
+if SERIAL_PROTOCOL_MULTIPLEXER
+
+config SERIAL_MUX_IFACE_UART
+	bool "Enable UART interface in multiplexer"
+	default y if SERIAL
+	depends on SERIAL
+	help
+	  Register the UART transport as a selectable interface target for
+	  technology proxy egress.
+
+config SERIAL_MUX_IFACE_USB
+	bool "Enable USB CDC ACM interface in multiplexer"
+	default y if USB_DEVICE_STACK
+	depends on USB_DEVICE_STACK
+	help
+	  Register the USB CDC ACM transport as a selectable interface target for
+	  technology proxy egress.
+
+config SERIAL_PROXY_WIFI_MGMT
+	bool "Enable Wi-Fi management proxy"
+	default y
+
+config SERIAL_PROXY_WIFI_DATA
+	bool "Enable Wi-Fi data proxy"
+	default y
+
+config SERIAL_PROXY_NET_IF_MGMT
+	bool "Enable net_if management proxy"
+	default y
+
+config SERIAL_PROXY_BT
+	bool "Enable Bluetooth HCI proxy"
+	default y
+
+config SERIAL_PROXY_OT
+	bool "Enable OpenThread/Spinel proxy"
+	default y
+
+config SERIAL_PROXY_VSERIAL
+	bool "Enable virtual serial proxy"
+	default y if VSERIAL_ENABLE
+	depends on VSERIAL_ENABLE
+
+choice SERIAL_MUX_WIFI_MGMT_IFACE
+	bool "Wi-Fi management egress interface"
+	depends on SERIAL_PROXY_WIFI_MGMT
+	default SERIAL_MUX_WIFI_MGMT_IFACE_USB if SERIAL_MUX_IFACE_USB
+	default SERIAL_MUX_WIFI_MGMT_IFACE_UART if SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_WIFI_MGMT_IFACE_UART
+	bool "UART"
+	depends on SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_WIFI_MGMT_IFACE_USB
+	bool "USB CDC ACM"
+	depends on SERIAL_MUX_IFACE_USB
+
+endchoice
+
+choice SERIAL_MUX_WIFI_DATA_IFACE
+	bool "Wi-Fi data egress interface"
+	depends on SERIAL_PROXY_WIFI_DATA
+	default SERIAL_MUX_WIFI_DATA_IFACE_USB if SERIAL_MUX_IFACE_USB
+	default SERIAL_MUX_WIFI_DATA_IFACE_UART if SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_WIFI_DATA_IFACE_UART
+	bool "UART"
+	depends on SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_WIFI_DATA_IFACE_USB
+	bool "USB CDC ACM"
+	depends on SERIAL_MUX_IFACE_USB
+
+endchoice
+
+choice SERIAL_MUX_NET_IF_MGMT_IFACE
+	bool "net_if management egress interface"
+	depends on SERIAL_PROXY_NET_IF_MGMT
+	default SERIAL_MUX_NET_IF_MGMT_IFACE_USB if SERIAL_MUX_IFACE_USB
+	default SERIAL_MUX_NET_IF_MGMT_IFACE_UART if SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_NET_IF_MGMT_IFACE_UART
+	bool "UART"
+	depends on SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_NET_IF_MGMT_IFACE_USB
+	bool "USB CDC ACM"
+	depends on SERIAL_MUX_IFACE_USB
+
+endchoice
+
+choice SERIAL_MUX_BT_IFACE
+	bool "Bluetooth HCI egress interface"
+	depends on SERIAL_PROXY_BT
+	default SERIAL_MUX_BT_IFACE_USB if SERIAL_MUX_IFACE_USB
+	default SERIAL_MUX_BT_IFACE_UART if SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_BT_IFACE_UART
+	bool "UART"
+	depends on SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_BT_IFACE_USB
+	bool "USB CDC ACM"
+	depends on SERIAL_MUX_IFACE_USB
+
+endchoice
+
+choice SERIAL_MUX_OT_IFACE
+	bool "OpenThread egress interface"
+	depends on SERIAL_PROXY_OT
+	default SERIAL_MUX_OT_IFACE_USB if SERIAL_MUX_IFACE_USB
+	default SERIAL_MUX_OT_IFACE_UART if SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_OT_IFACE_UART
+	bool "UART"
+	depends on SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_OT_IFACE_USB
+	bool "USB CDC ACM"
+	depends on SERIAL_MUX_IFACE_USB
+
+endchoice
+
+choice SERIAL_MUX_VSERIAL_IFACE
+	bool "Virtual serial egress interface"
+	depends on SERIAL_PROXY_VSERIAL
+	default SERIAL_MUX_VSERIAL_IFACE_USB if SERIAL_MUX_IFACE_USB
+	default SERIAL_MUX_VSERIAL_IFACE_UART if SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_VSERIAL_IFACE_UART
+	bool "UART"
+	depends on SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_VSERIAL_IFACE_USB
+	bool "USB CDC ACM"
+	depends on SERIAL_MUX_IFACE_USB
+
+endchoice
+
+endif # SERIAL_PROTOCOL_MULTIPLEXER
+
+endmenu
+
 endmenu
 
 rsource "src/serial/Kconfig"

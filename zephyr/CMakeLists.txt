@@ -36,13 +36,31 @@ target_include_directories(app PUBLIC src)
 
 target_sources(app PRIVATE
 	src/main.c
-	src/wifi_mgmt_proxy.c
-	src/config.c
-	src/wifi_data.c
-	src/net_if_mgmt_proxy.c
-	src/bt_proxy.c
-	src/ot_proxy.c
-	src/vserial.c
+	src/multiplexer.c
 )
+
+if(CONFIG_SERIAL_PROXY_WIFI_MGMT)
+	target_sources(app PRIVATE src/wifi_mgmt_proxy.c)
+endif()
+
+if(CONFIG_SERIAL_PROXY_WIFI_DATA)
+	target_sources(app PRIVATE src/wifi_data.c)
+endif()
+
+if(CONFIG_SERIAL_PROXY_NET_IF_MGMT)
+	target_sources(app PRIVATE src/net_if_mgmt_proxy.c)
+endif()
+
+if(CONFIG_SERIAL_PROXY_BT)
+	target_sources(app PRIVATE src/bt_proxy.c)
+endif()
+
+if(CONFIG_SERIAL_PROXY_OT)
+	target_sources(app PRIVATE src/ot_proxy.c)
+endif()
+
+if(CONFIG_SERIAL_PROXY_VSERIAL)
+	target_sources(app PRIVATE src/vserial.c)
+endif()
 
 add_subdirectory(src/serial)

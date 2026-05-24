@@ -18,9 +18,8 @@ if(CONFIG_USB_DEVICE_STACK)
     )
 endif()
 
-# Focusing in USB now
-#if(CONFIG_SERIAL)
-#    target_sources(app PRIVATE
-#        uart.c
-#    )
-#endif()
+if(CONFIG_SERIAL)
+    target_sources(app PRIVATE
+        uart.c
+    )
+endif()

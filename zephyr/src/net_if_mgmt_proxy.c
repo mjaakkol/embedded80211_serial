@@ -9,6 +9,7 @@
 #include <pb_encode.h>
 #include "network_interface.pb.h"
 #include "net_if_mgmt_proxy.h"
+#include "multiplexer.h"
 
 LOG_MODULE_REGISTER(net_if_mgmt_proxy, LOG_LEVEL_INF);
 
@@ -18,16 +19,9 @@ LOG_MODULE_REGISTER(net_if_mgmt_proxy, LOG_LEVEL_INF);
 
 K_EVENT_DEFINE(net_if_mgmt_event);
 
-static const struct device *net_if_mgmt_serial_dev;
-
 static uint8_t net_if_mgmt_rx_buffer[512];
 static uint8_t net_if_mgmt_tx_buffer[512];
 static size_t  message_length;
-
-void net_if_mgmt_proxy_set_device(const struct device *dev)
-{
-    net_if_mgmt_serial_dev = dev;
-}
 
 /* -------------------------------------------------------------------------- */
 /* Enumeration helper                                                          */
@@ -268,22 +262,13 @@ static void net_if_mgmt_thread_entry(void *p1, void *p2, void *p3)
         process_net_if_request(net_if_mgmt_rx_buffer, message_length,
                                net_if_mgmt_tx_buffer, &resp_len);
 
-        if (net_if_mgmt_serial_dev != NULL && resp_len > 0) {
-            extern uint8_t serial_get_tx_sequence_number(void);
-            extern void serial_advance_tx_sequence_number(void);
-
-            struct SerialHeader hdr = {
-                .type = SERIAL_TYPE_NET_IF_MGMT,
-                .no_ack = false,
-                .host = true,
-                .error = ERROR_TYPE_NO_ERROR,
-                .reserved = 0,
-                .sequence_number = serial_get_tx_sequence_number(),
-                .length = sys_cpu_to_be16((uint16_t)resp_len),
-            };
-            serial_data_tx(net_if_mgmt_serial_dev, (const uint8_t *)&hdr, sizeof(hdr));
-            serial_data_tx(net_if_mgmt_serial_dev, net_if_mgmt_tx_buffer, resp_len);
-            serial_advance_tx_sequence_number();
+        if (resp_len > 0) {
+            int tx_ret = serial_mux_send(SERIAL_TYPE_NET_IF_MGMT,
+                                         net_if_mgmt_tx_buffer,
+                                         resp_len);
+            if (tx_ret < 0) {
+                LOG_ERR("net_if_mgmt: response TX failed: %d", tx_ret);
+            }
         }
 
         message_length = 0;

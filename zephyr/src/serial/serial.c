@@ -4,15 +4,14 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/sys/crc.h>
 #include <zephyr/logging/log.h>
+#include <errno.h>
 
 #include "serial.h"
+#include "../multiplexer.h"
 
 LOG_MODULE_REGISTER(serial, LOG_LEVEL_INF);
 
 K_MUTEX_DEFINE(serial_tx_mutex);
-
-static uint8_t rx_sequence_number = 0;
-static uint8_t tx_sequence_number = 0;
 
 /**
  * @brief Writes a block of data to the specified UART device using polling.
@@ -33,6 +32,42 @@ int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len)
         uart_poll_out(dev, data[i]);
     }
     k_mutex_unlock(&serial_tx_mutex);
+
+    return 0;
+}
+
+int serial_send_frame(struct serial_config *config,
+                      enum SerialType type,
+                      enum ErrorType error,
+                      bool no_ack,
+                      const uint8_t *payload,
+                      size_t len)
+{
+    if (config == NULL || config->serial_dev == NULL) {
+        return -ENODEV;
+    }
+
+    if (len > SERIAL_MAX_PAYLOAD_LEN) {
+        return -EMSGSIZE;
+    }
+
+    struct SerialHeader hdr = {
+        .type = type,
+        .no_ack = no_ack,
+        .host = true,
+        .error = error,
+        .reserved = 0,
+        .sequence_number = config->tx_sequence_number,
+        .length = sys_cpu_to_be16((uint16_t)len),
+    };
+
+    serial_data_tx(config->serial_dev, (const uint8_t *)&hdr, sizeof(hdr));
+    if (payload != NULL && len > 0U) {
+        serial_data_tx(config->serial_dev, payload, len);
+    }
+
+    config->tx_sequence_number = (config->tx_sequence_number >= SEQUENCE_NUMBER_MAX) ? 0
+                                 : config->tx_sequence_number + 1;
 
     return 0;
 }
@@ -140,23 +175,10 @@ static void send_ack(const struct device *dev, enum SerialType type,
 
 static uint16_t serial_get_supported_types_mask(void)
 {
-    uint16_t mask = 0;
-
-    for (int i = 0; i < SERIAL_TYPE_UNKNOWN; i++) {
-        if (client_cb[i].acquire_buffer != NULL &&
-            client_cb[i].commit_data != NULL &&
-            client_cb[i].message_complete != NULL) {
-            mask |= (uint16_t)(1U << i);
-        }
-    }
-
-    /* Protocol info is implemented in the serial layer itself. */
-    mask |= (uint16_t)(1U << SERIAL_TYPE_PROTOCOL_INFO);
-
-    return mask;
+    return serial_mux_supported_types_mask();
 }
 
-static void handle_protocol_info(const struct device *dev, uint8_t sequence_number)
+static void handle_protocol_info(struct serial_config *config, uint8_t sequence_number)
 {
     /* Protocol information response payload: version (1 byte), supported types bitmask
      * (2 bytes, LE), next expected rx sequence number (1 byte). */
@@ -166,24 +188,14 @@ static void handle_protocol_info(const struct device *dev, uint8_t sequence_numb
     payload[0] = SERIAL_PROTOCOL_VERSION;
     payload[1] = (uint8_t)(supported_types & 0xFF);
     payload[2] = (uint8_t)((supported_types >> 8) & 0xFF);
-    payload[3] = rx_sequence_number;
+    payload[3] = config->rx_sequence_number;
 
-    uint16_t len_be = sys_cpu_to_be16(sizeof(payload));
-    struct SerialHeader hdr = {
-        .type = SERIAL_TYPE_PROTOCOL_INFO,
-        .no_ack = false,
-        .host = true,
-        .error = ERROR_TYPE_NO_ERROR,
-        .reserved = 0,
-        .sequence_number = tx_sequence_number,
-        .length = len_be,
-    };
-
-    serial_data_tx(dev, (const uint8_t *)&hdr, sizeof(hdr));
-    serial_data_tx(dev, payload, sizeof(payload));
-
-    tx_sequence_number = (tx_sequence_number >= SEQUENCE_NUMBER_MAX) ? 0
-                         : tx_sequence_number + 1;
+    (void)serial_send_frame(config,
+                            SERIAL_TYPE_PROTOCOL_INFO,
+                            ERROR_TYPE_NO_ERROR,
+                            false,
+                            payload,
+                            sizeof(payload));
     ARG_UNUSED(sequence_number);
 }
 
@@ -195,12 +207,14 @@ static void serial_work_handler(struct k_work *work_item_ptr)
     const struct device *dev = config->serial_dev;
 
     uint8_t *data_buffer;
+    enum SerialType frame_type = config->serial_header.type;
+    const struct client_callbacks *callbacks = serial_mux_get_callbacks(frame_type);
 
     while (config->bytes_read < config->serial_header.length) {
         size_t buffer_size = config->serial_header.length - config->bytes_read;
 
         /* Protocol Info frames are handled inline — no client buffer needed. */
-        if (config->serial_header.type == SERIAL_TYPE_PROTOCOL_INFO) {
+        if (frame_type == SERIAL_TYPE_PROTOCOL_INFO) {
             uint8_t discard[64];
             size_t to_read = MIN(buffer_size, sizeof(discard));
             int n = uart_fifo_read(dev, discard, to_read);
@@ -210,15 +224,16 @@ static void serial_work_handler(struct k_work *work_item_ptr)
             }
             config->bytes_read += (size_t)n;
             if (config->bytes_read >= config->serial_header.length) {
-                handle_protocol_info(dev, config->serial_header.sequence_number);
+                handle_protocol_info(config, config->serial_header.sequence_number);
             }
             continue;
         }
 
         /* Validate client callback is wired for this traffic type. */
-        if (config->type >= SERIAL_TYPE_UNKNOWN ||
-            client_cb[config->type].acquire_buffer == NULL) {
-            LOG_ERR("No buffer callback for type %d, dropping", config->type);
+        if (frame_type >= SERIAL_TYPE_UNKNOWN || callbacks == NULL ||
+            callbacks->acquire_buffer == NULL || callbacks->commit_data == NULL ||
+            callbacks->message_complete == NULL) {
+            LOG_ERR("No callback for type %d, dropping", frame_type);
             uint8_t discard[64];
             size_t to_read = MIN(buffer_size, sizeof(discard));
             int n = uart_fifo_read(dev, discard, to_read);
@@ -227,21 +242,19 @@ static void serial_work_handler(struct k_work *work_item_ptr)
             }
             config->bytes_read += (size_t)n;
             if (config->bytes_read >= config->serial_header.length) {
-                send_ack(dev, config->type, config->serial_header.sequence_number,
+                send_ack(dev, frame_type, config->serial_header.sequence_number,
                          ERROR_TYPE_LENGTH_TOO_LONG); /* reuse: unrecognised handler */
                 config->parsing_state = PARSING_STATE_TYPE;
-                config->type = SERIAL_TYPE_UNKNOWN;
                 config->bytes_read = 0;
             }
             continue;
         }
 
-        if (!client_cb[config->type].acquire_buffer(&data_buffer, buffer_size)) {
-            LOG_ERR("Buffer acquisition failed for type %d", config->type);
-            send_ack(dev, config->type, config->serial_header.sequence_number,
+        if (!callbacks->acquire_buffer(&data_buffer, buffer_size)) {
+            LOG_ERR("Buffer acquisition failed for type %d", frame_type);
+            send_ack(dev, frame_type, config->serial_header.sequence_number,
                      ERROR_TYPE_OUT_OF_BUFFERS);
             config->parsing_state = PARSING_STATE_TYPE;
-            config->type = SERIAL_TYPE_UNKNOWN;
             config->bytes_read = 0;
             break;
         }
@@ -261,25 +274,26 @@ static void serial_work_handler(struct k_work *work_item_ptr)
             LOG_INF("Received complete packet of length %u", config->serial_header.length);
 
             /* Validate sequence number. */
-            if (rx_sequence_number != config->serial_header.sequence_number) {
+            if (config->rx_sequence_number != config->serial_header.sequence_number) {
                 LOG_ERR("Incorrect sequence number: expected %u, received %u",
-                        rx_sequence_number, config->serial_header.sequence_number);
-                send_ack(dev, config->type, rx_sequence_number,
+                        config->rx_sequence_number, config->serial_header.sequence_number);
+                send_ack(dev, frame_type, config->rx_sequence_number,
                          ERROR_TYPE_INCORRECT_SEQUENCE_NUMBER);
                 /* Reset expected sequence to 0 per AGENTS spec. */
-                rx_sequence_number = 0;
+                config->rx_sequence_number = 0;
             } else {
                 /* Sequence OK — commit data and notify client. */
-                client_cb[config->type].commit_data(config->serial_header.length);
-                client_cb[config->type].message_complete(config->serial_header.length);
+                callbacks->commit_data(config->serial_header.length);
+                callbacks->message_complete(config->serial_header.length);
 
                 /* Advance and wrap rx sequence number. */
-                rx_sequence_number = (rx_sequence_number >= SEQUENCE_NUMBER_MAX) ? 0
-                                     : rx_sequence_number + 1;
+                config->rx_sequence_number =
+                    (config->rx_sequence_number >= SEQUENCE_NUMBER_MAX) ? 0
+                    : config->rx_sequence_number + 1;
 
                 /* Send ACK to host unless no_ack was requested. */
                 if (!config->serial_header.no_ack) {
-                    send_ack(dev, config->type,
+                    send_ack(dev, frame_type,
                              config->serial_header.sequence_number,
                              ERROR_TYPE_NO_ERROR);
                 }
@@ -287,12 +301,11 @@ static void serial_work_handler(struct k_work *work_item_ptr)
 
             /* Reset parser for next frame. */
             config->parsing_state = PARSING_STATE_TYPE;
-            config->type = SERIAL_TYPE_UNKNOWN;
             config->bytes_read = 0;
         } else {
             LOG_DBG("Read %d bytes, total: %zu/%u", bytes_read, config->bytes_read,
                     config->serial_header.length);
-            client_cb[config->type].commit_data(bytes_read);
+            callbacks->commit_data(bytes_read);
         }
     }
 
@@ -304,6 +317,11 @@ void initialize_uart(struct serial_config *config)
     LOG_INF("Initializing UART...");
     const struct device *dev = config->serial_dev;
 
+    config->parsing_state = PARSING_STATE_TYPE;
+    config->bytes_read = 0;
+    config->rx_sequence_number = 0;
+    config->tx_sequence_number = 0;
+
     k_work_init(&config->work_item, serial_work_handler);
 
     uart_irq_callback_user_data_set(dev, uart_irq_callback, config);
@@ -312,15 +330,4 @@ void initialize_uart(struct serial_config *config)
     uart_irq_rx_enable(dev);
 
     LOG_INF("UART initialized and RX interrupts enabled");
-}
-
-uint8_t serial_get_tx_sequence_number(void)
-{
-    return tx_sequence_number;
-}
-
-void serial_advance_tx_sequence_number(void)
-{
-    tx_sequence_number = (tx_sequence_number >= SEQUENCE_NUMBER_MAX) ? 0
-                         : tx_sequence_number + 1;
 }

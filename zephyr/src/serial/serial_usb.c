@@ -4,8 +4,7 @@
 #include <zephyr/logging/log.h>
 
 #include "serial.h"
-#include "../wifi_mgmt_proxy.h"
-#include "../net_if_mgmt_proxy.h"
+#include "../multiplexer.h"
 
 LOG_MODULE_REGISTER(serial_usb);
 
@@ -36,8 +35,9 @@ static int init_serial_usb() {
 
     initialize_uart(&config_serial);
 
-    wifi_mgmt_proxy_set_device((const struct device *)cdc_acm_dev);
-    net_if_mgmt_proxy_set_device((const struct device *)cdc_acm_dev);
+    (void)serial_mux_register_interface(SERIAL_MUX_IFACE_USB,
+                                        (const struct device *)cdc_acm_dev,
+                                        &config_serial);
 
     LOG_INF("USB CDC ACM initialized successfully");
     return 0;
