@@ -10,7 +10,7 @@
 #include <string.h>
 #include <serial/serial.h>
 
-ZTEST_SUITE(frame_parsing, NULL, NULL, NULL, NULL);
+ZTEST_SUITE(frame_parsing, NULL, NULL, NULL, NULL, NULL);
 
 /**
  * @brief Test frame header construction for typical frame
@@ -59,7 +59,6 @@ ZTEST(frame_parsing, test_frame_max_payload)
  */
 ZTEST(frame_parsing, test_frame_length_too_long)
 {
-    struct SerialHeader hdr = {0};
     uint16_t length_too_long = SERIAL_MAX_PAYLOAD_LEN + 1;
 
     /* This should trigger LENGTH_TOO_LONG error in protocol */

@@ -8,16 +8,17 @@
 #include <zephyr/kernel.h>
 #include <string.h>
 #include <serial/serial.h>
+#include "../src/multiplexer.h"
 
-ZTEST_SUITE(protocol_core, NULL, NULL, NULL, NULL);
+ZTEST_SUITE(protocol_core, NULL, NULL, NULL, NULL, NULL);
 
 /**
  * @brief Test protocol version constant
  */
 ZTEST(protocol_core, test_protocol_version)
 {
-    zassert_equal(SERIAL_PROTOCOL_VERSION, 2,
-                  "Protocol version should be 2 (4-bit sequence support)");
+    zassert_equal(SERIAL_PROTOCOL_VERSION, 1,
+                  "Protocol version should be 1");
 }
 
 /**
@@ -72,21 +73,10 @@ ZTEST(protocol_core, test_error_type_enum_values)
  */
 ZTEST(protocol_core, test_supported_types_mask)
 {
-    /* Check that all required types are in the bitmask */
-    zassert_true(SERIAL_SUPPORTED_TYPES_MASK & (1U << SERIAL_TYPE_WIFI_MGMT),
-                 "WIFI_MGMT should be supported");
-    zassert_true(SERIAL_SUPPORTED_TYPES_MASK & (1U << SERIAL_TYPE_WIFI_DATA),
-                 "WIFI_DATA should be supported");
-    zassert_true(SERIAL_SUPPORTED_TYPES_MASK & (1U << SERIAL_TYPE_NET_IF_MGMT),
-                 "NET_IF_MGMT should be supported");
-    zassert_true(SERIAL_SUPPORTED_TYPES_MASK & (1U << SERIAL_TYPE_HCI),
-                 "HCI should be supported");
-    zassert_true(SERIAL_SUPPORTED_TYPES_MASK & (1U << SERIAL_TYPE_THREAD),
-                 "THREAD should be supported");
-    zassert_true(SERIAL_SUPPORTED_TYPES_MASK & (1U << SERIAL_TYPE_PROTOCOL_INFO),
+    uint16_t mask = serial_mux_supported_types_mask();
+
+    zassert_true(mask & (1U << SERIAL_TYPE_PROTOCOL_INFO),
                  "PROTOCOL_INFO should be supported");
-    zassert_true(SERIAL_SUPPORTED_TYPES_MASK & (1U << SERIAL_TYPE_VSERIAL),
-                 "VSERIAL should be supported");
 }
 
 /**

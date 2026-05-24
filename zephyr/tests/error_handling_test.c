@@ -10,7 +10,7 @@
 #include <string.h>
 #include <serial/serial.h>
 
-ZTEST_SUITE(error_handling, NULL, NULL, NULL, NULL);
+ZTEST_SUITE(error_handling, NULL, NULL, NULL, NULL, NULL);
 
 /**
  * @brief Test all error types are defined
