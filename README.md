@@ -25,40 +25,70 @@ Serial MAC is providing means to manage the lowest level of interactions between
 The link protocol is defined as:
 ```mermaid
 ---
-title: "Serial bus protocol header"
+title: "Common link-layer header (v1)"
 ---
 packet-beta
-    0-3: "Type"
+    0-3: "Traffic Type"
     4: "No Ack"
-    5: "Host"
-    6-7: "Error Type"
-    8-12: "Reserved"
-    13-15: "Sequence Number"
-    16-31: "Length"
+    5: "Host Dir"
+    6-7: "Error"
+    8-11: "Reserved"
+    12-15: "Seq (0..15)"
+    16-31: "Length (0..4096)"
+```
+
+```mermaid
+---
+title: "Traffic and error mapping (v1)"
+---
+flowchart LR
+    T[Traffic type 0..15] --> T0[0 WIFI_MGMT]
+    T --> T1[1 WIFI_DATA]
+    T --> T2[2 NET_IF_MGMT]
+    T --> T3[3 HCI]
+    T --> T4[4 THREAD]
+    T --> T5[5 NET_OFFLOADING reserved]
+    T --> T6[6 AT_CMD reserved]
+    T --> T7[7 PROTOCOL_INFO]
+    T --> T8[8 VSERIAL]
+
+    E[Error 2-bit] --> E0[0 NO_ERROR]
+    E --> E1[1 INCORRECT_SEQUENCE]
+    E --> E2[2 OUT_OF_BUFFERS]
+    E --> E3[3 LENGTH_TOO_LONG or UNRECOGNIZED]
+
+    A[ACK behavior] --> A1[ACK uses same traffic type]
+    A --> A2[Length is 0]
+    A --> A3[Error encodes status]
 ```
 Diagram is supported in visualized format in later Mermaid plug-in.
 
 
 
-Type can take following values:
+Traffic Type can take following values:
 - 0: Wi-Fi Management message
 - 1: Wi-Fi Data
-- 2: BLE HCI message
-- 3: OpenThread Spinel message
-- 4: AT-command (no plans to implement this right now as this is in conflict with RCP approach)
-- 5: Ack packet
+- 2: Network L2 interface management
+- 3: BLE HCI message
+- 4: OpenThread Spinel message
+- 5: Network offloading (reserved)
+- 6: AT-command (reserved)
+- 7: Protocol information
+- 8: Virtual serial interface
 
 No Ack field is used for signaling if the sender would like to receive Ack for the message. In general, it is a good idea to use Ack, but in certain high-throughput use cases, it will advantageous to not send Ack for each frame. This feature will not be implemented in phase 1.
 
-Host field provides the system means to signal, if the frame was sent by the host or MCU.
+Host field provides direction metadata (host/device side) for the frame.
 
-Error Type provides means to signal link-layer signal decision. The technology specific error messages are send as normal data transmissions. The defined error types are:
+Error Type provides means to signal link-layer decisions. The technology specific error messages are sent as normal data transmissions. The defined error types are:
 - 0: No Error
-- 1: Incorrect sequence number. The message includes the correct next sequence number in the field
-- 2: Buffer overload. This can happen when the system runs out of link-layer buffers. Typically, this should not happen if the protocol is properly followed.
-- 3: Reserved for future use.
+- 1: Incorrect sequence number
+- 2: Out of buffers
+- 3: Length too long (also used for unrecognized command)
 
-Sequence Number is used for giving the system nodes the ability to follow where packets buffers are going and where to wait acknowledgement. Sequence Number will wrap over and thus no system shall have more than 6 packets buffered without Ack.
+Sequence Number is used for tracking in-order processing and acknowledgement over the link-layer. Sequence Number is 4-bit (0..15) and wraps after 15.
+
+Ack is encoded as a regular link-layer header with the same traffic type, length 0, and error field indicating success/failure.
 
 Length defines the length of the data after the header.
 

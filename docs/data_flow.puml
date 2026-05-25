@@ -1,21 +1,23 @@
-@startuml
+@startuml data_flow
 participant SPI
 participant SPIM as "SPI Multiplexer"
 participant Proxy as "Wi-Fi data Proxy"
 participant WiFiM as "Net if"
 SPI --> SPIM: Interrupt
-SPI <-- SPIM: Read header
-SPI <-- SPIM: Read data
-SPIM --> Proxy: Pass Mgmt msg
+SPI <-- SPIM: Read link-layer header
+SPI <-- SPIM: Read payload (Length)
+SPIM --> Proxy: Route by Traffic Type (WIFI_DATA)
 Proxy -> WiFiM: Send data
 Proxy <- WiFiM: Status
 Proxy --> SPIM: Status
 hnote over SPIM: Toggle host interrupt
-SPIM --> SPI: Transfer data
+SPIM --> SPI: Transfer header+payload
+SPIM --> SPI: Transfer ACK (len=0, error=NO_ERROR)
 ... Idling ...
 hnote over WiFiM: RX data received
 WiFiM -> Proxy: RX callback
 Proxy --> SPIM: Outgoing msg
 hnote over SPIM: Toggle host interrupt
-SPIM --> SPI: Transfer header+data
+SPIM --> SPI: Transfer header+payload
+SPIM --> SPI: Transfer ACK (len=0, error=NO_ERROR)
 @enduml

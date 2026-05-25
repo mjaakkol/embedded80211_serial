@@ -1,11 +1,11 @@
 ---
-title: "Serial bus protocol header"
+title: "Common link-layer header (v1)"
 ---
 packet-beta
-    0-3: "Type"
+    0-3: "Traffic Type"
     4: "No Ack"
-    5: "Host"
-    6-7: "Error Type"
-    8-12: "Reserved"
-    13-15: "Sequence Number"
-    16-31: "Length"
+    5: "Host Dir"
+    6-7: "Error"
+    8-11: "Reserved"
+    12-15: "Seq (0..15)"
+    16-31: "Length (0..4096)"

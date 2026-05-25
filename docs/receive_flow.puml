@@ -1,16 +1,17 @@
-@startuml
+@startuml receive_flow
 participant SPI
 participant SPIM as "SPI Multiplexer"
 participant Proxy as "Wi-Fi Mgmt Proxy"
 participant WiFiM as "Wi-Fi Mgmt."
 SPI --> SPIM: Interrupt
-SPI <-- SPIM: Read header
-SPI <-- SPIM: Read data
-SPIM --> Proxy: Pass Mgmt msg
+SPI <-- SPIM: Read link-layer header
+SPI <-- SPIM: Read payload (Length)
+SPIM --> Proxy: Route by Traffic Type (WIFI_MGMT)
 rnote over Proxy: Deserialize
 Proxy -> WiFiM: Call mgmt function
 Proxy <- WiFiM: Receive response / status
 rnote over Proxy: Serialize
 Proxy --> SPIM: Outgoing msg
-SPIM --> SPI: Transfer data
+SPIM --> SPI: Transfer header+payload
+SPIM --> SPI: Transfer ACK (len=0, error=NO_ERROR)
 @enduml
