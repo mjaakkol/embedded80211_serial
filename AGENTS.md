@@ -1,119 +1,71 @@
 # Embedded 802.11 Serial
 
-# General operational rules
+## Scope and hierarchy
 
-- Operate as an experienced embedded engineer.
-- Think step-by-step.
-- Gather evidence before making conclusions.
-- Never assume success.
-- Validate every major action.
-- Show all commands before executing them.
-- Explain why each command is being run.
-- Capture command output.
-- Analyze results before continuing.
-- Stop and troubleshoot if validation fails.
-- Preserve the existing code unless functionality changes require it.
-- Avoid destructive actions unless absolutely necessary.
-- Do not continue when a prerequisite has failed.
+These are repository-wide requirements. More-specific `AGENTS.md` files may add
+constraints for their directory, but must not weaken these requirements:
 
-# Working style
+- [linux/AGENTS.md](linux/AGENTS.md)
+- [zephyr/AGENTS.md](zephyr/AGENTS.md)
+- [zephyr/src/serial/AGENTS.md](zephyr/src/serial/AGENTS.md)
+- [zephyr/tests/AGENTS.md](zephyr/tests/AGENTS.md)
+- [cli_test/AGENTS.md](cli_test/AGENTS.md)
 
-For every action:
+Keep changes focused, preserve existing behavior unless the task requires a
+behavior change, and update the nearest relevant README or protocol
+documentation when externally visible behavior changes.
 
-1. Explain objective.
-2. Show command(s).
-3. Execute command(s).
-4. Capture output.
-5. Analyze output.
-6. Determine next action.
+## Product architecture
 
-After every major phase provide:
-
-- Validation results
-- Pass/Fail status
-- Detected issues
-- Recommended fixes
-
-
-## Scope
-This file defines product-level requirements and protocol invariants for the full repository.
-Detailed platform implementation rules belong to platform-specific AGENTS files.
-
-## Product Goals (Mandatory)
 - Provide a Radio Co-Processor solution for Zephyr-based microcontrollers.
-- Support Wi-Fi, Bluetooth, and OpenThread technology domains.
-- Support serial transports: SDIO, UART, SPI, and USB.
-- Support host/platform integration for Linux and Zephyr.
+- Support Wi-Fi, Bluetooth, and OpenThread.
+- Support SDIO, UART, SPI, and USB serial transports through one common link
+  protocol.
+- Support Linux and Zephyr host integration.
+- Keep transport adaptation, common framing, technology protocols, and host
+  APIs separated so each layer can be tested independently.
 
-## Common Link Protocol (Mandatory)
+## Common link protocol
 
-### Transport Multiplexing
-- One common link protocol must be used over supported serial transports.
-- Traffic classes supported by the protocol:
-	- Wi-Fi management
-	- Wi-Fi data
-	- Network L2 interface management
-	- Bluetooth
-	- OpenThread
-	- Network offloading (reserved)
-	- AT commands (reserved)
-	- Protocol information
-	- Virtual serial interfaces
-- Maximum number of traffic types is 16.
+- The frame header is no larger than 64 bits and includes traffic type, payload
+  length, and sequence number.
+- Payload length is at most 4096 bytes; payloads are 32-bit aligned.
+- Traffic types use at most 4 bits. Existing assignments are stable:
+  Wi-Fi management, Wi-Fi data, network-interface management, Bluetooth HCI,
+  OpenThread Spinel, network offloading (reserved), AT commands (reserved),
+  protocol information, and virtual serial.
+- Sequence numbers are 4-bit values in the range 0..15 and wrap after 15.
+  Host-to-device and device-to-host counters are independent and start at zero.
+- Receivers acknowledge frames with the received sequence number and an
+  optional protocol error.
+- Protocol errors include incorrect sequence, unrecognized command, out of
+  buffers, and excessive length. An incorrect-sequence response resets the
+  sender's expected sequence to zero; resend behavior must be explicit.
+- Protocol-information responses include protocol version, supported traffic
+  types, and the next sequence number.
 
-### Frame Format
-- Protocol header must be at most 64 bits.
-- Header must include:
-	- Traffic type
-	- Payload length (max 4096 bytes)
-	- Sequence number
-- Payload data must be 32-bit aligned.
+## Technology and schema rules
 
-### Sequencing and Reliability
-- Sequence number range is 0..15 (4-bit), wrapping after 15.
-- Sequence numbering starts at 0 on system initialization.
-- Host-to-device and device-to-host use separate sequence counters.
-- Receiver must acknowledge packets with sequence number and optional error code.
+- Wi-Fi management maps to Zephyr Wi-Fi management APIs.
+- Network-interface management maps to Zephyr `net_if` APIs.
+- Wi-Fi data follows the common header directly.
+- Bluetooth uses HCI and OpenThread uses Spinel inside common frames.
+- Virtual serial preserves baud rate, stop-bit, and parity values for readback,
+  but those values do not control transport behavior.
+- Network offloading and AT-command traffic remain reserved until implemented.
+- Protobuf is the schema language. Never renumber existing fields; use new
+  field numbers for additions and reserve removed numbers where possible.
+- Wire-compatible changes are preferred. A breaking wire change requires a
+  protocol-version update and compatibility documentation.
 
-### Error Handling
-- Supported protocol error conditions:
-	- Incorrect sequence number
-	- Unrecognized command
-	- Out of buffers
-	- Length too long
-- On incorrect sequence number response, sender resets expected sequence to 0 and may resend.
+## Cross-cutting quality requirements
 
-### Protocol Information Response
-- Must include:
-	- Protocol version
-	- Supported traffic types
-	- Next sequence number
-
-## API Mapping Requirements (Mandatory)
-- Wi-Fi management messages map to Zephyr Wi-Fi management APIs.
-- Network L2 interface management messages map to Zephyr net_if APIs:
-	https://docs.zephyrproject.org/latest/doxygen/html/group__net__if.html
-- Protobuf must be used as the message schema language: https://protobuf.dev/
-
-## Technology-Specific Rules (Mandatory)
-- Wi-Fi data traffic is carried after the common protocol header.
-- Bluetooth traffic uses HCI encapsulated by the common protocol header.
-- OpenThread traffic uses Spinel encapsulated by the common protocol header.
-- Virtual serial functionality is provided over the common protocol and exposes serial-port semantics.
-- For virtual serial APIs, baud rate, stop bits, and parity are ignored for transport behavior, but values must be shadowed for readback compatibility.
-- Network offloading traffic ID is reserved and currently not implemented.
-- AT command traffic ID is reserved and currently not implemented.
-
-## Compatibility and Evolution Policy (Mandatory)
-- Changes that alter wire behavior must preserve backward compatibility when feasible.
-- Breaking wire-format changes require a protocol version update.
-- Protobuf evolution rules:
-	- Never renumber existing fields.
-	- Use new field numbers for new fields.
-	- Reserve removed field numbers when possible.
-
-## Quality Gates (Recommended)
-- Validate malformed frame handling for length, alignment, and sequence checks.
-- Avoid unnecessary data copies in hot data paths.
-- Document any protocol-level behavior change in commit messages or PR descriptions.
-
+- Treat serial and device-provided data as untrusted.
+- Validate lengths, alignment, traffic types, reserved bits, direction,
+  acknowledgement state, sequence state, and protocol version before decoding.
+- Avoid unnecessary copies in hot paths and bound all allocations from wire
+  input.
+- Return or report failures explicitly; do not silently downgrade malformed
+  input to a successful result.
+- Add focused tests for every framing, sequencing, error, schema, or transport
+  behavior change.
