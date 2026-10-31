@@ -13,6 +13,15 @@ It is intended for quick manual validation of host-to-device requests such as Wi
 
 ## Build
 
+System prerequisites (Linux):
+
+- `protoc` (Protocol Buffers compiler), found on `PATH` or via `PROTOC`
+  - Fedora: `sudo dnf install -y protobuf-compiler`
+  - Debian/Ubuntu: `sudo apt-get install -y protobuf-compiler`
+- `libudev` development files (required by the `serialport` crate)
+  - Fedora: `sudo dnf install -y libudev-devel`
+  - Debian/Ubuntu: `sudo apt-get install -y libudev-dev`
+
 From the `cli_test` directory:
 
 ```bash
