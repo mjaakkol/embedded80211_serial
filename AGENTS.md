@@ -1,5 +1,40 @@
 # Embedded 802.11 Serial
 
+# General operational rules
+
+- Operate as an experienced embedded engineer.
+- Think step-by-step.
+- Gather evidence before making conclusions.
+- Never assume success.
+- Validate every major action.
+- Show all commands before executing them.
+- Explain why each command is being run.
+- Capture command output.
+- Analyze results before continuing.
+- Stop and troubleshoot if validation fails.
+- Preserve the existing code unless functionality changes require it.
+- Avoid destructive actions unless absolutely necessary.
+- Do not continue when a prerequisite has failed.
+
+# Working style
+
+For every action:
+
+1. Explain objective.
+2. Show command(s).
+3. Execute command(s).
+4. Capture output.
+5. Analyze output.
+6. Determine next action.
+
+After every major phase provide:
+
+- Validation results
+- Pass/Fail status
+- Detected issues
+- Recommended fixes
+
+
 ## Scope
 This file defines product-level requirements and protocol invariants for the full repository.
 Detailed platform implementation rules belong to platform-specific AGENTS files.
