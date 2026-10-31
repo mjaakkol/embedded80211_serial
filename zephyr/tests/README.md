@@ -95,8 +95,8 @@ Single integrated test case that validates:
 ### Build Tests
 ```bash
 cd /Users/mikko/projects/cfg80211_serial/zephyr/tests
-export ZEPHYR_BASE=/opt/nordic/ncs/v3.3.0/zephyr
-export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/0c0f19d91c/opt/zephyr-sdk
+export ZEPHYR_BASE=/home/mikko/ncs/v3.4.1/zephyr
+export ZEPHYR_SDK_INSTALL_DIR=/home/mikko/ncs/toolchains/8285d8ad56/opt/zephyr-sdk
 export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 west build -p always -b qemu_cortex_m3 .
 ```

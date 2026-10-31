@@ -84,8 +84,4 @@ int serial_send_frame(struct serial_config *config,
                       const uint8_t *payload,
                       size_t len);
 
-int serial_usb_tx(const struct device *dev, const uint8_t *data, size_t len);
-int serial_uart_tx(const struct device *dev, const uint8_t *data, size_t len);
-
-
 #endif // _SERIAL_H_

@@ -15,7 +15,7 @@ target_include_directories(app PRIVATE
     ${ZEPHYR_BASE}/include
     ${CMAKE_SOURCE_DIR}/../src
     ${CMAKE_SOURCE_DIR}/../src/serial
-    ${CMAKE_SOURCE_DIR}/../build/zephyr/protos
+    ${CMAKE_SOURCE_DIR}/../build/zephyr
 )
 
 target_compile_definitions(app PRIVATE

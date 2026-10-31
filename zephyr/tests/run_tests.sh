@@ -13,8 +13,8 @@ echo "========================================"
 echo ""
 
 # Set NCS environment
-export ZEPHYR_BASE=${ZEPHYR_BASE:-/opt/nordic/ncs/v3.3.0/zephyr}
-export ZEPHYR_SDK_INSTALL_DIR=${ZEPHYR_SDK_INSTALL_DIR:-/opt/nordic/ncs/toolchains/0c0f19d91c/opt/zephyr-sdk}
+export ZEPHYR_BASE=${ZEPHYR_BASE:-/home/mikko/ncs/v3.4.1/zephyr}
+export ZEPHYR_SDK_INSTALL_DIR=${ZEPHYR_SDK_INSTALL_DIR:-/home/mikko/ncs/toolchains/8285d8ad56/opt/zephyr-sdk}
 export ZEPHYR_TOOLCHAIN_VARIANT=${ZEPHYR_TOOLCHAIN_VARIANT:-zephyr}
 
 if [ ! -d "$ZEPHYR_BASE" ]; then

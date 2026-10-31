@@ -154,8 +154,8 @@ chmod +x run_tests.sh
 ```bash
 cd zephyr/tests
 
-export ZEPHYR_BASE=/opt/nordic/ncs/v3.3.0/zephyr
-export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/0c0f19d91c/opt/zephyr-sdk
+export ZEPHYR_BASE=/home/mikko/ncs/v3.4.1/zephyr
+export ZEPHYR_SDK_INSTALL_DIR=/home/mikko/ncs/toolchains/8285d8ad56/opt/zephyr-sdk
 export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 
 west build -p always -b qemu_cortex_m3 .
@@ -270,15 +270,15 @@ Note: Tests only use Zephyr core APIs, no hardware drivers needed.
 
 ## Dependencies
 
-- **Zephyr 3.3.0** (or compatible)
+- **NCS v3.4.1** (Zephyr 4.2, or compatible)
 - **CMake 3.20+**
 - **Zephyr SDK**
 - **ztest** (built into Zephyr)
 
 Set environment:
 ```bash
-export ZEPHYR_BASE=/opt/nordic/ncs/v3.3.0/zephyr
-export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/0c0f19d91c/opt/zephyr-sdk
+export ZEPHYR_BASE=/home/mikko/ncs/v3.4.1/zephyr
+export ZEPHYR_SDK_INSTALL_DIR=/home/mikko/ncs/toolchains/8285d8ad56/opt/zephyr-sdk
 export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 ```
 
@@ -365,7 +365,7 @@ Full details → [TEST_REFERENCE.md](TEST_REFERENCE.md)
 - **Test Suite Version:** 1.0
 - **Protocol Version Tested:** 1
 - **AGENTS.md Version:** Current (as of project start)
-- **Zephyr Version:** 3.3.0 (NCS)
+- **Zephyr Version:** 4.2 (NCS v3.4.1)
 - **Last Updated:** May 11, 2026
 
 ---
