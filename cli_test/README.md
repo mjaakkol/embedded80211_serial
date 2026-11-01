@@ -10,6 +10,8 @@ It is intended for quick manual validation of host-to-device requests such as Wi
 - Trigger Wi-Fi scan requests
 - Query network interfaces from the device
 - Send Wi-Fi connect requests
+- Send Wi-Fi disconnect requests
+- Run a hardware integration test that repeats connect/disconnect cycles
 
 ## Build
 
@@ -90,6 +92,42 @@ Supported security values:
 - `psk`
 - `sae`
 - `eap`
+
+### 6. Send Wi-Fi disconnect request
+
+```bash
+cargo run -- --port /dev/tty.usbmodem14101 disconnect
+cargo run -- --port /dev/tty.usbmodem14101 disconnect --iface-index 1
+```
+
+The disconnect takes effect asynchronously: after `Success: Disconnect
+initiated`, verify the link state with `interfaces --iface-type wifi`. The
+Wi-Fi interface reports `dormant=true` once the association is down (the
+carrier flag is not cleared by the driver).
+
+## Integration Test
+
+`tests/connect_disconnect.rs` repeats full connect/disconnect cycles against
+the real device. Connection parameters are configured at run time through
+environment variables:
+
+| Variable         | Meaning                                        | Default        |
+|------------------|------------------------------------------------|----------------|
+| `INTEG_PORT`     | serial port (required to run the test)         | *(skip if unset)* |
+| `INTEG_SSID`     | network SSID                                   | `HappyHouse`   |
+| `INTEG_SECURITY` | `none` / `wep` / `psk` / `sae` / `eap`         | `psk`          |
+| `INTEG_PSK`      | pre-shared key (required unless security is `none`) | *(none)*     |
+| `INTEG_CYCLES`   | number of connect/disconnect cycles            | `5`            |
+
+```bash
+INTEG_PORT=/dev/ttyACM2 INTEG_SSID=HappyHouse INTEG_SECURITY=psk INTEG_PSK=secret \
+    cargo test --test connect_disconnect -- --nocapture
+```
+
+Each cycle asserts: connect request accepted, interface reaches the
+connected state (carrier present, not dormant), disconnect request accepted,
+interface reaches the disconnected state (dormant). Without `INTEG_PORT` the
+test skips, so `cargo test` stays green on hosts without the device attached.
 
 ## Notes
 

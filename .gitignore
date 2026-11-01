@@ -1,2 +1,6 @@
 .DS_Store
 .vscode/
+
+# Zephyr build outputs
+build/
+tests-build/

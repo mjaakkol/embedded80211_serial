@@ -15,10 +15,9 @@
 //! frames must carry a non-empty payload (the device rejects length 0).
 //! The maximum payload length is 4096.
 //!
-//! Host-to-device command frames are answered with:
-//! 1. an ACK frame (same type, length 0, error code, echoed sequence),
-//! 2. the proxy response frame (length > 0),
-//! followed by any asynchronous notification frames.
+//! A host-to-device command frame is answered with an ACK frame (same type,
+//! length 0, error code, echoed sequence) followed by the proxy response
+//! frame (length > 0), and then by any asynchronous notification frames.
 //!
 //! Before any command the host must sync with a PROTOCOL_INFO frame (type 7,
 //! payload >= 1 byte). The device answers with a 4-byte payload:
@@ -32,12 +31,12 @@ use prost::Message;
 use std::time::Instant;
 
 use network_interface::{
-    net_if_request, net_if_response, NetIfRequest, NetIfResponse, NetIfType, RequestInterfaces,
+    NetIfRequest, NetIfResponse, NetIfType, RequestInterfaces, net_if_request, net_if_response,
 };
 use wifi_mgmt::{
-    wifi_event, wifi_mgmt_request, wifi_mgmt_response, GetWifiVersionRequest, RequestType,
-    WifiConnectRequest, WifiMgmtNotification, WifiMgmtRequest, WifiMgmtResponse, WifiMfpOptions,
-    WifiScanRequest, WifiSecurityType,
+    GetWifiVersionRequest, RequestType, WifiConnectRequest, WifiDisconnectRequest, WifiMfpOptions,
+    WifiMgmtNotification, WifiMgmtRequest, WifiMgmtResponse, WifiScanRequest, WifiSecurityType,
+    WifiStatusResponse, wifi_event, wifi_mgmt_request, wifi_mgmt_response,
 };
 
 pub mod network_interface {
@@ -236,8 +235,7 @@ pub struct Session {
 
 impl Session {
     pub fn new(port: Box<dyn serialport::SerialPort>) -> Self {
-        let session = Self { port, tx_seq: 0 };
-        session
+        Self { port, tx_seq: 0 }
     }
 
     /// Reads exactly `buf.len()` bytes, or returns the number of bytes read
@@ -396,7 +394,9 @@ pub fn decode_wifi_mgmt_response(frame: &Frame) -> Result<WifiMgmtResponse, Sess
 
 /// Decodes a device->host frame as a WifiMgmtNotification carrying a
 /// ScanDoneEvent.
-pub fn decode_scan_done_notification(frame: &Frame) -> Option<(i32, Vec<wifi_mgmt::WifiScanResult>)> {
+pub fn decode_scan_done_notification(
+    frame: &Frame,
+) -> Option<(i32, Vec<wifi_mgmt::WifiScanResult>)> {
     if frame.rtype != SerialType::WifiMgmt {
         return None;
     }
@@ -473,6 +473,45 @@ pub fn connect_request_payload(
     let mut out = Vec::new();
     request.encode(&mut out).unwrap();
     out
+}
+
+/// Builds the encoded protobuf payload of a DISCONNECT request.
+pub fn disconnect_request_payload(iface_index: u32) -> Vec<u8> {
+    let request = WifiMgmtRequest {
+        request_id: RequestType::Disconnect as i32,
+        payload: Some(wifi_mgmt_request::Payload::DisconnectReq(
+            WifiDisconnectRequest { iface_index },
+        )),
+    };
+    let mut out = Vec::new();
+    request.encode(&mut out).unwrap();
+    out
+}
+
+/// Decodes a device->host frame as a WifiMgmtResponse and returns its
+/// generic status payload (CONNECT/SCAN/DISCONNECT responses).
+pub fn decode_wifi_status_response(frame: &Frame) -> Result<WifiStatusResponse, String> {
+    let resp = decode_wifi_mgmt_response(frame)
+        .map_err(|_| "Unable to decode Wi-Fi management response".to_string())?;
+    match resp.payload {
+        Some(wifi_mgmt_response::Payload::StatusResp(status)) => Ok(status),
+        Some(_) => Err("Received non-status response payload".into()),
+        None => Err("Empty response payload".into()),
+    }
+}
+
+/// Decodes a device->host frame as a NetIfResponse and verifies the
+/// request status field.
+pub fn decode_interfaces_response(frame: &Frame) -> Result<NetIfResponse, String> {
+    let response = NetIfResponse::decode(frame.payload.as_slice())
+        .map_err(|e| format!("Unable to decode network interface response: {e}"))?;
+    if response.status != 0 {
+        return Err(format!(
+            "Network interface query failed: status={}",
+            response.status
+        ));
+    }
+    Ok(response)
 }
 
 /// Builds the encoded protobuf payload of a GET_INTERFACES request.
@@ -557,7 +596,10 @@ pub fn format_interfaces_response(frame: &Frame) -> String {
             }
 
             let mut lines = Vec::with_capacity(interfaces.net_ifs.len() + 1);
-            lines.push(format!("Found {} network interface(s):", interfaces.net_ifs.len()));
+            lines.push(format!(
+                "Found {} network interface(s):",
+                interfaces.net_ifs.len()
+            ));
             for iface in &interfaces.net_ifs {
                 lines.push(format!(
                     "- idx={} name={} type={} mtu={} admin_up={} carrier_ok={} dormant={}",
@@ -582,7 +624,11 @@ pub fn format_interfaces_response(frame: &Frame) -> String {
 /// Renders scan results (status + per-network lines) as a string.
 pub fn format_scan_results(status: i32, results: &[wifi_mgmt::WifiScanResult]) -> String {
     let mut lines = Vec::new();
-    lines.push(format!("Scan done: status={}, results={}", status, results.len()));
+    lines.push(format!(
+        "Scan done: status={}, results={}",
+        status,
+        results.len()
+    ));
     for result in results {
         let ssid = if result.ssid.is_empty() {
             "(hidden)".to_string()
@@ -693,8 +739,7 @@ mod tests {
     #[test]
     fn scan_request_payload_encodes_iface_index() {
         let payload = scan_request_payload(7);
-        let request =
-            WifiMgmtRequest::decode(&payload[..]).expect("request should decode");
+        let request = WifiMgmtRequest::decode(&payload[..]).expect("request should decode");
         assert_eq!(request.request_id, RequestType::Scan as i32);
         match request.payload {
             Some(wifi_mgmt_request::Payload::ScanReq(scan_req)) => {
@@ -707,10 +752,14 @@ mod tests {
 
     #[test]
     fn connect_request_payload_encodes_credentials() {
-        let payload =
-            connect_request_payload(2, "test-ssid", Some("secretpass"), WifiSecurityType::Psk, 5000);
-        let request =
-            WifiMgmtRequest::decode(&payload[..]).expect("request should decode");
+        let payload = connect_request_payload(
+            2,
+            "test-ssid",
+            Some("secretpass"),
+            WifiSecurityType::Psk,
+            5000,
+        );
+        let request = WifiMgmtRequest::decode(&payload[..]).expect("request should decode");
         assert_eq!(request.request_id, RequestType::Connect as i32);
         match request.payload {
             Some(wifi_mgmt_request::Payload::ConnectReq(connect_req)) => {
@@ -727,8 +776,7 @@ mod tests {
     #[test]
     fn interfaces_request_payload_encodes_type_and_index() {
         let payload = interfaces_request_payload(NetIfType::Wifi, 3);
-        let request =
-            NetIfRequest::decode(&payload[..]).expect("request should decode");
+        let request = NetIfRequest::decode(&payload[..]).expect("request should decode");
         assert_eq!(request.request_id, 1);
         match request.payload {
             Some(net_if_request::Payload::GetInterfaces(get_interfaces)) => {
