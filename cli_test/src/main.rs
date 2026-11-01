@@ -1,12 +1,21 @@
-use std::io::{Read, Write};
+use std::time::{Duration, Instant};
+
 use clap::{Parser, Subcommand, ValueEnum};
 
 use cli_test::protocol::{
-    create_connect_query, create_interfaces_query, create_scan_query, create_version_query,
-    parse_connect_response, parse_interfaces_response, parse_scan_response, parse_version_response,
+    connect_request_payload, decode_scan_done_notification, decode_wifi_mgmt_response,
+    format_interfaces_response, format_scan_results, format_status_response,
+    format_version_response, interfaces_request_payload, scan_request_payload,
+    version_request_payload, Frame, Session, SerialType,
 };
 use cli_test::protocol::network_interface::NetIfType;
 use cli_test::protocol::wifi_mgmt::WifiSecurityType;
+
+/// How long to wait for a normal request/response round trip.
+const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long to wait for scan results to complete.
+const SCAN_TIMEOUT: Duration = Duration::from_secs(30);
+
 #[derive(Parser)]
 #[command(name = "cli-serial")]
 #[command(version = "1.0")]
@@ -102,8 +111,6 @@ impl InterfaceTypeArg {
     }
 }
 
-
-
 fn init_serial_port(port_name: &str, baud_rate: u32) -> Result<Box<dyn serialport::SerialPort>, serialport::Error> {
     // Initialize the serial port here
     let port = serialport::new(port_name, baud_rate)
@@ -112,67 +119,96 @@ fn init_serial_port(port_name: &str, baud_rate: u32) -> Result<Box<dyn serialpor
     Ok(port)
 }
 
+fn die(err: &impl std::fmt::Display) -> ! {
+    eprintln!("Error: {err}");
+    std::process::exit(1);
+}
+
+fn is_wifi_mgmt_response(frame: &Frame) -> bool {
+    decode_wifi_mgmt_response(frame).is_ok()
+}
+
+fn is_scan_done_notification(frame: &Frame) -> bool {
+    decode_scan_done_notification(frame).is_some()
+}
+
 fn main() {
     let cli = Cli::parse();
 
-    let mut port = init_serial_port(&cli.port, cli.baud_rate).unwrap_or_else(|e| {
-        eprintln!("Failed to open serial port: {e}");
-        std::process::exit(1);
-    });
+    if matches!(cli.command, Commands::Test { .. } | Commands::List) {
+        // Commands that do not talk to a device.
+        match cli.command {
+            Commands::Test { list } => {
+                if list {
+                    println!("Listing test values...");
+                } else {
+                    println!("Running tests...");
+                }
+            }
+            Commands::List => {
+                // This command could be used to list items, resources, etc.
+                if let Ok(ports) = serialport::available_ports() {
+                    println!("Available serial ports:");
+                    for port in ports {
+                        println!("{}", port.port_name);
+                    }
+                } else {
+                    println!("No serial ports found.");
+                }
+            }
+            _ => unreachable!(),
+        }
+        return;
+    }
+
+    let port = match init_serial_port(&cli.port, cli.baud_rate) {
+        Ok(port) => port,
+        Err(e) => die(&format!("Failed to open serial port: {e}")),
+    };
+    let mut session = Session::new(port);
+
+    // Handshake: learn the device's next expected sequence number before
+    // sending any command.
+    let info = match session.sync(Instant::now() + RESPONSE_TIMEOUT) {
+        Ok(info) => info,
+        Err(e) => die(&e),
+    };
+    eprintln!(
+        "Synced: protocol version {}, supported types 0x{:04X}, next seq {}",
+        info.version, info.supported_types_mask, info.next_seq
+    );
+
+    let deadline = Instant::now() + RESPONSE_TIMEOUT;
 
     match cli.command {
-        Commands::Test { list } => {
-            if list {
-                println!("Listing test values...");
-            } else {
-                println!("Running tests...");
-            }
-        }
-        Commands::List => {
-            // This command could be used to list items, resources, etc.
-            if let Ok(ports) = serialport::available_ports() {
-                println!("Available serial ports:");
-                for port in ports {
-                    println!("{}", port.port_name);
-                }
-            } else {
-                println!("No serial ports found.");
-            }
-        }
         Commands::Version => {
-            let version_query = create_version_query();
-            if let Err(e) = port.write_all(&version_query) {
-                eprintln!("Failed to write version query: {e}");
-                return;
-            }
-
-            let mut raw_response = vec![0; 64];
-            if let Err(e) = port.read(raw_response.as_mut_slice()) {
-                eprintln!("Failed to read version response: {e}");
-                return;
-            }
-
-            let response = parse_version_response(&raw_response);
-            println!("Version: {response}");
+            let payload = version_request_payload();
+            let frame = match session.request(SerialType::WifiMgmt, &payload, deadline, &is_wifi_mgmt_response) {
+                Ok(frame) => frame,
+                Err(e) => die(&e),
+            };
+            println!("{}", format_version_response(&frame));
         }
         Commands::Scan { iface_index } => {
-            let scan_query = create_scan_query(iface_index);
-            if let Err(e) = port.write_all(&scan_query) {
-                eprintln!("Failed to write scan request: {e}");
-                return;
+            let payload = scan_request_payload(iface_index);
+            let status = match session.request(SerialType::WifiMgmt, &payload, deadline, &is_wifi_mgmt_response) {
+                Ok(frame) => frame,
+                Err(e) => die(&e),
+            };
+            match format_status_response(&status) {
+                Ok(message) => println!("{message}"),
+                Err(message) => die(&message),
             }
-
-            let mut raw_response = vec![0; 512];
-            match port.read(raw_response.as_mut_slice()) {
-                Ok(bytes_read) => {
-                    raw_response.truncate(bytes_read);
-                    let response = parse_scan_response(&raw_response);
-                    println!("{response}");
-                }
-                Err(e) => {
-                    eprintln!("Failed to read scan response: {e}");
-                }
-            }
+            eprintln!("Waiting for scan results (up to {} s)...", SCAN_TIMEOUT.as_secs());
+            let done = match session.wait_for(Instant::now() + SCAN_TIMEOUT, &is_scan_done_notification) {
+                Ok(frame) => frame,
+                Err(e) => die(&e),
+            };
+            let (scan_status, results) = match decode_scan_done_notification(&done) {
+                Some(done) => done,
+                None => die(&"malformed scan done notification"),
+            };
+            println!("{}", format_scan_results(scan_status, &results));
         }
         Commands::Connect {
             iface_index,
@@ -183,54 +219,31 @@ fn main() {
         } => {
             if !matches!(security, ConnectSecurityArg::None) && psk.is_none() {
                 eprintln!("--psk is required for selected security mode");
-                return;
+                std::process::exit(1);
             }
 
-            let connect_query = create_connect_query(
-                iface_index,
-                &ssid,
-                psk.as_deref(),
-                security.to_proto(),
-                timeout_ms,
-            );
-            if let Err(e) = port.write_all(&connect_query) {
-                eprintln!("Failed to write connect request: {e}");
-                return;
-            }
-
-            let mut raw_response = vec![0; 512];
-            match port.read(raw_response.as_mut_slice()) {
-                Ok(bytes_read) => {
-                    raw_response.truncate(bytes_read);
-                    let response = parse_connect_response(&raw_response);
-                    println!("{response}");
-                }
-                Err(e) => {
-                    eprintln!("Failed to read connect response: {e}");
-                }
+            let payload =
+                connect_request_payload(iface_index, &ssid, psk.as_deref(), security.to_proto(), timeout_ms);
+            let frame = match session.request(SerialType::WifiMgmt, &payload, deadline, &is_wifi_mgmt_response) {
+                Ok(frame) => frame,
+                Err(e) => die(&e),
+            };
+            match format_status_response(&frame) {
+                Ok(message) => println!("{message}"),
+                Err(message) => die(&message),
             }
         }
         Commands::Interfaces {
             iface_index,
             iface_type,
         } => {
-            let interfaces_query = create_interfaces_query(iface_type.to_proto(), iface_index);
-            if let Err(e) = port.write_all(&interfaces_query) {
-                eprintln!("Failed to write interfaces request: {e}");
-                return;
-            }
-
-            let mut raw_response = vec![0; 1024];
-            match port.read(raw_response.as_mut_slice()) {
-                Ok(bytes_read) => {
-                    raw_response.truncate(bytes_read);
-                    let response = parse_interfaces_response(&raw_response);
-                    println!("{response}");
-                }
-                Err(e) => {
-                    eprintln!("Failed to read interfaces response: {e}");
-                }
-            }
+            let payload = interfaces_request_payload(iface_type.to_proto(), iface_index);
+            let frame = match session.request(SerialType::NetIfMgmt, &payload, deadline, &|f: &Frame| f.rtype == SerialType::NetIfMgmt && !f.payload.is_empty()) {
+                Ok(frame) => frame,
+                Err(e) => die(&e),
+            };
+            println!("{}", format_interfaces_response(&frame));
         }
+        Commands::Test { .. } | Commands::List => unreachable!(),
     }
 }

@@ -1,6 +1,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/net/net_if.h>
+#include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/sys/byteorder.h>
 #include <errno.h>
@@ -13,7 +14,11 @@
 
 LOG_MODULE_REGISTER(wifi_mgmt_proxy, LOG_LEVEL_INF);
 
-#define WIFI_MGMT_THREAD_STACK_SIZE 2048
+/* 4 KiB: process_wifi_mgmt_request() keeps the full WifiMgmtRequest/response
+ * protobuf structs plus callback contexts on the stack, and the nanopb decode
+ * + logging + net_mgmt call chains add ~1 KiB more. 2 KiB overflowed on the
+ * first version request (Zephyr fatal error 2: stack overflow). */
+#define WIFI_MGMT_THREAD_STACK_SIZE 4096
 #define WIFI_MGMT_THREAD_PRIORITY 7
 
 
@@ -103,6 +108,116 @@ void wifi_mgmt_message_complete(size_t len)
     LOG_INF("Message complete, length: %zu", message_length);
     k_event_set(&wifi_mgmt_event, DATA_COMPLETE_EVENT); // Signal the event
 }
+
+
+/* --- Wi-Fi scan result reporting -------------------------------------------
+ *
+ * The scan itself is asynchronous: NET_REQUEST_WIFI_SCAN only reports whether
+ * the request was accepted. Individual results arrive as
+ * NET_EVENT_WIFI_SCAN_RESULT events and the completion as
+ * NET_EVENT_WIFI_SCAN_DONE. Results are collected and flushed to the host as
+ * a single WifiMgmtNotification (ScanDoneEvent) frame.
+ *
+ * net_mgmt events are dispatched serialized on the network thread, so the
+ * collection state needs no locking.
+ */
+
+static uint8_t wifi_mgmt_notify_buffer[sizeof(embedded_wifi_mgmt_WifiMgmtNotification)];
+static embedded_wifi_mgmt_WifiScanResult scan_results[CONFIG_WIFI_MGMT_PROXY_MAX_SCAN_RESULTS];
+static embedded_wifi_mgmt_WifiMgmtNotification scan_done_notification;
+static size_t scan_result_count;
+
+static void send_scan_done_notification(struct net_if *iface, int32_t status)
+{
+    memset(&scan_done_notification, 0, sizeof(scan_done_notification));
+    scan_done_notification.has_event = true;
+    scan_done_notification.event.iface_index = (iface != NULL) ? net_if_get_by_iface(iface) : 0;
+    scan_done_notification.event.which_event_data =
+        embedded_wifi_mgmt_WifiEvent_scan_done_event_tag;
+    scan_done_notification.event.event_data.scan_done_event.status = status;
+    scan_done_notification.event.event_data.scan_done_event.all_results_count =
+        (pb_size_t)scan_result_count;
+    memcpy(scan_done_notification.event.event_data.scan_done_event.all_results,
+           scan_results,
+           sizeof(scan_results[0]) * scan_result_count);
+
+    pb_ostream_t ostream = pb_ostream_from_buffer(wifi_mgmt_notify_buffer,
+                                                  sizeof(wifi_mgmt_notify_buffer));
+
+    if (pb_encode(&ostream, embedded_wifi_mgmt_WifiMgmtNotification_fields,
+                  &scan_done_notification)) {
+        int tx_ret = serial_mux_send(SERIAL_TYPE_WIFI_MGMT, wifi_mgmt_notify_buffer,
+                                     ostream.bytes_written);
+        if (tx_ret < 0) {
+            LOG_ERR("Failed to send scan done notification: %d", tx_ret);
+        }
+    } else {
+        LOG_ERR("Failed to encode scan done notification: %s", ostream.errmsg);
+    }
+
+    scan_result_count = 0;
+}
+
+static void handle_wifi_scan_result(const struct wifi_scan_result *entry)
+{
+    if (scan_result_count >= ARRAY_SIZE(scan_results)) {
+        LOG_WRN("Scan result buffer full, dropping additional results");
+        return;
+    }
+
+    embedded_wifi_mgmt_WifiScanResult *result = &scan_results[scan_result_count];
+
+    size_t ssid_len = entry->ssid_length;
+
+    if (ssid_len > sizeof(result->ssid.bytes)) {
+        ssid_len = sizeof(result->ssid.bytes);
+    }
+    result->ssid.size = (pb_size_t)ssid_len;
+    memcpy(result->ssid.bytes, entry->ssid, ssid_len);
+    memcpy(result->bssid, entry->mac, WIFI_MAC_ADDR_LEN);
+    result->channel = entry->channel;
+    result->rssi = entry->rssi;
+    result->security = (embedded_wifi_mgmt_WifiSecurityType)entry->security;
+    result->wpa3_enterprise_type =
+        (embedded_wifi_mgmt_WifiWpa3EnterpriseType)entry->wpa3_ent_type;
+    result->mfp = (embedded_wifi_mgmt_WifiMfpOptions)entry->mfp;
+    result->band = entry->band;
+
+    scan_result_count++;
+}
+
+static void wifi_mgmt_net_event_handler(struct net_mgmt_event_callback *cb,
+					uint64_t mgmt_event,
+					struct net_if *iface)
+{
+    switch (mgmt_event) {
+    case NET_EVENT_WIFI_SCAN_RESULT:
+        handle_wifi_scan_result((const struct wifi_scan_result *)cb->info);
+        break;
+    case NET_EVENT_WIFI_SCAN_DONE: {
+        const struct wifi_status *wstatus =
+            (const struct wifi_status *)cb->info;
+        int32_t status = (wstatus != NULL) ? wstatus->status : 0;
+
+        send_scan_done_notification(iface, status);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+static struct net_mgmt_event_callback wifi_mgmt_event_cb;
+
+static int wifi_mgmt_events_init(void)
+{
+    net_mgmt_init_event_callback(&wifi_mgmt_event_cb, wifi_mgmt_net_event_handler,
+                                 NET_EVENT_WIFI_SCAN_RESULT | NET_EVENT_WIFI_SCAN_DONE);
+    net_mgmt_add_event_callback(&wifi_mgmt_event_cb);
+    return 0;
+}
+
+SYS_INIT(wifi_mgmt_events_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
 
 
 K_THREAD_DEFINE(wifi_mgmt_proxy_thread_id,      // Name for the thread ID
@@ -406,6 +521,32 @@ static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint
 
 // --- Request Handler Implementations ---
 
+/* Resolve the WiFi interface for a request. An ifindex of 0 means
+ * "unspecified" and maps to the first registered WiFi interface, so
+ * host CLIs that default to index 0 work on single-radio boards.
+ * Explicit indices are looked up as-is.
+ */
+static struct net_if *resolve_wifi_iface(uint32_t ifindex)
+{
+    if (ifindex != 0) {
+        return net_if_get_by_index(ifindex);
+    }
+
+    /* ifindex 0 = unspecified: use the first registered WiFi interface. */
+    for (int i = 1; ; i++) {
+        struct net_if *iface = net_if_get_by_index(i);
+
+        if (iface == NULL) {
+            break;
+        }
+        if (net_if_is_wifi(iface)) {
+            return iface;
+        }
+    }
+
+    return NULL;
+}
+
 static void handle_connect_request(const embedded_wifi_mgmt_WifiConnectRequest *req,
                                    embedded_wifi_mgmt_WifiStatusResponse *resp) {
     resp->success = false; // Default to failure
@@ -415,7 +556,7 @@ static void handle_connect_request(const embedded_wifi_mgmt_WifiConnectRequest *
     LOG_INF("Handling Connect Request for iface %u, SSID: %.*s",
             req->iface_index, (int)req->ssid.size, req->ssid.bytes);
 
-    struct net_if *iface = net_if_get_by_index(req->iface_index);
+    struct net_if *iface = resolve_wifi_iface(req->iface_index);
     if (!iface) {
         LOG_ERR("Interface with index %u not found", req->iface_index);
         resp->error_code = -ENODEV;
@@ -498,7 +639,7 @@ static void handle_disconnect_request(const embedded_wifi_mgmt_WifiDisconnectReq
     set_status_error_msg_bytes(resp->error_message, "Disconnect handler init error");
 
     LOG_INF("Handling Disconnect Request for iface %u", req->iface_index);
-    struct net_if *iface = net_if_get_by_index(req->iface_index);
+    struct net_if *iface = resolve_wifi_iface(req->iface_index);
     if (!iface) {
         LOG_ERR("Interface with index %u not found", req->iface_index);
         resp->error_code = -ENODEV;
@@ -527,7 +668,7 @@ static void handle_scan_request(const embedded_wifi_mgmt_WifiScanRequest *req,
     set_status_error_msg_bytes(resp->error_message, "Scan handler init error");
 
     LOG_INF("Handling Scan Request for iface %u", req->iface_index);
-    struct net_if *iface = net_if_get_by_index(req->iface_index);
+    struct net_if *iface = resolve_wifi_iface(req->iface_index);
     if (!iface) {
         LOG_ERR("Interface with index %u not found for scan", req->iface_index);
         resp->error_code = -ENODEV;
@@ -590,6 +731,7 @@ static void handle_scan_request(const embedded_wifi_mgmt_WifiScanRequest *req,
         LOG_INF("NET_REQUEST_WIFI_SCAN initiated");
         resp->success = true;
         resp->error_code = 0;
+        set_status_error_msg_bytes(resp->error_message, "Scan initiated");
     }
 }
 
@@ -602,7 +744,7 @@ static void handle_ap_enable_request(const embedded_wifi_mgmt_WifiApEnableReques
     set_status_error_msg_bytes(resp->error_message, "AP enable handler init error");
 
     LOG_INF("Handling AP Enable Request for iface %u", req->iface_index);
-    struct net_if *iface = net_if_get_by_index(req->iface_index);
+    struct net_if *iface = resolve_wifi_iface(req->iface_index);
     if (!iface) {
         LOG_ERR("Interface with index %u not found for AP enable", req->iface_index);
         resp->error_code = -ENODEV;
@@ -690,7 +832,7 @@ static void handle_ap_disable_request(const embedded_wifi_mgmt_WifiApDisableRequ
     set_status_error_msg_bytes(resp->error_message, "AP disable handler init error");
 
     LOG_INF("Handling AP Disable Request for iface %u", req->iface_index);
-    struct net_if *iface = net_if_get_by_index(req->iface_index);
+    struct net_if *iface = resolve_wifi_iface(req->iface_index);
     if (!iface) {
         LOG_ERR("Interface with index %u not found for AP disable", req->iface_index);
         resp->error_code = -ENODEV;
@@ -766,7 +908,7 @@ static void handle_set_ps_config_request(const embedded_wifi_mgmt_SetPowerSaveCo
     set_status_error_msg_bytes(resp->error_message, "Set PS config handler init error");
 
     LOG_INF("Handling Set Power Save Config Request for iface %u", req->iface_index);
-    struct net_if *iface = net_if_get_by_index(req->iface_index);
+    struct net_if *iface = resolve_wifi_iface(req->iface_index);
     if (!iface) {
         LOG_ERR("Interface with index %u not found for PS config", req->iface_index);
         resp->error_code = -ENODEV;
@@ -821,7 +963,7 @@ static void handle_get_ps_config_request(const embedded_wifi_mgmt_GetPowerSaveCo
     set_status_error_msg_bytes(err_resp->error_message, "Get PS config handler init error");
 
     LOG_INF("Handling Get Power Save Config Request for iface %u", req->iface_index);
-    struct net_if *iface = net_if_get_by_index(req->iface_index);
+    struct net_if *iface = resolve_wifi_iface(req->iface_index);
     if (!iface) {
         LOG_ERR("Interface with index %u not found for PS config", req->iface_index);
         err_resp->error_code = -ENODEV;
@@ -961,7 +1103,7 @@ static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfac
     set_status_error_msg_bytes(err_resp->error_message, "Get IfaceStatus handler init error");
 
     LOG_INF("Handling Get Interface Status Request for iface %u", req->iface_index);
-    struct net_if *iface = net_if_get_by_index(req->iface_index);
+    struct net_if *iface = resolve_wifi_iface(req->iface_index);
     if (!iface) {
         LOG_ERR("Interface with index %u not found for status", req->iface_index);
         err_resp->error_code = -ENODEV;

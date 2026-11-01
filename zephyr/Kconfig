@@ -129,11 +129,22 @@ config SERIAL_MUX_IFACE_UART
 
 config SERIAL_MUX_IFACE_USB
 	bool "Enable USB CDC ACM interface in multiplexer"
-	default y if USB_DEVICE_STACK
-	depends on USB_DEVICE_STACK
+	default y if USBD_CDC_ACM_CLASS
+	depends on USBD_CDC_ACM_CLASS
 	help
 	  Register the USB CDC ACM transport as a selectable interface target for
-	  technology proxy egress.
+	  technology proxy egress. Requires the USB device stack next CDC ACM
+	  class (USBD_CDC_ACM_CLASS) and a "zephyr,cdc-acm-uart" devicetree node.
+
+config WIFI_MGMT_PROXY_MAX_SCAN_RESULTS
+	int "Maximum Wi-Fi scan results reported to the host"
+	default 32
+	range 1 32
+	depends on SERIAL_PROXY_WIFI_MGMT
+	help
+	  Upper bound for the scan results collected and reported to the host in
+	  a single ScanDoneEvent notification. The limit is also capped by the
+	  protobuf schema (ScanDoneEvent.all_results max_count).
 
 config SERIAL_PROXY_WIFI_MGMT
 	bool "Enable Wi-Fi management proxy"

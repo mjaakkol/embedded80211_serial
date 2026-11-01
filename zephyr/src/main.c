@@ -110,10 +110,21 @@ static int cmd_wifi_status(void)
 
 	if (net_mgmt(NET_REQUEST_WIFI_IFACE_STATUS, iface, &status,
 				sizeof(struct wifi_iface_status))) {
-		LOG_INF("Status request failed");
+		LOG_ERR("Status request failed");
 
 		return -ENOEXEC;
 	}
+
+	/* The caller polls every STATUS_POLLING_MS; log only state changes so
+	 * the log backend is not flooded with identical lines. */
+	static bool have_last;
+	static int last_state;
+
+	if (have_last && status.state == last_state) {
+		return 0;
+	}
+	have_last = true;
+	last_state = status.state;
 
 	LOG_INF("==================");
 	LOG_INF("State: %s", wifi_state_txt(status.state));

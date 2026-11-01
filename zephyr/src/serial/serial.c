@@ -13,13 +13,28 @@ LOG_MODULE_REGISTER(serial, LOG_LEVEL_INF);
 
 K_MUTEX_DEFINE(serial_tx_mutex);
 
+/* Bounded wait for TX FIFO space. A healthy host drains the CDC ACM ring at
+ * ~128 KB/s (128 B per USB bulk transfer, 1 ms work schedule), so a full
+ * 4100 B frame needs well under 100 ms. The bound only guards against a
+ * disconnected host, where the ring never drains.
+ */
+#define SERIAL_TX_TIMEOUT_MS 500
+
 /**
- * @brief Writes a block of data to the specified UART device using polling.
+ * @brief Writes a block of data to the specified UART device, applying
+ *        backpressure while the TX FIFO is full.
+ *
+ * The CDC ACM backend's ring (see app.overlay cdc_serial_uart
+ * tx-fifo-size) is drained by the USB work queue as the host reads the
+ * endpoint; a full ring used to make the old uart_poll_out loop discard
+ * bytes silently, truncating large frames. Now the caller waits until the
+ * FIFO accepts every byte (bounded by SERIAL_TX_TIMEOUT_MS).
  *
  * @param dev Pointer to the UART device structure.
  * @param data Pointer to the data buffer to send.
  * @param len Number of bytes to send from the data buffer.
- * @return 0 on success, -EIO if the device is not ready or an error occurs.
+ * @return 0 on success, -ENOSPC if the FIFO stayed full for
+ *         SERIAL_TX_TIMEOUT_MS, or a driver error.
  */
 int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len)
 {
@@ -27,9 +42,38 @@ int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len)
     // This also means that USB and serial UART are mutually exclusive, but
     // that's OK as it is not expected that anyone would use USB and UART at
     // the same time.
+    size_t written = 0;
+    int64_t start = k_uptime_get();
+
     k_mutex_lock(&serial_tx_mutex, K_FOREVER);
-    for (size_t i = 0; i < len; i++) {
-        uart_poll_out(dev, data[i]);
+    while (written < len) {
+        int n = uart_fifo_fill(dev, data + written, len - written);
+
+        if (n < 0) {
+            k_mutex_unlock(&serial_tx_mutex);
+            return n;
+        }
+
+        if (n > 0) {
+            written += (size_t)n;
+            continue;
+        }
+
+        /* TX FIFO full. A real UART drains in ~10 us per byte. The CDC ACM
+         * backend drains only as fast as the host reads the USB endpoint,
+         * so apply backpressure instead of silently dropping bytes: the
+         * old uart_poll_out loop discarded whatever did not fit in the
+         * ring (see app.overlay cdc_serial_uart tx-fifo-size).
+         */
+        if (k_uptime_get() - start > SERIAL_TX_TIMEOUT_MS) {
+            k_mutex_unlock(&serial_tx_mutex);
+            LOG_ERR("%u of %u TX bytes unsent (TX FIFO full for %d ms); "
+                    "frame is truncated",
+                    (unsigned int)written, (unsigned int)len,
+                    SERIAL_TX_TIMEOUT_MS);
+            return -ENOSPC;
+        }
+        k_busy_wait(10);
     }
     k_mutex_unlock(&serial_tx_mutex);
 
@@ -58,6 +102,9 @@ int serial_send_frame(struct serial_config *config,
         .error = error,
         .reserved = 0,
         .sequence_number = config->tx_sequence_number,
+        /* Length is transmitted big-endian on the wire: byte2 = high,
+         * byte3 = low (the RX parser applies sys_be16_to_cpu).
+         */
         .length = sys_cpu_to_be16((uint16_t)len),
     };
 
@@ -85,76 +132,88 @@ int serial_send_frame(struct serial_config *config,
 static void uart_irq_callback(const struct device *dev, void *user_data)
 {
     struct serial_config *config = (struct serial_config *)user_data;
+    uint8_t b;
 
-    LOG_INF("UART IRQ callback triggered");
+    LOG_DBG("UART IRQ callback triggered");
 
-    // Check if the interrupt is for received data
-    while (uart_irq_is_pending(dev) && uart_irq_rx_ready(dev)) {
+    /*
+     * CDC ACM (USB) driver semantics differ from a real UART: this callback
+     * is invoked from work context once per RX event, and the driver clears
+     * its internal pending/ready flags *before* calling it.  Therefore the
+     * classic
+     *   while (uart_irq_is_pending(dev) && uart_irq_rx_ready(dev))
+     * condition is never true here, the loop body would never run, and bytes
+     * would sit in the RX ring forever (the driver would also re-submit this
+     * work item while the ring stays non-empty, starving the workqueue).
+     *
+     * Instead, drain every header byte currently available: uart_fifo_read()
+     * returns 0 when the ring is empty, which ends the loop.  The driver
+     * re-invokes the callback when more data arrives.
+     */
+    while (config->parsing_state != PARSING_STATE_DATA) {
+        if (uart_fifo_read(dev, &b, 1) != 1) {
+            break;
+        }
 
         switch (config->parsing_state) {
         case PARSING_STATE_TYPE:
-            if (uart_fifo_read(dev, (uint8_t*)&config->serial_header, 1) == 1) {
-                LOG_DBG("Received Serial Type: %u", config->serial_header.type);
-                config->parsing_state = PARSING_STATE_SEQUENCE_NUMBER;
-                config->bytes_read = 0; // Reset bytes read for new packet
-            } else {
-                LOG_ERR("Failed to read Serial Type");
-            }
+            *(uint8_t *)&config->serial_header = b;
+            LOG_DBG("Received Serial Type: %u", config->serial_header.type);
+            config->parsing_state = PARSING_STATE_SEQUENCE_NUMBER;
+            config->bytes_read = 0; // Reset bytes read for new packet
             break;
         case PARSING_STATE_SEQUENCE_NUMBER:
-            if (uart_fifo_read(dev, ((uint8_t*)&config->serial_header)+1, 1) == 1) {
-                LOG_DBG("Received Serial Seq: %u", config->serial_header.sequence_number);
-                config->parsing_state = PARSING_STATE_LENGTH1;
-            } else {
-                LOG_ERR("Failed to read Serial Sequence Number");
-            }
+            (*((uint8_t *)&config->serial_header + 1)) = b;
+            LOG_DBG("Received Serial Seq: %u", config->serial_header.sequence_number);
+            config->parsing_state = PARSING_STATE_LENGTH1;
             break;
         case PARSING_STATE_LENGTH1:
-            if (uart_fifo_read(dev, (uint8_t*)&config->serial_header.length, 1) == 1) {
-                LOG_DBG("Received Serial Length (byte 1): %u", config->serial_header.length);
-                config->parsing_state = PARSING_STATE_LENGTH2;
-            } else {
-                LOG_ERR("Failed to read Serial Length byte 1");
-            }
+            *(uint8_t *)&config->serial_header.length = b;
+            config->parsing_state = PARSING_STATE_LENGTH2;
             break;
         case PARSING_STATE_LENGTH2:
-            if (uart_fifo_read(dev, ((uint8_t *)&config->serial_header.length) + 1, 1) == 1) {
-                LOG_DBG("Received Serial Length (byte 2): %u", config->serial_header.length);
-                config->serial_header.length = sys_be16_to_cpu(config->serial_header.length);
-                if (config->serial_header.length == 0) {
-                    LOG_ERR("Invalid Serial Length: 0");
-                    config->parsing_state = PARSING_STATE_TYPE;
-                } else if (config->serial_header.length > SERIAL_MAX_PAYLOAD_LEN) {
-                    LOG_ERR("Payload too long: %u > %u", config->serial_header.length,
-                            SERIAL_MAX_PAYLOAD_LEN);
-                    /* Send LENGTH_TOO_LONG error ACK */
-                    struct SerialHeader ack = {
-                        .type = config->serial_header.type,
-                        .no_ack = false,
-                        .host = true,
-                        .error = ERROR_TYPE_LENGTH_TOO_LONG,
-                        .reserved = 0,
-                        .sequence_number = config->serial_header.sequence_number,
-                        .length = sys_cpu_to_be16(0),
-                    };
-                    serial_data_tx(dev, (const uint8_t *)&ack, sizeof(ack));
-                    config->parsing_state = PARSING_STATE_TYPE;
-                } else {
-                    config->parsing_state = PARSING_STATE_DATA;
-                }
+            (*((uint8_t *)&config->serial_header.length + 1)) = b;
+            config->serial_header.length = sys_be16_to_cpu(config->serial_header.length);
+            if (config->serial_header.length == 0) {
+                LOG_ERR("Invalid Serial Length: 0");
+                config->parsing_state = PARSING_STATE_TYPE;
+            } else if (config->serial_header.length > SERIAL_MAX_PAYLOAD_LEN) {
+                LOG_ERR("Payload too long: %u > %u", config->serial_header.length,
+                        SERIAL_MAX_PAYLOAD_LEN);
+                /* Send LENGTH_TOO_LONG error ACK */
+                struct SerialHeader ack = {
+                    .type = config->serial_header.type,
+                    .no_ack = false,
+                    .host = true,
+                    .error = ERROR_TYPE_LENGTH_TOO_LONG,
+                    .reserved = 0,
+                    .sequence_number = config->serial_header.sequence_number,
+                    .length = sys_cpu_to_be16(0),
+                };
+                serial_data_tx(dev, (const uint8_t *)&ack, sizeof(ack));
+                config->parsing_state = PARSING_STATE_TYPE;
             } else {
-                LOG_ERR("Failed to read Serial Length byte 2");
+                LOG_DBG("Received Serial Length: %u", config->serial_header.length);
+                config->parsing_state = PARSING_STATE_DATA;
             }
             break;
         case PARSING_STATE_DATA:
-            // Issue system thread to read data
-            uart_irq_rx_disable(dev);
-            k_work_submit(&config->work_item);
+            /* Unreachable: the loop exits before any payload byte is read. */
             break;
         default:
             LOG_ERR("Unknown parsing state: %d", config->parsing_state);
             break;
         }
+    }
+
+    /*
+     * Complete header: the payload remains in the ring for
+     * serial_work_handler, which reads exactly
+     * serial_header.length - bytes_read bytes from it.  Queue the handler
+     * (no-op if already pending).
+     */
+    if (config->parsing_state == PARSING_STATE_DATA) {
+        (void)k_work_submit(&config->work_item);
     }
 }
 
@@ -225,6 +284,12 @@ static void serial_work_handler(struct k_work *work_item_ptr)
             config->bytes_read += (size_t)n;
             if (config->bytes_read >= config->serial_header.length) {
                 handle_protocol_info(config, config->serial_header.sequence_number);
+                /* Reset parser for next frame; clear length so the loop
+                 * exits instead of re-entering with a stale header.
+                 */
+                config->parsing_state = PARSING_STATE_TYPE;
+                config->bytes_read = 0;
+                config->serial_header.length = 0;
             }
             continue;
         }

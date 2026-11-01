@@ -13,6 +13,15 @@ zephyr_udc0: &usbd {
 		data-bits = <8>;
 		stop-bits = "0_5";
         label = "CDC_ACM_0";
+        /* Must hold a full protocol frame (4 B header + 4096 B payload =
+         * 4100 B; next power of two is 8192). The CDC ACM driver's
+         * poll_out silently discards bytes when this ring is full, so any
+         * smaller value truncates large frames (e.g. SCAN_DONE
+         * notifications) whenever the host drains the USB endpoint slower
+         * than the ring fills.
+         */
+        tx-fifo-size = <8192>;
+        rx-fifo-size = <8192>;
         status = "okay";
     };
     cdc_serial_uart2: cdc_acm_uart2 { // This creates an instance named "CDC_ACM_1"

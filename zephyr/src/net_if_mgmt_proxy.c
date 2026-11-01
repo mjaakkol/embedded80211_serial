@@ -13,7 +13,10 @@
 
 LOG_MODULE_REGISTER(net_if_mgmt_proxy, LOG_LEVEL_INF);
 
-#define NET_IF_MGMT_THREAD_STACK_SIZE 2048
+/* 4 KiB: process_net_if_request() keeps the full NetIfRequest/Response
+ * protobuf structs on the stack alongside nanopb decode and net_if_foreach
+ * call chains; 2 KiB is not enough headroom. */
+#define NET_IF_MGMT_THREAD_STACK_SIZE 4096
 #define NET_IF_MGMT_THREAD_PRIORITY   7
 #define DATA_COMPLETE_EVENT           BIT(0)
 
