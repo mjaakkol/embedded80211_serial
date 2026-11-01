@@ -14,11 +14,18 @@
 
 LOG_MODULE_REGISTER(wifi_mgmt_proxy, LOG_LEVEL_INF);
 
-/* 4 KiB: process_wifi_mgmt_request() keeps the full WifiMgmtRequest/response
+/* 8 KiB: process_wifi_mgmt_request() keeps the full WifiMgmtRequest/response
  * protobuf structs plus callback contexts on the stack, and the nanopb decode
  * + logging + net_mgmt call chains add ~1 KiB more. 2 KiB overflowed on the
- * first version request (Zephyr fatal error 2: stack overflow). */
-#define WIFI_MGMT_THREAD_STACK_SIZE 4096
+ * first version request (Zephyr fatal error 2: stack overflow).
+ *
+ * 4 KiB overflowed on the CONNECT path: net_if_wifi_connect() -> nrf_wifi ->
+ * Zephyr wpa_supplicant (supp_api.c) -> wpa_cli_cmd_v("remove_network all")
+ * -> wpa_cli_cmd(), which alone allocates ~1 KiB (cmd[512] + buf[512] + argv)
+ * on top of ~3 KiB of caller frames (proxy + net + nrf_wifi + supp_api),
+ * tripping the stack sentinel check (K_ERR_STACK_CHK_FAIL). 8 KiB leaves
+ * ~3 KiB of headroom for deeper connect/EAP call chains. */
+#define WIFI_MGMT_THREAD_STACK_SIZE 8192
 #define WIFI_MGMT_THREAD_PRIORITY 7
 
 
@@ -35,6 +42,184 @@ LOG_MODULE_REGISTER(wifi_mgmt_proxy, LOG_LEVEL_INF);
 #define MAX_AP_PSK_LEN 64
 
 #define DATA_COMPLETE_EVENT BIT(0) // Event bit for data completion
+
+/* ---------------------------------------------------------------------------
+ * Proto <-> Zephyr enum mappings
+ *
+ * The protobuf enums in protos/wifi.proto and the Zephyr enums in
+ * <zephyr/net/wifi.h> assign DIFFERENT numeric values to the same concepts
+ * (e.g. security: Zephyr NONE=0/PSK=1/SAE=3 vs proto NONE=1/PSK=3/SAE=7).
+ * Raw casts are therefore wrong in both directions and must go through these
+ * translators.
+ * ------------------------------------------------------------------------- */
+
+static embedded_wifi_mgmt_WifiSecurityType zephyr_to_proto_security(
+	enum wifi_security_type zsec)
+{
+	switch (zsec) {
+	case WIFI_SECURITY_TYPE_NONE:
+		return embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_NONE;
+	case WIFI_SECURITY_TYPE_PSK:
+	case WIFI_SECURITY_TYPE_WPA_PSK:
+	case WIFI_SECURITY_TYPE_WPA_AUTO_PERSONAL:
+		return embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_PSK;
+	case WIFI_SECURITY_TYPE_PSK_SHA256:
+		return embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_PSK_SHA256;
+	case WIFI_SECURITY_TYPE_SAE:
+	case WIFI_SECURITY_TYPE_SAE_H2E:
+	case WIFI_SECURITY_TYPE_SAE_AUTO:
+		return embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_SAE;
+	case WIFI_SECURITY_TYPE_EAP:
+		return embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_EAP;
+	case WIFI_SECURITY_TYPE_WEP:
+		return embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_WEP;
+	case WIFI_SECURITY_TYPE_WAPI:
+		return embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_WAPI;
+	default:
+		return embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_UNKNOWN;
+	}
+}
+
+static enum wifi_security_type proto_to_zephyr_security(
+	embedded_wifi_mgmt_WifiSecurityType psec)
+{
+	switch (psec) {
+	case embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_NONE:
+		return WIFI_SECURITY_TYPE_NONE;
+	case embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_PSK:
+		return WIFI_SECURITY_TYPE_PSK;
+	case embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_PSK_SHA256:
+		return WIFI_SECURITY_TYPE_PSK_SHA256;
+	case embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_SAE:
+		return WIFI_SECURITY_TYPE_SAE;
+	case embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_EAP:
+		return WIFI_SECURITY_TYPE_EAP;
+	case embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_WEP:
+		return WIFI_SECURITY_TYPE_WEP;
+	case embedded_wifi_mgmt_WifiSecurityType_WIFI_SECURITY_TYPE_WAPI:
+		return WIFI_SECURITY_TYPE_WAPI;
+	default:
+		/* UNKNOWN (and future values): Zephyr's UNKNOWN == NONE (0). */
+		return WIFI_SECURITY_TYPE_NONE;
+	}
+}
+
+static embedded_wifi_mgmt_WifiBand zephyr_to_proto_band(
+	enum wifi_frequency_bands band)
+{
+	switch (band) {
+	case WIFI_FREQ_BAND_2_4_GHZ:
+		return embedded_wifi_mgmt_WifiBand_WIFI_BAND_2_4_GHZ;
+	case WIFI_FREQ_BAND_5_GHZ:
+		return embedded_wifi_mgmt_WifiBand_WIFI_BAND_5_GHZ;
+	case WIFI_FREQ_BAND_6_GHZ:
+		return embedded_wifi_mgmt_WifiBand_WIFI_BAND_6_GHZ;
+	default:
+		return embedded_wifi_mgmt_WifiBand_WIFI_BAND_ANY;
+	}
+}
+
+static enum wifi_frequency_bands proto_to_zephyr_band(embedded_wifi_mgmt_WifiBand pband)
+{
+	switch (pband) {
+	case embedded_wifi_mgmt_WifiBand_WIFI_BAND_5_GHZ:
+		return WIFI_FREQ_BAND_5_GHZ;
+	case embedded_wifi_mgmt_WifiBand_WIFI_BAND_6_GHZ:
+		return WIFI_FREQ_BAND_6_GHZ;
+	case embedded_wifi_mgmt_WifiBand_WIFI_BAND_2_4_GHZ:
+	default:
+		/* ANY (and 2.4 GHz): Zephyr has no "any" band; default to 2.4 GHz. */
+		return WIFI_FREQ_BAND_2_4_GHZ;
+	}
+}
+
+static embedded_wifi_mgmt_WifiMfpOptions zephyr_to_proto_mfp(enum wifi_mfp_options mfp)
+{
+	switch (mfp) {
+	case WIFI_MFP_OPTIONAL:
+		return embedded_wifi_mgmt_WifiMfpOptions_WIFI_MFP_OPTIONAL;
+	case WIFI_MFP_REQUIRED:
+		return embedded_wifi_mgmt_WifiMfpOptions_WIFI_MFP_REQUIRED;
+	default:
+		return embedded_wifi_mgmt_WifiMfpOptions_WIFI_MFP_DISABLE;
+	}
+}
+
+static enum wifi_mfp_options proto_to_zephyr_mfp(embedded_wifi_mgmt_WifiMfpOptions pmfp)
+{
+	switch (pmfp) {
+	case embedded_wifi_mgmt_WifiMfpOptions_WIFI_MFP_REQUIRED:
+		return WIFI_MFP_REQUIRED;
+	case embedded_wifi_mgmt_WifiMfpOptions_WIFI_MFP_DISABLE:
+		return WIFI_MFP_DISABLE;
+	default:
+		return WIFI_MFP_OPTIONAL;
+	}
+}
+
+static embedded_wifi_mgmt_WifiInterfaceState zephyr_to_proto_state(
+	enum wifi_iface_state state)
+{
+	switch (state) {
+	case WIFI_STATE_INACTIVE:
+		return embedded_wifi_mgmt_WifiInterfaceState_WIFI_STATE_INACTIVE;
+	case WIFI_STATE_SCANNING:
+		return embedded_wifi_mgmt_WifiInterfaceState_WIFI_STATE_SCANNING;
+	case WIFI_STATE_AUTHENTICATING:
+		return embedded_wifi_mgmt_WifiInterfaceState_WIFI_STATE_AUTHENTICATING;
+	case WIFI_STATE_ASSOCIATING:
+		return embedded_wifi_mgmt_WifiInterfaceState_WIFI_STATE_ASSOCIATING;
+	case WIFI_STATE_ASSOCIATED:
+		return embedded_wifi_mgmt_WifiInterfaceState_WIFI_STATE_ASSOCIATED;
+	case WIFI_STATE_4WAY_HANDSHAKE:
+		return embedded_wifi_mgmt_WifiInterfaceState_WIFI_STATE_4WAY_HANDSHAKE;
+	case WIFI_STATE_GROUP_HANDSHAKE:
+		return embedded_wifi_mgmt_WifiInterfaceState_WIFI_STATE_GROUP_HANDSHAKE;
+	case WIFI_STATE_COMPLETED:
+		return embedded_wifi_mgmt_WifiInterfaceState_WIFI_STATE_CONNECTED;
+	case WIFI_STATE_INTERFACE_DISABLED:
+		return embedded_wifi_mgmt_WifiInterfaceState_WIFI_STATE_INTERFACE_DISABLED;
+	default: /* DISCONNECTED, DISCONNECTING, UNKNOWN */
+		return embedded_wifi_mgmt_WifiInterfaceState_WIFI_STATE_DISCONNECTED;
+	}
+}
+
+static embedded_wifi_mgmt_WifiMode zephyr_to_proto_mode(enum wifi_iface_mode mode)
+{
+	switch (mode) {
+	case WIFI_MODE_AP:
+		return embedded_wifi_mgmt_WifiMode_WIFI_MODE_AP;
+	case WIFI_MODE_MESH:
+		return embedded_wifi_mgmt_WifiMode_WIFI_MODE_MESH_POINT;
+	case WIFI_MODE_P2P_GO:
+		return embedded_wifi_mgmt_WifiMode_WIFI_MODE_P2P_GO;
+	default: /* INFRA, IBSS, P2P_GROUP_FORMATION, UNKNOWN */
+		return embedded_wifi_mgmt_WifiMode_WIFI_MODE_INFRA;
+	}
+}
+
+static embedded_wifi_mgmt_WifiLinkMode zephyr_to_proto_link_mode(
+	enum wifi_link_mode link_mode)
+{
+	switch (link_mode) {
+	case WIFI_1:
+		return embedded_wifi_mgmt_WifiLinkMode_WIFI_LINK_MODE_LEGACY_B;
+	case WIFI_3:
+		return embedded_wifi_mgmt_WifiLinkMode_WIFI_LINK_MODE_LEGACY_G;
+	case WIFI_2:
+		return embedded_wifi_mgmt_WifiLinkMode_WIFI_LINK_MODE_LEGACY_A;
+	case WIFI_4:
+		return embedded_wifi_mgmt_WifiLinkMode_WIFI_LINK_MODE_HT_20;
+	case WIFI_5:
+		return embedded_wifi_mgmt_WifiLinkMode_WIFI_LINK_MODE_VHT_20;
+	case WIFI_6:
+	case WIFI_6E:
+		return embedded_wifi_mgmt_WifiLinkMode_WIFI_LINK_MODE_HE_20;
+	default: /* WIFI_0 (plain legacy), unknown */
+		return embedded_wifi_mgmt_WifiLinkMode_WIFI_LINK_MODE_UNKNOWN;
+	}
+}
+
 // Data structure for WiFi management
 
 
@@ -177,11 +362,11 @@ static void handle_wifi_scan_result(const struct wifi_scan_result *entry)
     memcpy(result->bssid, entry->mac, WIFI_MAC_ADDR_LEN);
     result->channel = entry->channel;
     result->rssi = entry->rssi;
-    result->security = (embedded_wifi_mgmt_WifiSecurityType)entry->security;
+    result->security = zephyr_to_proto_security(entry->security);
     result->wpa3_enterprise_type =
         (embedded_wifi_mgmt_WifiWpa3EnterpriseType)entry->wpa3_ent_type;
-    result->mfp = (embedded_wifi_mgmt_WifiMfpOptions)entry->mfp;
-    result->band = entry->band;
+    result->mfp = zephyr_to_proto_mfp(entry->mfp);
+    result->band = zephyr_to_proto_band(entry->band);
 
     scan_result_count++;
 }
@@ -575,7 +760,7 @@ static void handle_connect_request(const embedded_wifi_mgmt_WifiConnectRequest *
     params.ssid = (uint8_t*)req->ssid.bytes;
     params.ssid_length = req->ssid.size;
 
-    params.security = (enum wifi_security_type)req->security_type;
+    params.security = proto_to_zephyr_security(req->security_type);
 
     if (params.security == WIFI_SECURITY_TYPE_PSK ||
         params.security == WIFI_SECURITY_TYPE_WPA_PSK || // Added WPA_PSK
@@ -612,11 +797,13 @@ static void handle_connect_request(const embedded_wifi_mgmt_WifiConnectRequest *
     params.channel = (req->channel == embedded_wifi_mgmt_WifiChannelConst_WIFI_CHANNEL_ANY) ?
                      WIFI_CHANNEL_ANY : (uint8_t)req->channel;
 
+    /* nanopb uses a fixed 6-byte array here: an absent field decodes to all
+     * zeros, which the stack treats as "any BSSID". */
     memcpy(params.bssid, req->bssid, WIFI_MAC_ADDR_LEN);
 
     params.timeout = req->timeout_ms;
-    params.mfp = req->mfp;
-    params.band = req->band; // Map from WifiBand proto enum
+    params.mfp = proto_to_zephyr_mfp(req->mfp);
+    params.band = proto_to_zephyr_band(req->band);
     // params.bandwidth = (enum wifi_frequency_bandwidths) req->bandwidth; // Map from WifiFrequencyBandwidth proto
 
     int ret = net_mgmt(NET_REQUEST_WIFI_CONNECT, iface, &params, sizeof(params));
@@ -770,13 +957,13 @@ static void handle_ap_enable_request(const embedded_wifi_mgmt_WifiApEnableReques
     params.ssid = (uint8_t*)proto_params->ssid.bytes;
     params.ssid_length = proto_params->ssid.size;
 
-    params.band = proto_params->band;
+    params.band = proto_to_zephyr_band(proto_params->band);
     params.channel = (uint8_t)proto_params->channel;
     if (params.channel == embedded_wifi_mgmt_WifiChannelConst_WIFI_CHANNEL_ANY) {
         params.channel = WIFI_CHANNEL_ANY; // Or a default AP channel e.g. 1, 6, 11 for 2.4GHz
     }
 
-    params.security = (enum wifi_security_type)proto_params->security_type;
+    params.security = proto_to_zephyr_security(proto_params->security_type);
     if (params.security == WIFI_SECURITY_TYPE_PSK) {
         // Use PSK from ap_ctx if callback was used, or directly from proto_params if not
         if (ap_ctx->psk_len > 0) { // Assuming callback populated ap_ctx
@@ -1124,8 +1311,8 @@ static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfac
         data_resp->has_status = true;
         embedded_wifi_mgmt_WifiInterfaceStatus *proto_s = &data_resp->status;
 
-        proto_s->state = (embedded_wifi_mgmt_WifiInterfaceState)status_retrieved.state;
-        proto_s->mode = (embedded_wifi_mgmt_WifiMode)status_retrieved.iface_mode;
+        proto_s->state = zephyr_to_proto_state((enum wifi_iface_state)status_retrieved.state);
+        proto_s->mode = zephyr_to_proto_mode(status_retrieved.iface_mode);
 
         if (status_retrieved.ssid_len > 0 && status_retrieved.ssid_len <= sizeof(proto_s->ssid.bytes)) {
             memcpy(proto_s->ssid.bytes, status_retrieved.ssid, status_retrieved.ssid_len);
@@ -1137,12 +1324,12 @@ static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfac
             memcpy(proto_s->bssid, status_retrieved.bssid, WIFI_MAC_ADDR_LEN);
         }
 
-        proto_s->band = (embedded_wifi_mgmt_WifiBand)status_retrieved.band;
+        proto_s->band = zephyr_to_proto_band(status_retrieved.band);
         proto_s->channel = status_retrieved.channel;
-        proto_s->security = (embedded_wifi_mgmt_WifiSecurityType)status_retrieved.security;
-        proto_s->mfp = (embedded_wifi_mgmt_WifiMfpOptions)status_retrieved.mfp;
+        proto_s->security = zephyr_to_proto_security(status_retrieved.security);
+        proto_s->mfp = zephyr_to_proto_mfp(status_retrieved.mfp);
         proto_s->rssi = status_retrieved.rssi;
-        proto_s->link_mode = (embedded_wifi_mgmt_WifiLinkMode)status_retrieved.link_mode;
+        proto_s->link_mode = zephyr_to_proto_link_mode(status_retrieved.link_mode);
         // proto_s->ht_mcs = status_retrieved.ht_mcs; // If available in Zephyr struct and proto
         // proto_s->vht_mcs = status_retrieved.vht_mcs; // If available
         // proto_s->he_mcs = status_retrieved.he_mcs; // If available
