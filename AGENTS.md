@@ -69,3 +69,8 @@ documentation when externally visible behavior changes.
   input to a successful result.
 - Add focused tests for every framing, sequencing, error, schema, or transport
   behavior change.
+
+## Security
+
+- Keep code, examples, README, test assets and Githubs free from personal identifiable data. For example, SSID and passwords used as part of agentic testing shall not be left into the code or part of git commits.
+- Never use length or attributes from externally interfacing directly without checking boundary conditions.
