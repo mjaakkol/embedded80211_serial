@@ -218,24 +218,6 @@ static void net_mgmt_event_handler(struct net_mgmt_event_callback *cb,
 	}
 }
 
-static int wifi_connect(void)
-{
-	struct net_if *iface = net_if_get_first_wifi();
-
-	context.connected = false;
-	context.connect_result = false;
-
-	if (net_mgmt(NET_REQUEST_WIFI_CONNECT_STORED, iface, NULL, 0)) {
-		LOG_ERR("Connection request failed");
-
-		return -ENOEXEC;
-	}
-
-	LOG_INF("Connection requested");
-
-	return 0;
-}
-
 int bytes_from_str(const char *str, uint8_t *bytes, size_t bytes_len)
 {
 	size_t i;
@@ -298,7 +280,6 @@ int start_app(void)
 			return ret;
 		}
 
-check_wifi_ready:
 		if (!wifi_ready_status) {
 			LOG_INF("Wi-Fi is not ready");
 			/* Perform any cleanup and stop using Wi-Fi and wait for
@@ -307,26 +288,12 @@ check_wifi_ready:
 			continue;
 		}
 #endif /* CONFIG_WIFI_READY_LIB */
-		wifi_connect();
-
-		while (!context.connect_result) {
-			cmd_wifi_status();
-			k_sleep(K_MSEC(STATUS_POLLING_MS));
-		}
-
-		if (context.connected) {
-			cmd_wifi_status();
-#ifdef CONFIG_WIFI_READY_LIB
-			ret = k_sem_take(&wifi_ready_state_changed_sem, K_FOREVER);
-			if (ret) {
-				LOG_ERR("Failed to take semaphore: %d", ret);
-				return ret;
-			}
-			goto check_wifi_ready;
-#else
-			k_sleep(K_FOREVER);
-#endif /* CONFIG_WIFI_READY_LIB */
-		}
+		/* Proxy mode: the host drives Wi-Fi over the serial link
+		 * (scan / connect / AP via cli_test). Do not auto-connect
+		 * here — a boot-time connect would race the host's
+		 * requests and can leave the driver stuck in SCANNING. */
+		LOG_INF("Wi-Fi ready — proxy mode (host-driven over serial)");
+		k_sleep(K_FOREVER);
 	}
 
 	return 0;

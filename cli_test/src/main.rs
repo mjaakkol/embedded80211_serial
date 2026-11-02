@@ -6,13 +6,19 @@ use cli_test::protocol::network_interface::NetIfType;
 use cli_test::protocol::wifi_mgmt::WifiSecurityType;
 use cli_test::protocol::{
     Frame, SerialType, Session, connect_request_payload, decode_scan_done_notification,
-    decode_wifi_mgmt_response, disconnect_request_payload, format_interfaces_response,
+    decode_wifi_mgmt_response, disconnect_request_payload, format_iface_status_response,
+    format_interfaces_response, format_ps_response, format_reg_domain_response,
     format_scan_results, format_status_response, format_version_response,
-    interfaces_request_payload, scan_request_payload, version_request_payload,
+    get_ps_request_payload, get_reg_domain_request_payload, iface_status_request_payload,
+    interfaces_request_payload, scan_request_payload, set_ps_request_payload,
+    set_reg_domain_request_payload, version_request_payload,
 };
 
 /// How long to wait for a normal request/response round trip.
-const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
+/* 15 s: the Wi-Fi driver blocks up to ~10 s on a firmware-side timeout for
+ * rejected management operations (e.g. unknown regulatory domain) before
+ * returning, so the proxy's honest response arrives after that delay. */
+const RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long to wait for scan results to complete.
 const SCAN_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -74,6 +80,71 @@ enum Commands {
 
         #[arg(short = 't', long, value_enum, default_value_t = InterfaceTypeArg::All)]
         iface_type: InterfaceTypeArg,
+    },
+    /// Regulatory domain management (NET_REQUEST_WIFI_REG_DOMAIN)
+    RegDomain {
+        #[command(subcommand)]
+        command: RegDomainCmd,
+    },
+    /// Wi-Fi power save management (NET_REQUEST_WIFI_PS / WIFI_PS_CONFIG)
+    PowerSave {
+        #[command(subcommand)]
+        command: PowerSaveCmd,
+    },
+    /// Get the Wi-Fi interface status (state, SSID, BSSID, RSSI, ...)
+    IfaceStatus {
+        #[arg(short = 'i', long, default_value_t = 0)]
+        iface_index: u32,
+    },
+}
+
+#[derive(Subcommand)]
+enum RegDomainCmd {
+    /// Set the regulatory domain (country code)
+    Set {
+        /// Wi-Fi interface index
+        #[arg(short = 'i', long, default_value_t = 0)]
+        iface_index: u32,
+        /// 2-letter ISO 3166-1 alpha-2 country code (e.g. US, GB)
+        #[arg(short = 'c', long)]
+        country: String,
+        /// Force update even if the domain is already active
+        #[arg(long)]
+        force: bool,
+    },
+    /// Get the current regulatory domain
+    Get {
+        /// Wi-Fi interface index
+        #[arg(short = 'i', long, default_value_t = 0)]
+        iface_index: u32,
+    },
+}
+
+#[derive(Subcommand)]
+enum PowerSaveCmd {
+    /// Set the power save configuration
+    Set {
+        /// Wi-Fi interface index
+        #[arg(short = 'i', long, default_value_t = 0)]
+        iface_index: u32,
+        /// Enable power save (default: disable)
+        #[arg(long)]
+        enable: bool,
+        /// Listen interval in beacon periods
+        #[arg(long, default_value_t = 10)]
+        listen_interval: u32,
+        /// Post-TX timeout in ms (0 = driver default)
+        #[arg(long, default_value_t = 0)]
+        timeout_ms: u32,
+        /// Use WMM (U-APSD) power save instead of legacy (PSPOLL)
+        #[arg(long)]
+        wmm: bool,
+    },
+    /// Get the current power save configuration
+    Get {
+        /// Wi-Fi interface index
+        #[arg(short = 'i', long, default_value_t = 0)]
+        iface_index: u32,
     },
 }
 
@@ -293,6 +364,95 @@ fn main() {
                     Err(e) => die(&e),
                 };
             println!("{}", format_interfaces_response(&frame));
+        }
+        Commands::RegDomain { command: cmd } => match cmd {
+            RegDomainCmd::Set {
+                iface_index,
+                country,
+                force,
+            } => {
+                if country.len() != 2 {
+                    die(&"--country must be a 2-letter ISO 3166-1 alpha-2 code");
+                }
+                let payload = set_reg_domain_request_payload(iface_index, &country, force);
+                let frame = match session.request(
+                    SerialType::WifiMgmt,
+                    &payload,
+                    deadline,
+                    &is_wifi_mgmt_response,
+                ) {
+                    Ok(frame) => frame,
+                    Err(e) => die(&e),
+                };
+                match format_status_response(&frame) {
+                    Ok(message) => println!("{message}"),
+                    Err(message) => die(&message),
+                }
+            }
+            RegDomainCmd::Get { iface_index } => {
+                let payload = get_reg_domain_request_payload(iface_index);
+                let frame = match session.request(
+                    SerialType::WifiMgmt,
+                    &payload,
+                    deadline,
+                    &is_wifi_mgmt_response,
+                ) {
+                    Ok(frame) => frame,
+                    Err(e) => die(&e),
+                };
+                println!("{}", format_reg_domain_response(&frame));
+            }
+        },
+        Commands::PowerSave { command: cmd } => match cmd {
+            PowerSaveCmd::Set {
+                iface_index,
+                enable,
+                listen_interval,
+                timeout_ms,
+                wmm,
+            } => {
+                let payload =
+                    set_ps_request_payload(iface_index, enable, listen_interval, timeout_ms, wmm);
+                let frame = match session.request(
+                    SerialType::WifiMgmt,
+                    &payload,
+                    deadline,
+                    &is_wifi_mgmt_response,
+                ) {
+                    Ok(frame) => frame,
+                    Err(e) => die(&e),
+                };
+                match format_status_response(&frame) {
+                    Ok(message) => println!("{message}"),
+                    Err(message) => die(&message),
+                }
+            }
+            PowerSaveCmd::Get { iface_index } => {
+                let payload = get_ps_request_payload(iface_index);
+                let frame = match session.request(
+                    SerialType::WifiMgmt,
+                    &payload,
+                    deadline,
+                    &is_wifi_mgmt_response,
+                ) {
+                    Ok(frame) => frame,
+                    Err(e) => die(&e),
+                };
+                println!("{}", format_ps_response(&frame));
+            }
+        },
+        Commands::IfaceStatus { iface_index } => {
+            let payload = iface_status_request_payload(iface_index);
+            let frame = match session.request(
+                SerialType::WifiMgmt,
+                &payload,
+                deadline,
+                &is_wifi_mgmt_response,
+            ) {
+                Ok(frame) => frame,
+                Err(e) => die(&e),
+            };
+            println!("{}", format_iface_status_response(&frame));
         }
         Commands::Test { .. } | Commands::List => unreachable!(),
     }

@@ -34,7 +34,6 @@ LOG_MODULE_REGISTER(wifi_mgmt_proxy, LOG_LEVEL_INF);
 #define MAX_SSID_LEN_CB WIFI_SSID_MAX_LEN
 #define MAX_PSK_LEN_CB 64 // Example for WPA/WPA2 PSK
 #define MAX_SAE_PASSWORD_LEN_CB 128 // Example for SAE password
-#define MAX_COUNTRY_CODE_LEN_CB 2
 #define MAX_DIRECTED_SCAN_SSIDS_CB 4
 #define MAX_SCAN_CHANNELS_CB 11 // Example, from WIFI_SCAN_MAX_CHANNELS
 #define MAX_ERROR_MSG_LEN 63 // For a 64-byte buffer including null terminator if treated as C string
@@ -434,11 +433,6 @@ struct ApEnableRequestContext {
     // Add other fields if AP enable params have more callback-decoded parts
 };
 
-struct RegDomainRequestContext {
-    char country_code[MAX_COUNTRY_CODE_LEN_CB + 1]; // +1 for null terminator
-    size_t country_code_len;
-};
-
 
 // --- Nanopb Decoder Callback Functions ---
 // (Assuming these are correctly implemented as in your provided context to populate the context structs)
@@ -476,18 +470,6 @@ static bool decode_ap_psk_cb(pb_istream_t *stream, const pb_field_t *field, void
     return true;
 }
 
-static bool decode_country_code_cb(pb_istream_t *stream, const pb_field_t *field, void **arg) {
-    struct RegDomainRequestContext *ctx = (struct RegDomainRequestContext*)*arg;
-    if (stream->bytes_left > MAX_COUNTRY_CODE_LEN_CB) {
-         LOG_ERR("Country code too long (max %d, got %zu)", MAX_COUNTRY_CODE_LEN_CB, stream->bytes_left);
-         return false;
-    }
-    ctx->country_code_len = stream->bytes_left;
-    if (!pb_read(stream, (pb_byte_t*)ctx->country_code, ctx->country_code_len)) return false;
-    ctx->country_code[ctx->country_code_len] = '\0';
-    return true;
-}
-
 
 // --- Forward declarations of request handlers ---
 static void handle_connect_request(const embedded_wifi_mgmt_WifiConnectRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
@@ -497,8 +479,8 @@ static void handle_ap_enable_request(const embedded_wifi_mgmt_WifiApEnableReques
 static void handle_ap_disable_request(const embedded_wifi_mgmt_WifiApDisableRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
 static void handle_get_version_request(const embedded_wifi_mgmt_GetWifiVersionRequest *req, embedded_wifi_mgmt_GetWifiVersionResponse *resp);
 static void handle_set_ps_config_request(const embedded_wifi_mgmt_SetPowerSaveConfigRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
-static void handle_get_ps_config_request(const embedded_wifi_mgmt_GetPowerSaveConfigRequest *req, embedded_wifi_mgmt_WifiStatusResponse *err_resp);
-static void handle_set_reg_domain_request(const embedded_wifi_mgmt_SetRegulatoryDomainRequest *req, struct RegDomainRequestContext *reg_ctx, embedded_wifi_mgmt_WifiStatusResponse *resp);
+static void handle_get_ps_config_request(const embedded_wifi_mgmt_GetPowerSaveConfigRequest *req, embedded_wifi_mgmt_GetPowerSaveConfigResponse *data_resp, embedded_wifi_mgmt_WifiStatusResponse *err_resp);
+static void handle_set_reg_domain_request(const embedded_wifi_mgmt_SetRegulatoryDomainRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
 static void handle_get_reg_domain_request(const embedded_wifi_mgmt_GetRegulatoryDomainRequest *req, embedded_wifi_mgmt_GetRegulatoryDomainResponse *data_resp, embedded_wifi_mgmt_WifiStatusResponse *err_resp);
 static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfaceStatusRequest *req, embedded_wifi_mgmt_GetInterfaceStatusResponse *data_resp, embedded_wifi_mgmt_WifiStatusResponse *err_resp);
 // Add other handlers as needed, e.g., for TWT, AP STA disconnect, etc.
@@ -521,7 +503,6 @@ static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint
 
     struct ScanRequestContext scan_ctx = {0};
     struct ApEnableRequestContext ap_ctx = {0};
-    struct RegDomainRequestContext reg_ctx = {0};
 
     // --- Setup decode callbacks if specific fields in the request need them ---
     // This depends on your .options file. If a field like `scan_req.params.directed_scan_ssids`
@@ -534,9 +515,6 @@ static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint
     // Similar for ap_enable_req.params.psk if it's bytes with callback
     // request.payload.ap_enable_req.params.psk.funcs.decode = &decode_ap_psk_cb;
     // request.payload.ap_enable_req.params.psk.arg = &ap_ctx;
-    // And for set_reg_domain_req.reg_domain.country_code if it's string with callback
-    // request.payload.set_reg_domain_req.reg_domain.country_code.funcs.decode = &decode_country_code_cb;
-    // request.payload.set_reg_domain_req.reg_domain.country_code.arg = &reg_ctx;
     // Note: Callbacks are often set on the top-level message for fields that are *always* present,
     // or on submessage fields if the .options file is configured for that.
     // For simplicity, we assume callbacks are set if needed by the .options file and nanopb handles it,
@@ -617,21 +595,19 @@ static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint
         case embedded_wifi_mgmt_RequestType_REQUEST_TYPE_GET_PS_CONFIG:
             if (request.which_payload == embedded_wifi_mgmt_WifiMgmtRequest_get_ps_config_req_tag) {
                 handle_get_ps_config_request(&request.payload.get_ps_config_req,
-                                             //&response.payload.get_ps_config_resp,
-                                             &response.payload.status_resp); // Pass status_resp for error reporting
-                //if (response.payload.get_ps_config_resp.has_config) {
-                //     response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_get_ps_config_resp_tag;
-                //} else
-                { // Error occurred, handler should have filled status_resp
-                     response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_status_resp_tag;
+                                             &response.payload.get_ps_config_resp,
+                                             &response.payload.status_resp);
+                if (response.payload.get_ps_config_resp.has_config) {
+                    response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_get_ps_config_resp_tag;
+                } else {
+                    response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_status_resp_tag;
                 }
             } else { payload_type_mismatch = true; }
             break;
         case embedded_wifi_mgmt_RequestType_REQUEST_TYPE_SET_REG_DOMAIN:
             if (request.which_payload == embedded_wifi_mgmt_WifiMgmtRequest_set_reg_domain_req_tag) {
-                // If set_reg_domain_req.reg_domain.country_code uses callback, reg_ctx is populated
                 response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_status_resp_tag;
-                handle_set_reg_domain_request(&request.payload.set_reg_domain_req, &reg_ctx, &response.payload.status_resp);
+                handle_set_reg_domain_request(&request.payload.set_reg_domain_req, &response.payload.status_resp);
             } else { payload_type_mismatch = true; }
             break;
         case embedded_wifi_mgmt_RequestType_REQUEST_TYPE_GET_REG_DOMAIN:
@@ -1103,103 +1079,149 @@ static void handle_set_ps_config_request(const embedded_wifi_mgmt_SetPowerSaveCo
         return;
     }
 
-    if (!req->has_config) {
+    if (!req->has_config || !req->config.has_ps_settings) {
         LOG_ERR("Set PS Config: config data missing");
         resp->error_code = -EINVAL;
         set_status_error_msg_bytes(resp->error_message, "PS config data missing");
         return;
     }
 
-    struct wifi_ps_config params = {0}; // Zephyr's struct wifi_ps_config
-    // This struct might contain wifi_ps_params and TWT flow info.
-    // Mapping from embedded_wifi_mgmt_WifiPowerSaveConfig to struct wifi_ps_config
+    const embedded_wifi_mgmt_WifiPsSettings *s = &req->config.ps_settings;
+    struct wifi_ps_params params = {0};
+    int ret;
 
-    params.ps_params.enabled = (enum wifi_ps)req->config.ps_settings.enabled; // Map WifiPsState
-    params.ps_params.listen_interval = req->config.ps_settings.listen_interval_beacons;
-    params.ps_params.wakeup_mode = (enum wifi_ps_wakeup_mode)req->config.ps_settings.wakeup_mode;
-    params.ps_params.mode = (enum wifi_ps_mode)req->config.type; // Map WifiPowerSaveType
-    params.ps_params.timeout_ms = req->config.ps_settings.timeout_ms;
-    // params.ps_params.type = ... // if there's a param_type in Zephyr struct
-    // params.ps_params.fail_reason = ... // This is usually a result, not a param
-    // params.ps_params.exit_strategy = (enum wifi_ps_exit_strategy)req->config.ps_settings.exit_strategy;
+    /* The Wi-Fi driver applies exactly one parameter per net_mgmt call,
+     * selected by wifi_ps_params.type, so each requested parameter needs
+     * its own NET_REQUEST_WIFI_PS call. Zero listen interval / timeout
+     * values mean "not provided" (proto3 scalars have no presence).
+     */
 
-    // Map TWT flows if your proto and Zephyr struct support it
-    // params.num_twt_flows = req->config.twt_flows_count;
-    // for (int i=0; i < params.num_twt_flows; ++i) { ... map twt_flows ... }
-
-
-    int ret = net_mgmt(NET_REQUEST_WIFI_PS_CONFIG, iface, &params, sizeof(params)); // MGMT_OP_SET is implicit
+    /* Power save state (on/off). */
+    params.type = WIFI_PS_PARAM_STATE;
+    params.enabled =
+        (s->enabled == embedded_wifi_mgmt_WifiPsState_WIFI_PS_STATE_ENABLE)
+            ? WIFI_PS_ENABLED
+            : WIFI_PS_DISABLED;
+    ret = net_mgmt(NET_REQUEST_WIFI_PS, iface, &params, sizeof(params));
     if (ret) {
-        LOG_ERR("NET_REQUEST_WIFI_PS_CONFIG (SET) failed: %d", ret);
+        LOG_ERR("Set PS state failed: %d", ret);
         resp->error_code = ret;
-        set_status_error_msg_bytes(resp->error_message, "Set PS config failed");
-    } else {
-        LOG_INF("NET_REQUEST_WIFI_PS_CONFIG (SET) success");
-        resp->success = true;
-        resp->error_code = 0;
-        set_status_error_msg_bytes(resp->error_message, "Set PS config success");
+        set_status_error_msg_bytes(resp->error_message, "Set PS state failed");
+        return;
     }
+
+    if (s->listen_interval_beacons > 0) {
+        params.type = WIFI_PS_PARAM_LISTEN_INTERVAL;
+        params.listen_interval = (unsigned short)s->listen_interval_beacons;
+        ret = net_mgmt(NET_REQUEST_WIFI_PS, iface, &params, sizeof(params));
+        if (ret) {
+            LOG_ERR("Set PS listen interval failed: %d", ret);
+            resp->error_code = ret;
+            set_status_error_msg_bytes(resp->error_message, "Set PS listen interval failed");
+            return;
+        }
+    }
+
+    if (s->timeout_ms > 0) {
+        params.type = WIFI_PS_PARAM_TIMEOUT;
+        params.timeout_ms = s->timeout_ms;
+        ret = net_mgmt(NET_REQUEST_WIFI_PS, iface, &params, sizeof(params));
+        if (ret) {
+            LOG_ERR("Set PS timeout failed: %d", ret);
+            resp->error_code = ret;
+            set_status_error_msg_bytes(resp->error_message, "Set PS timeout failed");
+            return;
+        }
+    }
+
+    /* Power save mode: legacy (PSPOLL) vs WMM (U-APSD). */
+    params.type = WIFI_PS_PARAM_MODE;
+    params.mode = (req->config.type == embedded_wifi_mgmt_WifiPowerSaveType_WIFI_PS_TYPE_WMM)
+                      ? WIFI_PS_MODE_WMM
+                      : WIFI_PS_MODE_LEGACY;
+    ret = net_mgmt(NET_REQUEST_WIFI_PS, iface, &params, sizeof(params));
+    if (ret) {
+        LOG_ERR("Set PS mode failed: %d", ret);
+        resp->error_code = ret;
+        set_status_error_msg_bytes(resp->error_message, "Set PS mode failed");
+        return;
+    }
+
+    LOG_INF("NET_REQUEST_WIFI_PS (SET) success: enabled=%d li=%lu tmo=%lu mode=%d",
+            (int)params.enabled, (unsigned long)s->listen_interval_beacons,
+            (unsigned long)s->timeout_ms, (int)params.mode);
+    resp->success = true;
+    resp->error_code = 0;
+    set_status_error_msg_bytes(resp->error_message, "Set PS config success");
 }
 
 static void handle_get_ps_config_request(const embedded_wifi_mgmt_GetPowerSaveConfigRequest *req,
-                                         //embedded_wifi_mgmt_GetPowerSaveConfigResponse *data_resp,
+                                         embedded_wifi_mgmt_GetPowerSaveConfigResponse *data_resp,
                                          embedded_wifi_mgmt_WifiStatusResponse *err_resp) {
-    //data_resp->has_config = false; // Default to no data
-    err_resp->success = false;     // Default to error for the status part
-    err_resp->error_code = -EIO;
-    set_status_error_msg_bytes(err_resp->error_message, "Get PS config handler init error");
+    data_resp->has_config = false;
+    /* NOTE: status_resp (err_resp) is a union member aliasing data_resp.
+     * Do not pre-write the status here — it would clobber the data region
+     * before it is filled. Failure paths set the status explicitly; on
+     * success the payload is selected via which_payload in the caller. */
 
     LOG_INF("Handling Get Power Save Config Request for iface %u", req->iface_index);
     struct net_if *iface = resolve_wifi_iface(req->iface_index);
     if (!iface) {
         LOG_ERR("Interface with index %u not found for PS config", req->iface_index);
+        err_resp->success = false;
         err_resp->error_code = -ENODEV;
         set_status_error_msg_bytes(err_resp->error_message, "Interface not found for PS config");
         return;
     }
 
-    struct wifi_ps_config params_retrieved = {0}; // Zephyr's struct
-    // For GET, pass the struct to be filled. MGMT_OP_GET is implicit.
+    struct wifi_ps_config params_retrieved = {0};
     int ret = net_mgmt(NET_REQUEST_WIFI_PS_CONFIG, iface, &params_retrieved, sizeof(params_retrieved));
 
     if (ret) {
         LOG_ERR("NET_REQUEST_WIFI_PS_CONFIG (GET) failed: %d", ret);
+        err_resp->success = false;
         err_resp->error_code = ret;
         set_status_error_msg_bytes(err_resp->error_message, "Get PS config failed");
-    } else {
-        LOG_INF("NET_REQUEST_WIFI_PS_CONFIG (GET) success");
-        //data_resp->has_config = true;
-
-        /*
-        embedded_wifi_mgmt_WifiPowerSaveConfig *proto_config = &data_resp->config;
-
-        proto_config->ps_settings.enabled = (embedded_wifi_mgmt_WifiPsState)params_retrieved.ps_params.enabled;
-        proto_config->ps_settings.listen_interval_beacons = params_retrieved.ps_params.listen_interval;
-        proto_config->ps_settings.wakeup_mode = (embedded_wifi_mgmt_WifiPsWakeupMode)params_retrieved.ps_params.wakeup_mode;
-        proto_config->type = (embedded_wifi_mgmt_WifiPowerSaveType)params_retrieved.ps_params.mode;
-        proto_config->ps_settings.timeout_ms = params_retrieved.ps_params.timeout_ms;
-        // proto_config->ps_settings.exit_strategy = (embedded_wifi_mgmt_WifiPsExitStrategy)params_retrieved.ps_params.exit_strategy;
-        // Map TWT flows if present
-        */
-        // If successful, the err_resp part is not used by the main switch, but good to set it correctly.
-        err_resp->success = true;
-        err_resp->error_code = 0;
-        set_status_error_msg_bytes(err_resp->error_message, "Get PS config success");
+        return;
     }
+
+    const struct wifi_ps_params *p = &params_retrieved.ps_params;
+    LOG_INF("PS config: enabled=%d li=%u tmo=%u mode=%d wakeup=%d exit=%d",
+            (int)p->enabled, p->listen_interval, p->timeout_ms, (int)p->mode,
+            (int)p->wakeup_mode, (int)p->exit_strategy);
+
+    data_resp->has_config = true;
+    embedded_wifi_mgmt_WifiPowerSaveConfig *cfg = &data_resp->config;
+    cfg->has_ps_settings = true;
+    cfg->ps_settings.enabled =
+        (p->enabled == WIFI_PS_ENABLED)
+            ? embedded_wifi_mgmt_WifiPsState_WIFI_PS_STATE_ENABLE
+            : embedded_wifi_mgmt_WifiPsState_WIFI_PS_STATE_DISABLE;
+    cfg->ps_settings.listen_interval_beacons = p->listen_interval;
+    cfg->ps_settings.wakeup_mode = (embedded_wifi_mgmt_WifiPsWakeupMode)p->wakeup_mode;
+    cfg->ps_settings.timeout_ms = p->timeout_ms;
+    cfg->ps_settings.exit_strategy = (embedded_wifi_mgmt_WifiPsExitStrategy)p->exit_strategy;
+    cfg->type = (p->mode == WIFI_PS_MODE_WMM)
+                    ? embedded_wifi_mgmt_WifiPowerSaveType_WIFI_PS_TYPE_WMM
+                    : embedded_wifi_mgmt_WifiPowerSaveType_WIFI_PS_TYPE_MODEM;
+
+    /* Do NOT write err_resp on success: status_resp is a union member
+     * aliasing data_resp (error_code overlaps config's first bytes and
+     * error_message overlaps ps_settings), so writing it here would
+     * corrupt the payload about to be encoded. Success is signalled by
+     * which_payload selection in the caller. */
 }
 
 static void handle_set_reg_domain_request(const embedded_wifi_mgmt_SetRegulatoryDomainRequest *req,
-                                          struct RegDomainRequestContext *reg_ctx,
                                           embedded_wifi_mgmt_WifiStatusResponse *resp) {
     resp->success = false;
     resp->error_code = -EIO;
     set_status_error_msg_bytes(resp->error_message, "Set RegDomain handler init error");
 
-    LOG_INF("Handling Set Regulatory Domain Request for iface %u, Country: %s",
-            req->iface_index, reg_ctx->country_code_len > 0 ? reg_ctx->country_code : "N/A (or from proto direct)");
+    LOG_INF("Handling Set Regulatory Domain Request for iface %u", req->iface_index);
 
-    struct net_if *iface = net_if_get_by_index(req->iface_index);
-    if (!iface && req->iface_index != 0) {
+    struct net_if *iface = resolve_wifi_iface(req->iface_index);
+    if (!iface) {
         LOG_ERR("Interface with index %u not found for RegDomain", req->iface_index);
         resp->error_code = -ENODEV;
         set_status_error_msg_bytes(resp->error_message, "Interface not found for RegDomain");
@@ -1213,41 +1235,80 @@ static void handle_set_reg_domain_request(const embedded_wifi_mgmt_SetRegulatory
         return;
     }
 
+    const char *cc = req->reg_domain.country_code;
+    /* ISO 3166-1 alpha-2: exactly two letters. Reject malformed codes fast
+     * instead of paying the driver's ~10 s firmware timeout for them. */
+    if (cc[0] == '\0' || cc[1] == '\0' ||
+        !((cc[0] >= 'a' && cc[0] <= 'z') || (cc[0] >= 'A' && cc[0] <= 'Z')) ||
+        !((cc[1] >= 'a' && cc[1] <= 'z') || (cc[1] >= 'A' && cc[1] <= 'Z'))) {
+        LOG_ERR("Set RegDomain: invalid country code '%c%c'", cc[0], cc[1]);
+        resp->error_code = -EINVAL;
+        set_status_error_msg_bytes(resp->error_message, "Invalid country code");
+        return;
+    }
+
+    char want[2] = { cc[0] >= 'a' && cc[0] <= 'z' ? (char)(cc[0] - 'a' + 'A') : cc[0],
+                     cc[1] >= 'a' && cc[1] <= 'z' ? (char)(cc[1] - 'a' + 'A') : cc[1] };
+
     struct wifi_reg_domain reg_domain_param = {0}; // Zephyr's struct
     reg_domain_param.oper = WIFI_MGMT_SET; // Explicitly set operation for Zephyr API
     reg_domain_param.force = req->reg_domain.force_update;
-
-    strncpy(reg_domain_param.country_code, req->reg_domain.country_code, 2);
-    // Map channel_info if present in proto and Zephyr struct
-    // This requires dynamic allocation or a fixed-size buffer in wifi_reg_domain
-    // For simplicity, this part is omitted. Zephyr's set reg domain might just take country code.
-    // reg_domain_param.num_channels = req->reg_domain.channel_info_count;
-    // reg_domain_param.chan_info = ... (needs allocation and mapping)
+    reg_domain_param.country_code[0] = want[0];
+    reg_domain_param.country_code[1] = want[1];
 
     int ret = net_mgmt(NET_REQUEST_WIFI_REG_DOMAIN, iface, &reg_domain_param, sizeof(reg_domain_param));
     if (ret) {
         LOG_ERR("NET_REQUEST_WIFI_REG_DOMAIN (SET) failed: %d", ret);
         resp->error_code = ret;
         set_status_error_msg_bytes(resp->error_message, "Set RegDomain failed");
-    } else {
-        LOG_INF("NET_REQUEST_WIFI_REG_DOMAIN (SET) success");
-        resp->success = true;
-        resp->error_code = 0;
+        return;
     }
+
+    /* The driver returns 0 even when the firmware rejects a well-formed but
+     * unknown country code, so confirm the new domain with a follow-up GET. */
+    static struct wifi_reg_chan_info verify_chan_buf[MAX_REG_CHAN_NUM];
+    struct wifi_reg_domain reg_domain_retrieved = {0};
+    reg_domain_retrieved.oper = WIFI_MGMT_GET; // Explicitly set operation
+    reg_domain_retrieved.num_channels = MAX_REG_CHAN_NUM;
+    reg_domain_retrieved.chan_info = verify_chan_buf;
+    ret = net_mgmt(NET_REQUEST_WIFI_REG_DOMAIN, iface, &reg_domain_retrieved, sizeof(reg_domain_retrieved));
+    if (ret) {
+        LOG_ERR("RegDomain verify GET failed: %d", ret);
+        resp->error_code = ret;
+        set_status_error_msg_bytes(resp->error_message, "Set RegDomain verify failed");
+        return;
+    }
+
+    if (reg_domain_retrieved.country_code[0] != want[0] ||
+        reg_domain_retrieved.country_code[1] != want[1]) {
+        LOG_ERR("Set RegDomain not confirmed: requested %c%c, driver reports %c%c",
+                want[0], want[1],
+                reg_domain_retrieved.country_code[0], reg_domain_retrieved.country_code[1]);
+        resp->error_code = -EIO;
+        set_status_error_msg_bytes(resp->error_message, "Set RegDomain not confirmed by driver");
+        return;
+    }
+
+    LOG_INF("NET_REQUEST_WIFI_REG_DOMAIN (SET) success: %c%c confirmed", want[0], want[1]);
+    resp->success = true;
+    resp->error_code = 0;
+    set_status_error_msg_bytes(resp->error_message, "Set RegDomain success");
 }
 
 static void handle_get_reg_domain_request(const embedded_wifi_mgmt_GetRegulatoryDomainRequest *req,
                                           embedded_wifi_mgmt_GetRegulatoryDomainResponse *data_resp,
                                           embedded_wifi_mgmt_WifiStatusResponse *err_resp) {
     data_resp->has_reg_domain = false;
-    err_resp->success = false;
-    err_resp->error_code = -EIO;
-    set_status_error_msg_bytes(err_resp->error_message, "Get RegDomain handler init error");
+    /* NOTE: status_resp (err_resp) is a union member aliasing data_resp.
+     * Do not pre-write the status here — it would clobber the data region
+     * before it is filled. Failure paths set the status explicitly; on
+     * success the payload is selected via which_payload in the caller. */
 
     LOG_INF("Handling Get Regulatory Domain Request for iface %u", req->iface_index);
-    struct net_if *iface = net_if_get_by_index(req->iface_index);
-    if (!iface && req->iface_index != 0) {
+    struct net_if *iface = resolve_wifi_iface(req->iface_index);
+    if (!iface) {
         LOG_ERR("Interface with index %u not found for RegDomain", req->iface_index);
+        err_resp->success = false;
         err_resp->error_code = -ENODEV;
         set_status_error_msg_bytes(err_resp->error_message, "Interface not found for RegDomain");
         return;
@@ -1256,43 +1317,69 @@ static void handle_get_reg_domain_request(const embedded_wifi_mgmt_GetRegulatory
     struct wifi_reg_domain reg_domain_retrieved = {0}; // Zephyr's struct
     reg_domain_retrieved.oper = WIFI_MGMT_GET; // Explicitly set operation
 
+    /* The driver requires a non-NULL chan_info buffer and copies up to
+     * MAX_REG_CHAN_NUM channels into it. */
+    static struct wifi_reg_chan_info chan_buf[MAX_REG_CHAN_NUM];
+    reg_domain_retrieved.num_channels = MAX_REG_CHAN_NUM;
+    reg_domain_retrieved.chan_info = chan_buf;
+
     int ret = net_mgmt(NET_REQUEST_WIFI_REG_DOMAIN, iface, &reg_domain_retrieved, sizeof(reg_domain_retrieved));
 
     if (ret) {
         LOG_ERR("NET_REQUEST_WIFI_REG_DOMAIN (GET) failed: %d", ret);
+        err_resp->success = false;
         err_resp->error_code = ret;
         set_status_error_msg_bytes(err_resp->error_message, "Get RegDomain failed");
-    } else {
-        LOG_INF("NET_REQUEST_WIFI_REG_DOMAIN (GET) success. Country: %c%c",
-                reg_domain_retrieved.country_code[0], reg_domain_retrieved.country_code[1]);
-        data_resp->has_reg_domain = true;
-        embedded_wifi_mgmt_WifiRegDomain *proto_rd = &data_resp->reg_domain;
-
-        strncpy(proto_rd->country_code, reg_domain_retrieved.country_code, 2);
-        proto_rd->force_update = reg_domain_retrieved.force; // Map back if relevant for GET
-
-        // Map channel_info if retrieved and proto supports it
-        // proto_rd->channel_info_count = reg_domain_retrieved.num_channels;
-        // For each channel... map to proto_rd->channel_info[i]
-
-        err_resp->success = true;
-        err_resp->error_code = 0;
-        set_status_error_msg_bytes(err_resp->error_message, "Get RegDomain success");
+        return;
     }
+
+    LOG_INF("NET_REQUEST_WIFI_REG_DOMAIN (GET) success. Country: %c%c, %u channels",
+            reg_domain_retrieved.country_code[0], reg_domain_retrieved.country_code[1],
+            reg_domain_retrieved.num_channels);
+    data_resp->has_reg_domain = true;
+    embedded_wifi_mgmt_WifiRegDomain *proto_rd = &data_resp->reg_domain;
+
+    /* country_code shares union bytes with status_resp.error_code, so the
+     * initial status write may have left garbage in the 3rd byte. Write all
+     * 3 bytes explicitly and null-terminate (nanopb STRING needs it). */
+    proto_rd->country_code[0] = reg_domain_retrieved.country_code[0];
+    proto_rd->country_code[1] = reg_domain_retrieved.country_code[1];
+    proto_rd->country_code[2] = '\0';
+    proto_rd->force_update = reg_domain_retrieved.force; // Map back if relevant for GET
+
+    size_t chan_count = reg_domain_retrieved.num_channels;
+    if (chan_count > (size_t)ARRAY_SIZE(proto_rd->channel_info)) {
+        chan_count = ARRAY_SIZE(proto_rd->channel_info);
+    }
+    proto_rd->channel_info_count = (pb_size_t)chan_count;
+    for (size_t i = 0; i < chan_count; i++) {
+        proto_rd->channel_info[i].center_frequency_mhz = chan_buf[i].center_frequency;
+        proto_rd->channel_info[i].max_power_dbm = chan_buf[i].max_power;
+        proto_rd->channel_info[i].supported = chan_buf[i].supported;
+        proto_rd->channel_info[i].passive_only = chan_buf[i].passive_only;
+        proto_rd->channel_info[i].dfs = chan_buf[i].dfs;
+    }
+
+    /* Do NOT write err_resp on success: status_resp is a union member
+     * aliasing data_resp (error_message overlaps channel_info_count),
+     * so writing it here would corrupt the payload about to be encoded.
+     * Success is signalled by which_payload selection in the caller. */
 }
 
 static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfaceStatusRequest *req,
                                             embedded_wifi_mgmt_GetInterfaceStatusResponse *data_resp,
                                             embedded_wifi_mgmt_WifiStatusResponse *err_resp) {
     data_resp->has_status = false;
-    err_resp->success = false;
-    err_resp->error_code = -EIO;
-    set_status_error_msg_bytes(err_resp->error_message, "Get IfaceStatus handler init error");
+    /* NOTE: status_resp (err_resp) is a union member aliasing data_resp.
+     * Do not pre-write the status here — it would clobber the data region
+     * before it is filled. Failure paths set the status explicitly; on
+     * success the payload is selected via which_payload in the caller. */
 
     LOG_INF("Handling Get Interface Status Request for iface %u", req->iface_index);
     struct net_if *iface = resolve_wifi_iface(req->iface_index);
     if (!iface) {
         LOG_ERR("Interface with index %u not found for status", req->iface_index);
+        err_resp->success = false;
         err_resp->error_code = -ENODEV;
         set_status_error_msg_bytes(err_resp->error_message, "Interface not found for status");
         return;
@@ -1303,6 +1390,7 @@ static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfac
 
     if (ret) {
         LOG_ERR("NET_REQUEST_WIFI_IFACE_STATUS failed: %d", ret);
+        err_resp->success = false;
         err_resp->error_code = ret;
         set_status_error_msg_bytes(err_resp->error_message, "Get IfaceStatus failed");
     } else {
@@ -1319,8 +1407,11 @@ static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfac
             proto_s->ssid.size = status_retrieved.ssid_len;
         } else { proto_s->ssid.size = 0; }
 
-        if ((status_retrieved.state >= WIFI_STATE_ASSOCIATED && status_retrieved.state <= WIFI_STATE_ASSOCIATED ) ||
-             status_retrieved.iface_mode == WIFI_MODE_AP) { // BSSID relevant if connected or AP mode
+        /* BSSID is meaningful once associated (a fully connected STA
+         * reports WIFI_STATE_COMPLETED) or in AP mode. */
+        if ((status_retrieved.state == WIFI_STATE_ASSOCIATED ||
+             status_retrieved.state == WIFI_STATE_COMPLETED) ||
+            status_retrieved.iface_mode == WIFI_MODE_AP) {
             memcpy(proto_s->bssid, status_retrieved.bssid, WIFI_MAC_ADDR_LEN);
         }
 
@@ -1339,8 +1430,11 @@ static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfac
         proto_s->beacon_interval = status_retrieved.beacon_interval;
         proto_s->twt_capable = status_retrieved.twt_capable;
 
-        err_resp->success = true;
-        err_resp->error_code = 0;
+        /* Do NOT write err_resp on success: status_resp is a union
+         * member aliasing data_resp (error_code overlaps status.state,
+         * success overlaps has_status), so writing it here would corrupt
+         * the payload about to be encoded. Success is signalled by
+         * which_payload selection in the caller. */
     }
 }
 

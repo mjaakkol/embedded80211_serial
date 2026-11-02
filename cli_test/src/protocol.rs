@@ -34,9 +34,13 @@ use network_interface::{
     NetIfRequest, NetIfResponse, NetIfType, RequestInterfaces, net_if_request, net_if_response,
 };
 use wifi_mgmt::{
-    GetWifiVersionRequest, RequestType, WifiConnectRequest, WifiDisconnectRequest, WifiMfpOptions,
-    WifiMgmtNotification, WifiMgmtRequest, WifiMgmtResponse, WifiScanRequest, WifiSecurityType,
-    WifiStatusResponse, wifi_event, wifi_mgmt_request, wifi_mgmt_response,
+    GetPowerSaveConfigRequest, GetInterfaceStatusRequest, GetRegulatoryDomainRequest,
+    GetWifiVersionRequest, RequestType, SetPowerSaveConfigRequest, SetRegulatoryDomainRequest,
+    WifiConnectRequest, WifiDisconnectRequest, WifiInterfaceState, WifiInterfaceStatus,
+    WifiMfpOptions, WifiMgmtNotification, WifiMgmtRequest, WifiMgmtResponse,
+    WifiPowerSaveConfig, WifiPowerSaveType, WifiPsSettings, WifiPsState, WifiRegDomain,
+    WifiScanRequest, WifiSecurityType, WifiStatusResponse, wifi_event, wifi_mgmt_request,
+    wifi_mgmt_response,
 };
 
 pub mod network_interface {
@@ -619,6 +623,234 @@ pub fn format_interfaces_response(frame: &Frame) -> String {
         Some(_) => "Received non-interface response payload".into(),
         None => "Empty response payload".into(),
     }
+}
+
+/// Builds the encoded protobuf payload of a SET_REG_DOMAIN request.
+pub fn set_reg_domain_request_payload(iface_index: u32, country: &str, force: bool) -> Vec<u8> {
+    let request = WifiMgmtRequest {
+        request_id: RequestType::SetRegDomain as i32,
+        payload: Some(wifi_mgmt_request::Payload::SetRegDomainReq(
+            SetRegulatoryDomainRequest {
+                iface_index,
+                reg_domain: Some(WifiRegDomain {
+                    country_code: country.to_uppercase(),
+                    force_update: force,
+                    channel_info: Vec::new(),
+                }),
+            },
+        )),
+    };
+    let mut out = Vec::new();
+    request.encode(&mut out).unwrap();
+    out
+}
+
+/// Builds the encoded protobuf payload of a GET_REG_DOMAIN request.
+pub fn get_reg_domain_request_payload(iface_index: u32) -> Vec<u8> {
+    let request = WifiMgmtRequest {
+        request_id: RequestType::GetRegDomain as i32,
+        payload: Some(wifi_mgmt_request::Payload::GetRegDomainReq(
+            GetRegulatoryDomainRequest { iface_index },
+        )),
+    };
+    let mut out = Vec::new();
+    request.encode(&mut out).unwrap();
+    out
+}
+
+/// Decodes a device->host frame as a GET_REG_DOMAIN response.
+pub fn decode_reg_domain_response(frame: &Frame) -> Result<WifiRegDomain, String> {
+    let resp = decode_wifi_mgmt_response(frame)
+        .map_err(|e| format!("Unable to decode Wi-Fi management response: {e}"))?;
+    match resp.payload {
+        Some(wifi_mgmt_response::Payload::GetRegDomainResp(resp)) => resp
+            .reg_domain
+            .ok_or_else(|| "Empty regulatory domain response".to_string()),
+        Some(_) => Err("Received non-reg-domain response payload".into()),
+        None => Err("Empty response payload".into()),
+    }
+}
+
+/// Renders a GET_REG_DOMAIN response payload as a string.
+pub fn format_reg_domain_response(frame: &Frame) -> String {
+    let domain = match decode_reg_domain_response(frame) {
+        Ok(domain) => domain,
+        Err(e) => return e,
+    };
+    let mut lines = vec![format!(
+        "Country: {} (force_update={})",
+        domain.country_code, domain.force_update
+    )];
+    if domain.channel_info.is_empty() {
+        lines.push("- no channel information".to_string());
+    }
+    for chan in &domain.channel_info {
+        lines.push(format!(
+            "- freq={} MHz max_power={} dBm supported={} passive_only={} dfs={}",
+            chan.center_frequency_mhz,
+            chan.max_power_dbm,
+            chan.supported,
+            chan.passive_only,
+            chan.dfs,
+        ));
+    }
+    lines.join("\n")
+}
+
+/// Builds the encoded protobuf payload of a SET_PS_CONFIG request.
+pub fn set_ps_request_payload(
+    iface_index: u32,
+    enabled: bool,
+    listen_interval: u32,
+    timeout_ms: u32,
+    wmm: bool,
+) -> Vec<u8> {
+    let request = WifiMgmtRequest {
+        request_id: RequestType::SetPsConfig as i32,
+        payload: Some(wifi_mgmt_request::Payload::SetPsConfigReq(
+            SetPowerSaveConfigRequest {
+                iface_index,
+                config: Some(WifiPowerSaveConfig {
+                    ps_settings: Some(WifiPsSettings {
+                        enabled: (if enabled {
+                            WifiPsState::Enable
+                        } else {
+                            WifiPsState::Disable
+                        }) as i32,
+                        // DTIM wakeup is the driver default.
+                        wakeup_mode: 0,
+                        listen_interval_beacons: listen_interval,
+                        timeout_ms,
+                        fail_all_scans_if_ps: false,
+                        fail_reason: 0,
+                        exit_strategy: 0,
+                    }),
+                    r#type: (if wmm {
+                        WifiPowerSaveType::WifiPsTypeWmm
+                    } else {
+                        WifiPowerSaveType::WifiPsTypeModem
+                    }) as i32,
+                }),
+            },
+        )),
+    };
+    let mut out = Vec::new();
+    request.encode(&mut out).unwrap();
+    out
+}
+
+/// Builds the encoded protobuf payload of a GET_PS_CONFIG request.
+pub fn get_ps_request_payload(iface_index: u32) -> Vec<u8> {
+    let request = WifiMgmtRequest {
+        request_id: RequestType::GetPsConfig as i32,
+        payload: Some(wifi_mgmt_request::Payload::GetPsConfigReq(
+            GetPowerSaveConfigRequest { iface_index },
+        )),
+    };
+    let mut out = Vec::new();
+    request.encode(&mut out).unwrap();
+    out
+}
+
+/// Decodes a device->host frame as a GET_PS_CONFIG response.
+pub fn decode_ps_response(frame: &Frame) -> Result<WifiPowerSaveConfig, String> {
+    let resp = decode_wifi_mgmt_response(frame)
+        .map_err(|e| format!("Unable to decode Wi-Fi management response: {e}"))?;
+    match resp.payload {
+        Some(wifi_mgmt_response::Payload::GetPsConfigResp(resp)) => resp
+            .config
+            .ok_or_else(|| "Empty power save config response".to_string()),
+        Some(_) => Err("Received non-power-save response payload".into()),
+        None => Err("Empty response payload".into()),
+    }
+}
+
+/// Renders a GET_PS_CONFIG response payload as a string.
+pub fn format_ps_response(frame: &Frame) -> String {
+    let config = match decode_ps_response(frame) {
+        Ok(config) => config,
+        Err(e) => return e,
+    };
+    let settings = match config.ps_settings {
+        Some(settings) => settings,
+        None => return "No power save settings in response".into(),
+    };
+    let enabled = WifiPsState::try_from(settings.enabled)
+        .map(|s| s.as_str_name())
+        .unwrap_or("UNKNOWN");
+    let ps_type = WifiPowerSaveType::try_from(config.r#type)
+        .map(|t| t.as_str_name())
+        .unwrap_or("UNKNOWN");
+    format!(
+        "Power save: {enabled} type={} listen_interval={} timeout_ms={} wakeup={} exit={}",
+        ps_type,
+        settings.listen_interval_beacons,
+        settings.timeout_ms,
+        settings.wakeup_mode,
+        settings.exit_strategy,
+    )
+}
+
+/// Builds the encoded protobuf payload of a GET_IFACE_STATUS request.
+pub fn iface_status_request_payload(iface_index: u32) -> Vec<u8> {
+    let request = WifiMgmtRequest {
+        request_id: RequestType::GetIfaceStatus as i32,
+        payload: Some(wifi_mgmt_request::Payload::GetIfaceStatusReq(
+            GetInterfaceStatusRequest { iface_index },
+        )),
+    };
+    let mut out = Vec::new();
+    request.encode(&mut out).unwrap();
+    out
+}
+
+/// Decodes a device->host frame as a GET_IFACE_STATUS response.
+pub fn decode_iface_status_response(frame: &Frame) -> Result<WifiInterfaceStatus, String> {
+    let resp = decode_wifi_mgmt_response(frame)
+        .map_err(|e| format!("Unable to decode Wi-Fi management response: {e}"))?;
+    match resp.payload {
+        Some(wifi_mgmt_response::Payload::GetIfaceStatusResp(resp)) => resp
+            .status
+            .ok_or_else(|| "Empty interface status response".to_string()),
+        Some(_) => Err("Received non-interface-status response payload".into()),
+        None => Err("Empty response payload".into()),
+    }
+}
+
+/// Renders a GET_IFACE_STATUS response payload as a string.
+pub fn format_iface_status_response(frame: &Frame) -> String {
+    let status = match decode_iface_status_response(frame) {
+        Ok(status) => status,
+        Err(e) => return e,
+    };
+    let ssid = if status.ssid.is_empty() {
+        "(none)".to_string()
+    } else {
+        String::from_utf8_lossy(&status.ssid).into_owned()
+    };
+    let bssid = status
+        .bssid
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(":");
+    let state = WifiInterfaceState::try_from(status.state)
+        .map(|s| s.as_str_name())
+        .unwrap_or("UNKNOWN");
+    let security = WifiSecurityType::try_from(status.security)
+        .map(|t| t.as_str_name())
+        .unwrap_or("UNKNOWN");
+    format!(
+        "state={} ssid={} bssid={} ch={} rssi={} dBm security={} tx={} kbps rx={} kbps",
+        state,
+        ssid,
+        bssid,
+        status.channel,
+        status.rssi,
+        security,
+        status.tx_bitrate_kbps,
+        status.rx_bitrate_kbps,
+    )
 }
 
 /// Renders scan results (status + per-network lines) as a string.

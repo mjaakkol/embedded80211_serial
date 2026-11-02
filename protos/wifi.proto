@@ -357,6 +357,11 @@ message GetWifiVersionResponse {
 }
 
 
+// For GetPowerSaveConfigRequest
+message GetPowerSaveConfigResponse {
+  WifiPowerSaveConfig config = 1;
+}
+
 // For GetRegulatoryDomainRequest
 message GetRegulatoryDomainResponse {
   WifiRegDomain reg_domain = 1;
@@ -553,7 +558,7 @@ message WifiMgmtResponse {
   oneof payload {
     WifiStatusResponse status_resp = 2; // Generic status for SET operations or simple GETs.
     GetWifiVersionResponse get_version_resp = 3;
-    //GetPowerSaveConfigResponse get_ps_config_resp = 4;
+    GetPowerSaveConfigResponse get_ps_config_resp = 4;
     GetRegulatoryDomainResponse get_reg_domain_resp = 5;
     GetInterfaceStatusResponse get_iface_status_resp = 6;
     // Version
