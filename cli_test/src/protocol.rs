@@ -1025,4 +1025,353 @@ mod tests {
         seq = (seq + 1) & 0x0F;
         assert_eq!(seq, 0);
     }
+
+    // ---- In-memory device model for Session-level tests ---------------
+    //
+    // Mirrors the sequence handling in zephyr/src/serial/serial.c:
+    //   * host frame with seq != expected -> IncorrectSequenceNumber error
+    //     ACK (echoing the sequence the device expected), then the expected
+    //     sequence resets to 0;
+    //   * accepted host frame -> client processing (response frame carrying
+    //     the device tx sequence) followed by a NoError ACK echoing the
+    //     host seq, then the expected sequence advances (wrap at 16);
+    //   * PROTOCOL_INFO -> 4-byte response [version, mask_lo, mask_hi,
+    //     expected rx seq]; never sequence-checked, consumes no slot.
+
+    struct MockDeviceState {
+        /// Bytes the device has queued for the host to read.
+        to_host: Vec<u8>,
+        /// Host bytes not yet forming a complete frame.
+        from_host: Vec<u8>,
+        /// Sequence the device expects on the next host->device frame.
+        rx_seq: u8,
+        /// Sequence the device uses on device->host response frames.
+        tx_seq: u8,
+        version: u8,
+        supported_types_mask: u16,
+        /// Payload the device sends as the response after each accepted
+        /// command's ACK.
+        response_payload: Vec<u8>,
+        /// When set, PROTOCOL_INFO answers rx_seq + 1 instead of rx_seq:
+        /// a device that lies about the sequence it expects.
+        corrupt_protocol_info: bool,
+        incorrect_seq_acks: u32,
+        protocol_info_queries: u32,
+        commands_accepted: u32,
+    }
+
+    impl MockDeviceState {
+        fn new(rx_seq: u8, response_payload: Vec<u8>) -> Self {
+            Self {
+                to_host: Vec::new(),
+                from_host: Vec::new(),
+                rx_seq,
+                tx_seq: 0,
+                version: 1,
+                supported_types_mask: 0x019F,
+                response_payload,
+                corrupt_protocol_info: false,
+                incorrect_seq_acks: 0,
+                protocol_info_queries: 0,
+                commands_accepted: 0,
+            }
+        }
+
+        fn handle_host_frame(&mut self, frame: &Frame) {
+            if frame.rtype == SerialType::ProtocolInfo {
+                self.protocol_info_queries += 1;
+                let next_seq = if self.corrupt_protocol_info {
+                    (self.rx_seq + 1) & 0x0F
+                } else {
+                    self.rx_seq
+                };
+                let mask = self.supported_types_mask.to_le_bytes();
+                let payload = [self.version, mask[0], mask[1], next_seq];
+                self.emit_frame(SerialType::ProtocolInfo, ErrorType::NoError, self.tx_seq, &payload, true);
+                return;
+            }
+            if frame.seq != self.rx_seq {
+                // Echo the sequence we expected, then reset to 0.
+                self.incorrect_seq_acks += 1;
+                self.emit_frame(frame.rtype, ErrorType::IncorrectSequenceNumber, self.rx_seq, &[], false);
+                self.rx_seq = 0;
+                return;
+            }
+            self.commands_accepted += 1;
+            let response_tx_seq = self.tx_seq;
+            let response = self.response_payload.clone();
+            if !response.is_empty() {
+                self.emit_frame(frame.rtype, ErrorType::NoError, response_tx_seq, &response, true);
+            }
+            self.emit_frame(frame.rtype, ErrorType::NoError, frame.seq, &[], false);
+            self.rx_seq = (self.rx_seq + 1) & 0x0F;
+        }
+
+        fn emit_frame(&mut self, rtype: SerialType, error: ErrorType, seq: u8, payload: &[u8], advance_tx: bool) {
+            let mut out: Vec<u8> = Vec::with_capacity(4 + payload.len());
+            out.push(((error as u8) << 6) | (1 << 5) | rtype.to_u8()); // host = 1
+            out.push((seq & 0x0F) << 4);
+            out.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+            out.extend_from_slice(payload);
+            self.to_host.extend_from_slice(&out);
+            if advance_tx {
+                self.tx_seq = (self.tx_seq + 1) & 0x0F;
+            }
+        }
+    }
+
+    /// A `serialport::SerialPort` backed by [`MockDeviceState`]. The shared
+    /// handle lets tests mutate device state mid-session (e.g. simulating a
+    /// device reset).
+    struct MockPort(std::sync::Arc<std::sync::Mutex<MockDeviceState>>);
+
+    impl std::io::Read for MockPort {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let mut state = self.0.lock().unwrap();
+            let n = buf.len().min(state.to_host.len());
+            buf[..n].copy_from_slice(&state.to_host[..n]);
+            state.to_host.drain(..n);
+            Ok(n)
+        }
+    }
+
+    impl std::io::Write for MockPort {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let mut state = self.0.lock().unwrap();
+            state.from_host.extend_from_slice(buf);
+            loop {
+                if state.from_host.len() < 4 {
+                    break;
+                }
+                let len = u16::from_be_bytes([state.from_host[2], state.from_host[3]]) as usize;
+                let total = 4 + len;
+                if state.from_host.len() < total {
+                    break;
+                }
+                let frame_bytes: Vec<u8> = state.from_host.drain(..total).collect();
+                if let Some(frame) = Frame::parse(&frame_bytes) {
+                    state.handle_host_frame(&frame);
+                }
+            }
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl serialport::SerialPort for MockPort {
+        fn name(&self) -> Option<String> {
+            Some("mock".to_string())
+        }
+        fn baud_rate(&self) -> serialport::Result<u32> {
+            Ok(115200)
+        }
+        fn data_bits(&self) -> serialport::Result<serialport::DataBits> {
+            Ok(serialport::DataBits::Eight)
+        }
+        fn flow_control(&self) -> serialport::Result<serialport::FlowControl> {
+            Ok(serialport::FlowControl::None)
+        }
+        fn parity(&self) -> serialport::Result<serialport::Parity> {
+            Ok(serialport::Parity::None)
+        }
+        fn stop_bits(&self) -> serialport::Result<serialport::StopBits> {
+            Ok(serialport::StopBits::One)
+        }
+        fn timeout(&self) -> std::time::Duration {
+            std::time::Duration::from_millis(100)
+        }
+        fn set_baud_rate(&mut self, _baud_rate: u32) -> serialport::Result<()> {
+            Ok(())
+        }
+        fn set_data_bits(&mut self, _data_bits: serialport::DataBits) -> serialport::Result<()> {
+            Ok(())
+        }
+        fn set_flow_control(&mut self, _flow_control: serialport::FlowControl) -> serialport::Result<()> {
+            Ok(())
+        }
+        fn set_parity(&mut self, _parity: serialport::Parity) -> serialport::Result<()> {
+            Ok(())
+        }
+        fn set_stop_bits(&mut self, _stop_bits: serialport::StopBits) -> serialport::Result<()> {
+            Ok(())
+        }
+        fn set_timeout(&mut self, _timeout: std::time::Duration) -> serialport::Result<()> {
+            Ok(())
+        }
+        fn write_request_to_send(&mut self, _level: bool) -> serialport::Result<()> {
+            Ok(())
+        }
+        fn write_data_terminal_ready(&mut self, _level: bool) -> serialport::Result<()> {
+            Ok(())
+        }
+        fn read_clear_to_send(&mut self) -> serialport::Result<bool> {
+            Ok(true)
+        }
+        fn read_data_set_ready(&mut self) -> serialport::Result<bool> {
+            Ok(false)
+        }
+        fn read_ring_indicator(&mut self) -> serialport::Result<bool> {
+            Ok(false)
+        }
+        fn read_carrier_detect(&mut self) -> serialport::Result<bool> {
+            Ok(false)
+        }
+        fn bytes_to_read(&self) -> serialport::Result<u32> {
+            Ok(self.0.lock().unwrap().to_host.len() as u32)
+        }
+        fn bytes_to_write(&self) -> serialport::Result<u32> {
+            Ok(0)
+        }
+        fn clear(&self, _buffer_to_clear: serialport::ClearBuffer) -> serialport::Result<()> {
+            Ok(())
+        }
+        fn try_clone(&self) -> serialport::Result<Box<dyn serialport::SerialPort>> {
+            Err(serialport::Error::new(
+                serialport::ErrorKind::Unknown,
+                "mock port cannot be cloned",
+            ))
+        }
+        fn set_break(&self) -> serialport::Result<()> {
+            Ok(())
+        }
+        fn clear_break(&self) -> serialport::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn mock_session(
+        start_rx_seq: u8,
+        response_payload: Vec<u8>,
+    ) -> (
+        Session,
+        std::sync::Arc<std::sync::Mutex<MockDeviceState>>,
+    ) {
+        let state = std::sync::Arc::new(std::sync::Mutex::new(MockDeviceState::new(
+            start_rx_seq,
+            response_payload,
+        )));
+        let port: Box<dyn serialport::SerialPort> = Box::new(MockPort(state.clone()));
+        (Session::new(port), state)
+    }
+
+    fn test_deadline() -> Instant {
+        Instant::now() + std::time::Duration::from_secs(2)
+    }
+
+    #[test]
+    fn sync_aligns_to_device_state_from_previous_session() {
+        // The device already consumed sequences 0..6 (e.g. an earlier CLI
+        // run); a fresh host session must start at 7, not 0.
+        let (mut session, device) = mock_session(7, vec![0x01]);
+        let deadline = test_deadline();
+        let is_response = |f: &Frame| f.rtype == SerialType::WifiMgmt && !f.payload.is_empty();
+
+        let info = session.sync(deadline).expect("sync should succeed");
+        assert_eq!(info.next_seq, 7);
+
+        session
+            .request(SerialType::WifiMgmt, &[0x01], deadline, &is_response)
+            .expect("request must use the synced sequence");
+
+        let state = device.lock().unwrap();
+        assert_eq!(state.incorrect_seq_acks, 0, "no mismatch after a correct sync");
+        assert_eq!(state.commands_accepted, 1);
+        assert_eq!(state.rx_seq, session.tx_seq(), "host and device stay aligned");
+    }
+
+    #[test]
+    fn request_resyncs_when_device_resets_mid_session() {
+        const PAYLOAD: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
+        let (mut session, device) = mock_session(0, PAYLOAD.to_vec());
+        let deadline = test_deadline();
+        let is_response = |f: &Frame| f.rtype == SerialType::WifiMgmt && f.payload == PAYLOAD.to_vec();
+
+        // Handshake plus two healthy requests: both sides advance to seq 2.
+        let info = session.sync(deadline).expect("initial sync");
+        assert_eq!(info.next_seq, 0);
+        session
+            .request(SerialType::WifiMgmt, &PAYLOAD, deadline, &is_response)
+            .expect("request 1");
+        session
+            .request(SerialType::WifiMgmt, &PAYLOAD, deadline, &is_response)
+            .expect("request 2");
+
+        // Simulate a device reset: its expected sequence returns to 0 while
+        // the host still believes the device expects 2.
+        device.lock().unwrap().rx_seq = 0;
+
+        // The next request must recover: mismatch -> error ACK ->
+        // PROTOCOL_INFO resync (device reports 0) -> retry with seq 0.
+        let frame = session
+            .request(SerialType::WifiMgmt, &PAYLOAD, deadline, &is_response)
+            .expect("request 3 must recover from the desync");
+        assert_eq!(frame.payload, PAYLOAD.to_vec());
+
+        let state = device.lock().unwrap();
+        assert_eq!(state.incorrect_seq_acks, 1, "exactly one mismatch was reported");
+        assert_eq!(state.protocol_info_queries, 2, "initial sync + one resync");
+        assert_eq!(state.commands_accepted, 3, "command delivered after the retry");
+        drop(state);
+
+        // The link must stay aligned afterwards: a follow-up request
+        // completes without another mismatch.
+        session
+            .request(SerialType::WifiMgmt, &PAYLOAD, deadline, &is_response)
+            .expect("request 4 stays in sync");
+        let state = device.lock().unwrap();
+        assert_eq!(state.incorrect_seq_acks, 1, "follow-up request had no mismatch");
+        assert_eq!(state.commands_accepted, 4);
+        assert_eq!(state.rx_seq, session.tx_seq(), "counters realigned after resync");
+    }
+
+    #[test]
+    fn request_gives_up_after_single_failed_retry() {
+        // A device that answers PROTOCOL_INFO with a wrong expected
+        // sequence: the retried frame mismatches again, and the session
+        // must stop with an error instead of retrying forever.
+        let (mut session, device) = mock_session(7, vec![0x01]);
+        device.lock().unwrap().corrupt_protocol_info = true;
+        let deadline = test_deadline();
+        let is_response = |f: &Frame| f.rtype == SerialType::WifiMgmt && !f.payload.is_empty();
+
+        let err = session
+            .request(SerialType::WifiMgmt, &[0x01], deadline, &is_response)
+            .expect_err("the retry cannot align the link");
+        match err {
+            SessionError::DeviceError(ErrorType::IncorrectSequenceNumber) => {}
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        let state = device.lock().unwrap();
+        assert_eq!(state.incorrect_seq_acks, 2, "original frame + one retried frame");
+        assert_eq!(state.protocol_info_queries, 1, "a single resync attempt");
+        assert_eq!(state.commands_accepted, 0, "nothing was ever processed");
+    }
+
+    #[test]
+    fn request_wraps_sequence_from_15_to_0() {
+        let (mut session, device) = mock_session(15, vec![0x01]);
+        let deadline = test_deadline();
+        let is_response = |f: &Frame| f.rtype == SerialType::WifiMgmt && !f.payload.is_empty();
+
+        let info = session.sync(deadline).expect("sync");
+        assert_eq!(info.next_seq, 15);
+
+        // seq 15 is accepted, both counters wrap to 0, and the next request
+        // proceeds with seq 0.
+        session
+            .request(SerialType::WifiMgmt, &[0x01], deadline, &is_response)
+            .expect("seq 15");
+        session
+            .request(SerialType::WifiMgmt, &[0x01], deadline, &is_response)
+            .expect("seq 0 after wrap");
+
+        let state = device.lock().unwrap();
+        assert_eq!(state.incorrect_seq_acks, 0, "no mismatch across the wrap");
+        assert_eq!(state.commands_accepted, 2);
+        assert_eq!(state.rx_seq, session.tx_seq());
+    }
 }
