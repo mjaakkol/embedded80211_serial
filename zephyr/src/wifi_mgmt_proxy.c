@@ -4,6 +4,7 @@
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/util.h>
 #include <errno.h>
 
 #include <pb_decode.h>
@@ -153,6 +154,21 @@ static enum wifi_mfp_options proto_to_zephyr_mfp(embedded_wifi_mgmt_WifiMfpOptio
 		return WIFI_MFP_DISABLE;
 	default:
 		return WIFI_MFP_OPTIONAL;
+	}
+}
+
+/*
+ * Proto (PASSIVE=0, ACTIVE=1) and Zephyr (ACTIVE=0, PASSIVE=1) use opposite
+ * numbering, so a raw cast inverts the requested scan type.
+ */
+static enum wifi_scan_type proto_to_zephyr_scan_type(embedded_wifi_mgmt_WifiScanType ptype)
+{
+	switch (ptype) {
+	case embedded_wifi_mgmt_WifiScanType_WIFI_SCAN_TYPE_ACTIVE:
+		return WIFI_SCAN_TYPE_ACTIVE;
+	default:
+		/* PASSIVE (and any unknown value): passive is the safe default. */
+		return WIFI_SCAN_TYPE_PASSIVE;
 	}
 }
 
@@ -777,7 +793,10 @@ static void handle_connect_request(const embedded_wifi_mgmt_WifiConnectRequest *
      * zeros, which the stack treats as "any BSSID". */
     memcpy(params.bssid, req->bssid, WIFI_MAC_ADDR_LEN);
 
-    params.timeout = req->timeout_ms;
+    /* Zephyr's wifi_connect_req_params.timeout is in seconds; the proto field
+     * is in milliseconds. Round up so a sub-second request gets at least 1 s.
+     */
+    params.timeout = DIV_ROUND_UP(req->timeout_ms, 1000);
     params.mfp = proto_to_zephyr_mfp(req->mfp);
     params.band = proto_to_zephyr_band(req->band);
     // params.bandwidth = (enum wifi_frequency_bandwidths) req->bandwidth; // Map from WifiFrequencyBandwidth proto
@@ -843,7 +862,7 @@ static void handle_scan_request(const embedded_wifi_mgmt_WifiScanRequest *req,
 
     if (req->has_params) {
         const embedded_wifi_mgmt_WifiScanParams *proto_params = &req->params;
-        params.scan_type = (enum wifi_scan_type)proto_params->scan_type;
+        params.scan_type = proto_to_zephyr_scan_type(proto_params->scan_type);
         params.bands = WIFI_FREQ_BAND_2_4_GHZ; // Initialize bands to zero
 
         // TODO: Fix later
@@ -1424,7 +1443,9 @@ static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfac
         // proto_s->ht_mcs = status_retrieved.ht_mcs; // If available in Zephyr struct and proto
         // proto_s->vht_mcs = status_retrieved.vht_mcs; // If available
         // proto_s->he_mcs = status_retrieved.he_mcs; // If available
-        proto_s->tx_bitrate_kbps = status_retrieved.current_phy_tx_rate; // Assuming Zephyr provides in kbps or needs conversion
+        /* Zephyr reports current_phy_tx_rate in Mbps (float); the proto field
+         * is in kbps, so scale by 1000. */
+        proto_s->tx_bitrate_kbps = (uint32_t)(status_retrieved.current_phy_tx_rate * 1000.0f);
         // proto_s->rx_bitrate_kbps = status_retrieved.rx_bitrate; // If available
         proto_s->dtim_period = status_retrieved.dtim_period;
         proto_s->beacon_interval = status_retrieved.beacon_interval;
