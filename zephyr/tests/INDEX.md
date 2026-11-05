@@ -154,8 +154,8 @@ chmod +x run_tests.sh
 ```bash
 cd zephyr/tests
 
-export ZEPHYR_BASE=/home/mikko/ncs/v3.4.1/zephyr
-export ZEPHYR_SDK_INSTALL_DIR=/home/mikko/ncs/toolchains/8285d8ad56/opt/zephyr-sdk
+export ZEPHYR_BASE=/opt/nordic/ncs/v3.4.1/zephyr
+export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/97226bad62/opt/zephyr-sdk
 export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 
 west build -p always -b qemu_cortex_m3 .
@@ -277,8 +277,8 @@ Note: Tests only use Zephyr core APIs, no hardware drivers needed.
 
 Set environment:
 ```bash
-export ZEPHYR_BASE=/home/mikko/ncs/v3.4.1/zephyr
-export ZEPHYR_SDK_INSTALL_DIR=/home/mikko/ncs/toolchains/8285d8ad56/opt/zephyr-sdk
+export ZEPHYR_BASE=/opt/nordic/ncs/v3.4.1/zephyr
+export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/97226bad62/opt/zephyr-sdk
 export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 ```
 

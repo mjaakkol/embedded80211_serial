@@ -13,7 +13,7 @@ enumerate but never answers the serial link protocol.
 Patch applied to the installed SDK (2026-11-01):
 
 - File: `zephyr/subsys/usb/device_next/class/usbd_cdc_acm.c` (Zephyr submodule
-  of the NCS west workspace, e.g. `/home/mikko/ncs/v3.4.1/zephyr/...`)
+  of the NCS west workspace, e.g. `/opt/nordic/ncs/v3.4.1/zephyr/...`)
 - Change: in `cdc_acm_fifo_fill()`, after `data->tx_fifo.altered = true;`,
   add `cdc_acm_work_schedule(&data->tx_fifo_work, K_NO_WAIT);` — the same
   scheduling `cdc_acm_poll_out()` already performs.

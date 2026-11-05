@@ -78,8 +78,8 @@ cd tests
 ### Option 2: Manual Build
 ```bash
 cd tests
-export ZEPHYR_BASE=/home/mikko/ncs/v3.4.1/zephyr
-export ZEPHYR_SDK_INSTALL_DIR=/home/mikko/ncs/toolchains/8285d8ad56/opt/zephyr-sdk
+export ZEPHYR_BASE=/opt/nordic/ncs/v3.4.1/zephyr
+export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/97226bad62/opt/zephyr-sdk
 export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 
 west build -p always -b qemu_cortex_m3 .
@@ -142,8 +142,8 @@ pwd  # Should end in /cfg80211_serial/zephyr/tests
 ### Build Error: "zephyr not found"
 **Fix:** Set Zephyr environment
 ```bash
-export ZEPHYR_BASE=/home/mikko/ncs/v3.4.1/zephyr
-export ZEPHYR_SDK_INSTALL_DIR=/home/mikko/ncs/toolchains/8285d8ad56/opt/zephyr-sdk
+export ZEPHYR_BASE=/opt/nordic/ncs/v3.4.1/zephyr
+export ZEPHYR_SDK_INSTALL_DIR=/opt/nordic/ncs/toolchains/97226bad62/opt/zephyr-sdk
 export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 ```
 
