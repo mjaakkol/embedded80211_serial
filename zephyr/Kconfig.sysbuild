@@ -1,0 +1,17 @@
+#
+# Sysbuild configuration for the embedded80211_serial application.
+#
+# The Bluetooth controller (nRF5340 SoftDevice Controller) runs on the
+# network core. The netcore image is the Nordic "ipc_radio" application,
+# which serializes the controller's HCI over the IPC service to this
+# application core (zephyr,bt-hci = &bt_hci_ipc0 in the board devicetree).
+
+#### Netcore image
+config NRF_DEFAULT_IPC_RADIO
+	default y
+
+# Enable Bluetooth serialization to the network core via HCI IPC.
+config NETCORE_IPC_RADIO_BT_HCI_IPC
+	default y
+
+source "share/sysbuild/Kconfig"

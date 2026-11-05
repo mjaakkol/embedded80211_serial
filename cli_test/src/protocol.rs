@@ -34,13 +34,12 @@ use network_interface::{
     NetIfRequest, NetIfResponse, NetIfType, RequestInterfaces, net_if_request, net_if_response,
 };
 use wifi_mgmt::{
-    GetPowerSaveConfigRequest, GetInterfaceStatusRequest, GetRegulatoryDomainRequest,
+    GetInterfaceStatusRequest, GetPowerSaveConfigRequest, GetRegulatoryDomainRequest,
     GetWifiVersionRequest, RequestType, SetPowerSaveConfigRequest, SetRegulatoryDomainRequest,
     WifiConnectRequest, WifiDisconnectRequest, WifiInterfaceState, WifiInterfaceStatus,
-    WifiMfpOptions, WifiMgmtNotification, WifiMgmtRequest, WifiMgmtResponse,
-    WifiPowerSaveConfig, WifiPowerSaveType, WifiPsSettings, WifiPsState, WifiRegDomain,
-    WifiScanRequest, WifiSecurityType, WifiStatusResponse, wifi_event, wifi_mgmt_request,
-    wifi_mgmt_response,
+    WifiMfpOptions, WifiMgmtNotification, WifiMgmtRequest, WifiMgmtResponse, WifiPowerSaveConfig,
+    WifiPowerSaveType, WifiPsSettings, WifiPsState, WifiRegDomain, WifiScanRequest,
+    WifiSecurityType, WifiStatusResponse, wifi_event, wifi_mgmt_request, wifi_mgmt_response,
 };
 
 pub mod network_interface {
@@ -202,6 +201,227 @@ impl TryFrom<&Frame> for ProtocolInfo {
             supported_types_mask: u16::from_le_bytes([frame.payload[1], frame.payload[2]]),
             next_seq: frame.payload[3],
         })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bluetooth HCI (H:4) helpers
+//
+// HCI traffic frames (SerialType::Hci) carry raw H:4 HCI packets: the
+// first payload byte is the H:4 packet type, followed by the HCI packet.
+// The device bridges these to the local Bluetooth controller (Zephyr raw
+// HCI channel) and reports controller events back as H:4 packets in HCI
+// traffic frames.
+// ---------------------------------------------------------------------------
+
+/// H:4 packet types.
+pub const HCI_H4_CMD: u8 = 0x01;
+pub const HCI_H4_ACL: u8 = 0x02;
+pub const HCI_H4_SCO: u8 = 0x03;
+pub const HCI_H4_EVT: u8 = 0x04;
+pub const HCI_H4_ISO: u8 = 0x05;
+
+/// HCI event codes.
+pub const HCI_EVT_COMMAND_COMPLETE: u8 = 0x0E;
+pub const HCI_EVT_COMMAND_STATUS: u8 = 0x0F;
+
+/// Well-known HCI opcodes, encoded as `(OGF << 10) | OCF` per the HCI
+/// spec (matching Zephyr's `BT_HCI_OP_*` in `hci_types.h`).
+pub const HCI_OP_READ_LOCAL_SUPPORTED_COMMANDS: u16 = 0x1002;
+pub const HCI_OP_READ_LOCAL_SUPPORTED_FEATURES: u16 = 0x1003;
+pub const HCI_OP_READ_LOCAL_VERSION: u16 = 0x1001;
+pub const HCI_OP_RESET: u16 = 0x0C03;
+pub const HCI_OP_READ_BD_ADDR: u16 = 0x1009;
+
+/// Builds an H:4 HCI command packet:
+/// `[H4_CMD, opcode_lo, opcode_hi, param_len, params...]`.
+pub fn hci_command_packet(opcode: u16, params: &[u8]) -> Vec<u8> {
+    let mut pkt = Vec::with_capacity(4 + params.len());
+    pkt.push(HCI_H4_CMD);
+    pkt.push((opcode & 0xFF) as u8);
+    pkt.push((opcode >> 8) as u8);
+    pkt.push(params.len() as u8);
+    pkt.extend_from_slice(params);
+    pkt
+}
+
+/// A decoded Command Complete event (0x0E).
+///
+/// A Command Complete carries the command's return parameters; it has no
+/// status field (that belongs to the Command Status event, 0x0F).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HciCommandComplete {
+    pub num_packets: u8,
+    pub opcode: u16,
+    pub params: Vec<u8>,
+}
+
+/// Parses an H:4 Command Complete event from an HCI frame payload.
+///
+/// Returns `None` for any other H:4 packet type, any other event code, or
+/// truncated / length-inconsistent data.
+pub fn hci_command_complete(payload: &[u8]) -> Option<HciCommandComplete> {
+    // H4 (1) + event header (evt 1, plen 1) + CC body (num 1, opcode 2,
+    // param_len 1) + params.
+    if payload.len() < 7 || payload[0] != HCI_H4_EVT {
+        return None;
+    }
+    let evt_plen = payload[2] as usize;
+    if payload[1] != HCI_EVT_COMMAND_COMPLETE || payload.len() != 3 + evt_plen {
+        return None;
+    }
+    // The CC body is 4 bytes (num, opcode, param_len); the remaining event
+    // bytes are the command's return parameters. Use `evt_plen` as the
+    // source of truth for the length — some controllers do not fill the
+    // param_len byte consistently.
+    if evt_plen < 4 {
+        return None;
+    }
+    Some(HciCommandComplete {
+        num_packets: payload[3],
+        opcode: u16::from_le_bytes([payload[4], payload[5]]),
+        params: payload[7..].to_vec(),
+    })
+}
+
+/// Decoded Read Local Version Information (0x0103) parameters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HciVersionInfo {
+    pub hci_version: u8,
+    pub lmp_version: u8,
+    pub utf: u16,
+    pub manufacturer: u16,
+    pub sdp: [u8; 8],
+}
+
+impl TryFrom<&HciCommandComplete> for HciVersionInfo {
+    type Error = ();
+
+    fn try_from(cc: &HciCommandComplete) -> Result<Self, Self::Error> {
+        // The fixed header is 6 bytes (hci, lmp, utf, mfr); the SDP product
+        // field is nominally 8 bytes, but some controllers return a shorter
+        // blob. Decode what is present and zero-pad a short SDP field.
+        if cc.opcode != HCI_OP_READ_LOCAL_VERSION || cc.params.len() < 6 {
+            return Err(());
+        }
+        let p = &cc.params;
+        let mut sdp = [0u8; 8];
+        let sdp_len = p.len().saturating_sub(6).min(8);
+        sdp[..sdp_len].copy_from_slice(&p[6..6 + sdp_len]);
+        Ok(Self {
+            hci_version: p[0],
+            lmp_version: p[1],
+            utf: u16::from_le_bytes([p[2], p[3]]),
+            manufacturer: u16::from_le_bytes([p[4], p[5]]),
+            sdp,
+        })
+    }
+}
+
+/// Decoded Read BD_ADDR (0x1009) parameters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HciBdAddr {
+    pub addr: [u8; 6],
+}
+
+impl TryFrom<&HciCommandComplete> for HciBdAddr {
+    type Error = ();
+
+    fn try_from(cc: &HciCommandComplete) -> Result<Self, Self::Error> {
+        if cc.opcode != HCI_OP_READ_BD_ADDR || cc.params.len() != 6 {
+            return Err(());
+        }
+        Ok(Self {
+            addr: cc.params[..6].try_into().unwrap(),
+        })
+    }
+}
+
+/// Human-readable name for an LMP/LL version number.
+pub fn hci_lmp_version_name(version: u8) -> &'static str {
+    match version {
+        0 => "Reserved",
+        1 => "Bluetooth 2.0+EDR",
+        2 => "Bluetooth 2.1+EDR",
+        3 => "Bluetooth 3.0+HS",
+        4 => "Bluetooth 4.0",
+        5 => "Bluetooth 4.1",
+        6 => "Bluetooth 4.2",
+        7 => "Bluetooth 5.0",
+        8 => "Bluetooth 5.1",
+        9 => "Bluetooth 5.2",
+        10 => "Bluetooth 5.3",
+        11 => "Bluetooth 5.4",
+        _ => "Unknown",
+    }
+}
+
+/// Human-readable name for a well-known HCI manufacturer id.
+pub fn hci_manufacturer_name(id: u16) -> Option<&'static str> {
+    match id {
+        0x000D => Some("Qualcomm"),
+        0x000F => Some("Broadcom"),
+        0x000A => Some("Cavium"),
+        0x0015 => Some("Atheros"),
+        0x0018 => Some("Mitsubishi"),
+        0x001D => Some("CSR"),
+        0x0024 => Some("Apple"),
+        0x002C => Some("Texas Instruments"),
+        0x002F => Some("Ericsson"),
+        0x004C => Some("Samsung"),
+        0x0059 => Some("Nordic Semiconductor"),
+        0x0075 => Some("MediaTek"),
+        _ => None,
+    }
+}
+
+/// Renders a Command Complete event as a human-readable string, decoding
+/// the parameters for the well-known opcodes.
+pub fn format_hci_command_complete(cc: &HciCommandComplete) -> String {
+    match cc.opcode {
+        HCI_OP_RESET => "Reset: complete".to_string(),
+        HCI_OP_READ_LOCAL_VERSION => match HciVersionInfo::try_from(cc) {
+            Ok(v) => {
+                let mfr = hci_manufacturer_name(v.manufacturer)
+                    .map(|m| format!(" ({m})"))
+                    .unwrap_or_default();
+                let sdp: String = v
+                    .sdp
+                    .iter()
+                    .map(|b| format!("{b:02X}"))
+                    .collect::<Vec<_>>()
+                    .join("");
+                format!(
+                    "Version: HCI {} LMP/LL {} ({}) UTC 0x{:04X} Manufacturer 0x{:04X}{mfr} SDP {sdp}",
+                    v.hci_version,
+                    v.lmp_version,
+                    hci_lmp_version_name(v.lmp_version),
+                    v.utf,
+                    v.manufacturer,
+                )
+            }
+            Err(()) => "Version: malformed parameters".to_string(),
+        },
+        HCI_OP_READ_BD_ADDR => match HciBdAddr::try_from(cc) {
+            Ok(a) => format!(
+                "BD ADDR: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                a.addr[5], a.addr[4], a.addr[3], a.addr[2], a.addr[1], a.addr[0]
+            ),
+            Err(()) => "BD ADDR: malformed parameters".to_string(),
+        },
+        _ => {
+            let params: String = cc
+                .params
+                .iter()
+                .map(|b| format!("{b:02X}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!(
+                "Opcode 0x{opcode:04X}: complete, params[{len}]: {params}",
+                opcode = cc.opcode,
+                len = cc.params.len()
+            )
+        }
     }
 }
 
@@ -1087,13 +1307,25 @@ mod tests {
                 };
                 let mask = self.supported_types_mask.to_le_bytes();
                 let payload = [self.version, mask[0], mask[1], next_seq];
-                self.emit_frame(SerialType::ProtocolInfo, ErrorType::NoError, self.tx_seq, &payload, true);
+                self.emit_frame(
+                    SerialType::ProtocolInfo,
+                    ErrorType::NoError,
+                    self.tx_seq,
+                    &payload,
+                    true,
+                );
                 return;
             }
             if frame.seq != self.rx_seq {
                 // Echo the sequence we expected, then reset to 0.
                 self.incorrect_seq_acks += 1;
-                self.emit_frame(frame.rtype, ErrorType::IncorrectSequenceNumber, self.rx_seq, &[], false);
+                self.emit_frame(
+                    frame.rtype,
+                    ErrorType::IncorrectSequenceNumber,
+                    self.rx_seq,
+                    &[],
+                    false,
+                );
                 self.rx_seq = 0;
                 return;
             }
@@ -1101,13 +1333,26 @@ mod tests {
             let response_tx_seq = self.tx_seq;
             let response = self.response_payload.clone();
             if !response.is_empty() {
-                self.emit_frame(frame.rtype, ErrorType::NoError, response_tx_seq, &response, true);
+                self.emit_frame(
+                    frame.rtype,
+                    ErrorType::NoError,
+                    response_tx_seq,
+                    &response,
+                    true,
+                );
             }
             self.emit_frame(frame.rtype, ErrorType::NoError, frame.seq, &[], false);
             self.rx_seq = (self.rx_seq + 1) & 0x0F;
         }
 
-        fn emit_frame(&mut self, rtype: SerialType, error: ErrorType, seq: u8, payload: &[u8], advance_tx: bool) {
+        fn emit_frame(
+            &mut self,
+            rtype: SerialType,
+            error: ErrorType,
+            seq: u8,
+            payload: &[u8],
+            advance_tx: bool,
+        ) {
             let mut out: Vec<u8> = Vec::with_capacity(4 + payload.len());
             out.push(((error as u8) << 6) | (1 << 5) | rtype.to_u8()); // host = 1
             out.push((seq & 0x0F) << 4);
@@ -1189,7 +1434,10 @@ mod tests {
         fn set_data_bits(&mut self, _data_bits: serialport::DataBits) -> serialport::Result<()> {
             Ok(())
         }
-        fn set_flow_control(&mut self, _flow_control: serialport::FlowControl) -> serialport::Result<()> {
+        fn set_flow_control(
+            &mut self,
+            _flow_control: serialport::FlowControl,
+        ) -> serialport::Result<()> {
             Ok(())
         }
         fn set_parity(&mut self, _parity: serialport::Parity) -> serialport::Result<()> {
@@ -1245,10 +1493,7 @@ mod tests {
     fn mock_session(
         start_rx_seq: u8,
         response_payload: Vec<u8>,
-    ) -> (
-        Session,
-        std::sync::Arc<std::sync::Mutex<MockDeviceState>>,
-    ) {
+    ) -> (Session, std::sync::Arc<std::sync::Mutex<MockDeviceState>>) {
         let state = std::sync::Arc::new(std::sync::Mutex::new(MockDeviceState::new(
             start_rx_seq,
             response_payload,
@@ -1277,9 +1522,16 @@ mod tests {
             .expect("request must use the synced sequence");
 
         let state = device.lock().unwrap();
-        assert_eq!(state.incorrect_seq_acks, 0, "no mismatch after a correct sync");
+        assert_eq!(
+            state.incorrect_seq_acks, 0,
+            "no mismatch after a correct sync"
+        );
         assert_eq!(state.commands_accepted, 1);
-        assert_eq!(state.rx_seq, session.tx_seq(), "host and device stay aligned");
+        assert_eq!(
+            state.rx_seq,
+            session.tx_seq(),
+            "host and device stay aligned"
+        );
     }
 
     #[test]
@@ -1287,7 +1539,8 @@ mod tests {
         const PAYLOAD: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
         let (mut session, device) = mock_session(0, PAYLOAD.to_vec());
         let deadline = test_deadline();
-        let is_response = |f: &Frame| f.rtype == SerialType::WifiMgmt && f.payload == PAYLOAD.to_vec();
+        let is_response =
+            |f: &Frame| f.rtype == SerialType::WifiMgmt && f.payload == PAYLOAD.to_vec();
 
         // Handshake plus two healthy requests: both sides advance to seq 2.
         let info = session.sync(deadline).expect("initial sync");
@@ -1311,9 +1564,15 @@ mod tests {
         assert_eq!(frame.payload, PAYLOAD.to_vec());
 
         let state = device.lock().unwrap();
-        assert_eq!(state.incorrect_seq_acks, 1, "exactly one mismatch was reported");
+        assert_eq!(
+            state.incorrect_seq_acks, 1,
+            "exactly one mismatch was reported"
+        );
         assert_eq!(state.protocol_info_queries, 2, "initial sync + one resync");
-        assert_eq!(state.commands_accepted, 3, "command delivered after the retry");
+        assert_eq!(
+            state.commands_accepted, 3,
+            "command delivered after the retry"
+        );
         drop(state);
 
         // The link must stay aligned afterwards: a follow-up request
@@ -1322,9 +1581,16 @@ mod tests {
             .request(SerialType::WifiMgmt, &PAYLOAD, deadline, &is_response)
             .expect("request 4 stays in sync");
         let state = device.lock().unwrap();
-        assert_eq!(state.incorrect_seq_acks, 1, "follow-up request had no mismatch");
+        assert_eq!(
+            state.incorrect_seq_acks, 1,
+            "follow-up request had no mismatch"
+        );
         assert_eq!(state.commands_accepted, 4);
-        assert_eq!(state.rx_seq, session.tx_seq(), "counters realigned after resync");
+        assert_eq!(
+            state.rx_seq,
+            session.tx_seq(),
+            "counters realigned after resync"
+        );
     }
 
     #[test]
@@ -1346,7 +1612,10 @@ mod tests {
         }
 
         let state = device.lock().unwrap();
-        assert_eq!(state.incorrect_seq_acks, 2, "original frame + one retried frame");
+        assert_eq!(
+            state.incorrect_seq_acks, 2,
+            "original frame + one retried frame"
+        );
         assert_eq!(state.protocol_info_queries, 1, "a single resync attempt");
         assert_eq!(state.commands_accepted, 0, "nothing was ever processed");
     }
@@ -1373,5 +1642,109 @@ mod tests {
         assert_eq!(state.incorrect_seq_acks, 0, "no mismatch across the wrap");
         assert_eq!(state.commands_accepted, 2);
         assert_eq!(state.rx_seq, session.tx_seq());
+    }
+
+    // ------------------------------------------------------------------
+    // HCI helpers
+    // ------------------------------------------------------------------
+
+    fn cc_packet(opcode: u16, params: &[u8]) -> Vec<u8> {
+        // H4 EVT + Command Complete event (no status field).
+        let mut p = vec![
+            HCI_H4_EVT,
+            HCI_EVT_COMMAND_COMPLETE,
+            (4 + params.len()) as u8,
+            1,
+            (opcode & 0xFF) as u8,
+            (opcode >> 8) as u8,
+            params.len() as u8,
+        ];
+        p.extend_from_slice(params);
+        p
+    }
+
+    #[test]
+    fn hci_command_packet_encodes_h4_cmd() {
+        let pkt = hci_command_packet(HCI_OP_RESET, &[]);
+        assert_eq!(pkt, vec![0x01, 0x03, 0x0C, 0x00]);
+
+        let pkt = hci_command_packet(0x0813, &[0x01, 0x02]);
+        assert_eq!(pkt, vec![0x01, 0x13, 0x08, 0x02, 0x01, 0x02]);
+    }
+
+    #[test]
+    fn hci_command_complete_parses_valid() {
+        let pkt = cc_packet(
+            HCI_OP_READ_LOCAL_VERSION,
+            &[1, 11, 0, 0, 0x59, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        );
+        let cc = hci_command_complete(&pkt).expect("parse");
+        assert_eq!(cc.num_packets, 1);
+        assert_eq!(cc.opcode, HCI_OP_READ_LOCAL_VERSION);
+        assert_eq!(cc.params.len(), 14);
+
+        let v = HciVersionInfo::try_from(&cc).expect("version");
+        assert_eq!(v.hci_version, 1);
+        assert_eq!(v.lmp_version, 11);
+        assert_eq!(v.manufacturer, 0x0059);
+    }
+
+    #[test]
+    fn hci_command_complete_rejects_malformed() {
+        // Wrong H4 type.
+        let mut p = cc_packet(HCI_OP_RESET, &[]);
+        p[0] = HCI_H4_ACL;
+        assert!(hci_command_complete(&p).is_none());
+
+        // Wrong event code.
+        let mut p = cc_packet(HCI_OP_RESET, &[]);
+        p[1] = HCI_EVT_COMMAND_STATUS;
+        assert!(hci_command_complete(&p).is_none());
+
+        // Truncated.
+        let p = cc_packet(HCI_OP_RESET, &[]);
+        assert!(hci_command_complete(&p[..5]).is_none());
+
+        // Length-inconsistent (plen disagrees with param_len).
+        let mut p = cc_packet(HCI_OP_RESET, &[0xAA]);
+        p[2] = 99;
+        assert!(hci_command_complete(&p).is_none());
+
+        // Empty.
+        assert!(hci_command_complete(&[]).is_none());
+    }
+
+    #[test]
+    fn hci_bd_addr_decodes() {
+        let pkt = cc_packet(HCI_OP_READ_BD_ADDR, &[1, 2, 3, 4, 5, 6]);
+        let cc = hci_command_complete(&pkt).expect("parse");
+        let a = HciBdAddr::try_from(&cc).expect("bd addr");
+        assert_eq!(a.addr, [1, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn hci_version_info_rejects_wrong_opcode() {
+        let pkt = cc_packet(HCI_OP_RESET, &[0; 11]);
+        let cc = hci_command_complete(&pkt).expect("parse");
+        assert!(HciVersionInfo::try_from(&cc).is_err());
+    }
+
+    #[test]
+    fn format_hci_command_complete_decodes_version() {
+        let params: [u8; 14] = [7, 9, 0x00, 0x02, 0x59, 0x00, 0, 0, 0, 0, 0, 0, 0, 0];
+        let pkt = cc_packet(HCI_OP_READ_LOCAL_VERSION, &params);
+        let cc = hci_command_complete(&pkt).expect("parse");
+        let s = format_hci_command_complete(&cc);
+        assert!(s.contains("LMP/LL 9"), "got: {s}");
+        assert!(s.contains("Bluetooth 5.2"), "got: {s}");
+        assert!(s.contains("Nordic Semiconductor"), "got: {s}");
+    }
+
+    #[test]
+    fn format_hci_command_complete_generic_params() {
+        let pkt = cc_packet(0x2010, &[0xDE, 0xAD]);
+        let cc = hci_command_complete(&pkt).expect("parse");
+        let s = format_hci_command_complete(&cc);
+        assert!(s.contains("DE AD"), "got: {s}");
     }
 }

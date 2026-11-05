@@ -5,11 +5,14 @@ use clap::{Parser, Subcommand, ValueEnum};
 use cli_test::protocol::network_interface::NetIfType;
 use cli_test::protocol::wifi_mgmt::WifiSecurityType;
 use cli_test::protocol::{
-    Frame, SerialType, Session, connect_request_payload, decode_scan_done_notification,
-    decode_wifi_mgmt_response, disconnect_request_payload, format_iface_status_response,
-    format_interfaces_response, format_ps_response, format_reg_domain_response,
-    format_scan_results, format_status_response, format_version_response,
-    get_ps_request_payload, get_reg_domain_request_payload, iface_status_request_payload,
+    Frame, HCI_OP_READ_BD_ADDR, HCI_OP_READ_LOCAL_SUPPORTED_COMMANDS,
+    HCI_OP_READ_LOCAL_SUPPORTED_FEATURES, HCI_OP_READ_LOCAL_VERSION, HCI_OP_RESET,
+    HciCommandComplete, SerialType, Session, connect_request_payload,
+    decode_scan_done_notification, decode_wifi_mgmt_response, disconnect_request_payload,
+    format_hci_command_complete, format_iface_status_response, format_interfaces_response,
+    format_ps_response, format_reg_domain_response, format_scan_results, format_status_response,
+    format_version_response, get_ps_request_payload, get_reg_domain_request_payload,
+    hci_command_complete, hci_command_packet, iface_status_request_payload,
     interfaces_request_payload, scan_request_payload, set_ps_request_payload,
     set_reg_domain_request_payload, version_request_payload,
 };
@@ -96,6 +99,17 @@ enum Commands {
         #[arg(short = 'i', long, default_value_t = 0)]
         iface_index: u32,
     },
+    /// Bluetooth HCI test commands (raw HCI over the common link protocol)
+    Hci {
+        #[command(subcommand)]
+        command: HciCmd,
+    },
+    /// Wi-Fi scan interleaved with a Bluetooth HCI command, to demonstrate
+    /// multiprotocol coexistence over the shared serial link.
+    Coexist {
+        #[arg(short, long, default_value_t = 0)]
+        iface_index: u32,
+    },
 }
 
 #[derive(Subcommand)]
@@ -145,6 +159,30 @@ enum PowerSaveCmd {
         /// Wi-Fi interface index
         #[arg(short = 'i', long, default_value_t = 0)]
         iface_index: u32,
+    },
+}
+
+#[derive(Subcommand)]
+enum HciCmd {
+    /// Reset the Bluetooth controller
+    Reset,
+    /// Read local version information
+    Version,
+    /// Read local supported commands (8-byte bitmap)
+    Commands,
+    /// Read local supported features (8-byte bitmap)
+    Features,
+    /// Read the controller Bluetooth device address
+    Addr,
+    /// Convenience: reset, then read local version information
+    Info,
+    /// Send a raw HCI command and print the Command Complete event
+    Raw {
+        /// 16-bit opcode in hex (e.g. 0103)
+        opcode: String,
+        /// Command parameters in hex (e.g. 00)
+        #[arg(short = 'p', long)]
+        params: Option<String>,
     },
 }
 
@@ -208,6 +246,57 @@ fn is_wifi_mgmt_response(frame: &Frame) -> bool {
 
 fn is_scan_done_notification(frame: &Frame) -> bool {
     decode_scan_done_notification(frame).is_some()
+}
+
+/// Matches HCI frames carrying a Command Complete event for `opcode`.
+fn is_hci_command_complete(opcode: u16) -> impl Fn(&Frame) -> bool {
+    move |frame: &Frame| {
+        frame.rtype == SerialType::Hci
+            && hci_command_complete(&frame.payload).is_some_and(|cc| cc.opcode == opcode)
+    }
+}
+
+/// Parses a hex string (e.g. "0103" or "00") into a byte vector.
+fn parse_hex(value: &str) -> Result<Vec<u8>, String> {
+    let cleaned: String = value.chars().filter(|c| !c.is_whitespace()).collect();
+    if !cleaned.len().is_multiple_of(2) {
+        return Err(format!("hex value has odd length: {value}"));
+    }
+    let bytes = cleaned.as_str();
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    for chunk in bytes.as_bytes().chunks(2) {
+        let hi = (chunk[0] as char)
+            .to_digit(16)
+            .ok_or_else(|| format!("invalid hex digit in {value}"))?;
+        let lo = (chunk[1] as char)
+            .to_digit(16)
+            .ok_or_else(|| format!("invalid hex digit in {value}"))?;
+        out.push(((hi << 4) | lo) as u8);
+    }
+    Ok(out)
+}
+
+/// Sends an HCI command and waits for its Command Complete event.
+fn hci_request(
+    session: &mut Session,
+    deadline: Instant,
+    opcode: u16,
+    params: &[u8],
+) -> HciCommandComplete {
+    let pkt = hci_command_packet(opcode, params);
+    let frame = match session.request(
+        SerialType::Hci,
+        &pkt,
+        deadline,
+        &is_hci_command_complete(opcode),
+    ) {
+        Ok(frame) => frame,
+        Err(e) => die(&e),
+    };
+    match hci_command_complete(&frame.payload) {
+        Some(cc) => cc,
+        None => die(&"malformed HCI command complete event"),
+    }
 }
 
 fn main() {
@@ -453,6 +542,104 @@ fn main() {
                 Err(e) => die(&e),
             };
             println!("{}", format_iface_status_response(&frame));
+        }
+        Commands::Hci { command: cmd } => match cmd {
+            HciCmd::Reset => {
+                let cc = hci_request(&mut session, deadline, HCI_OP_RESET, &[]);
+                println!("{}", format_hci_command_complete(&cc));
+            }
+            HciCmd::Version => {
+                let cc = hci_request(&mut session, deadline, HCI_OP_READ_LOCAL_VERSION, &[]);
+                println!("{}", format_hci_command_complete(&cc));
+            }
+            HciCmd::Commands => {
+                let cc = hci_request(
+                    &mut session,
+                    deadline,
+                    HCI_OP_READ_LOCAL_SUPPORTED_COMMANDS,
+                    &[],
+                );
+                println!("{}", format_hci_command_complete(&cc));
+            }
+            HciCmd::Features => {
+                let cc = hci_request(
+                    &mut session,
+                    deadline,
+                    HCI_OP_READ_LOCAL_SUPPORTED_FEATURES,
+                    &[],
+                );
+                println!("{}", format_hci_command_complete(&cc));
+            }
+            HciCmd::Addr => {
+                let cc = hci_request(&mut session, deadline, HCI_OP_READ_BD_ADDR, &[]);
+                println!("{}", format_hci_command_complete(&cc));
+            }
+            HciCmd::Info => {
+                let _ = hci_request(&mut session, deadline, HCI_OP_RESET, &[]);
+                let cc = hci_request(&mut session, deadline, HCI_OP_READ_LOCAL_VERSION, &[]);
+                println!("{}", format_hci_command_complete(&cc));
+            }
+            HciCmd::Raw { opcode, params } => {
+                let op_bytes = match parse_hex(&opcode) {
+                    Ok(b) => b,
+                    Err(e) => die(&e),
+                };
+                if op_bytes.len() != 2 {
+                    die(&"opcode must be exactly 2 hex bytes (e.g. 0103)");
+                }
+                let op = u16::from_le_bytes([op_bytes[0], op_bytes[1]]);
+                let p = match params {
+                    Some(p) => match parse_hex(&p) {
+                        Ok(b) => b,
+                        Err(e) => die(&e),
+                    },
+                    None => Vec::new(),
+                };
+                let cc = hci_request(&mut session, deadline, op, &p);
+                println!("{}", format_hci_command_complete(&cc));
+            }
+        },
+        Commands::Coexist { iface_index } => {
+            // 1. Start a Wi-Fi scan (traffic type WIFI_MGMT).
+            let payload = scan_request_payload(iface_index);
+            let status = match session.request(
+                SerialType::WifiMgmt,
+                &payload,
+                deadline,
+                &is_wifi_mgmt_response,
+            ) {
+                Ok(frame) => frame,
+                Err(e) => die(&e),
+            };
+            match format_status_response(&status) {
+                Ok(message) => println!("{message}"),
+                Err(message) => die(&message),
+            }
+
+            // 2. While the scan is in flight on the device, issue a Bluetooth
+            //    HCI command (traffic type HCI). The Command Complete arrives in
+            //    milliseconds, well before the scan-done notification, so the
+            //    two protocols' frames interleave on the shared serial link.
+            eprintln!("Scan in progress; issuing HCI Read Local Version ...");
+            let cc = hci_request(&mut session, deadline, HCI_OP_READ_LOCAL_VERSION, &[]);
+            println!("{}", format_hci_command_complete(&cc));
+
+            // 3. Finish waiting for the scan results.
+            eprintln!(
+                "Waiting for scan results (up to {} s)...",
+                SCAN_TIMEOUT.as_secs()
+            );
+            let done =
+                match session.wait_for(Instant::now() + SCAN_TIMEOUT, &is_scan_done_notification) {
+                    Ok(frame) => frame,
+                    Err(e) => die(&e),
+                };
+            let (scan_status, results) = match decode_scan_done_notification(&done) {
+                Some(done) => done,
+                None => die(&"malformed scan done notification"),
+            };
+            println!("{}", format_scan_results(scan_status, &results));
+            eprintln!("Coexistence OK: Wi-Fi scan and HCI command completed on one link session.");
         }
         Commands::Test { .. } | Commands::List => unreachable!(),
     }

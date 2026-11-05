@@ -28,6 +28,19 @@ zephyr_udc0: &usbd {
         compatible = "zephyr,cdc-acm-uart";
     };
 };
+/* Forward the nRF7002 Wi-Fi PTA (coexistence) pins to the network core.
+ * The network core drives them from the nrf_radio_coex node in its
+ * devicetree (MPSL_CX_NRF700X), arbitrating RF access between the
+ * nRF5340 Bluetooth radio and the nRF7002 Wi-Fi radio.
+ */
+&gpio_fwd {
+    coex {
+        gpios = <&gpio0 28 0>,  /* COEX_REQ */
+                <&gpio0 30 0>,  /* COEX_STATUS0 */
+                <&gpio0 24 0>,  /* COEX_GRANT */
+                <&gpio0 29 0>;  /* SWCTRL1 */
+    };
+};
 
 / {
      chosen {

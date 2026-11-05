@@ -161,6 +161,12 @@ config SERIAL_PROXY_NET_IF_MGMT
 config SERIAL_PROXY_BT
 	bool "Enable Bluetooth HCI proxy"
 	default y
+	depends on BT
+	help
+	  Enable the Bluetooth HCI proxy. Host HCI packets (traffic type HCI)
+	  are bridged to the local Bluetooth controller through the Zephyr
+	  raw HCI channel (CONFIG_BT_HCI_RAW); controller events are reported
+	  back to the host as HCI traffic frames.
 
 config SERIAL_PROXY_OT
 	bool "Enable OpenThread/Spinel proxy"

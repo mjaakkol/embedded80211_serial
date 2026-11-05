@@ -34,13 +34,5 @@ void bt_proxy_commit_data(size_t len);
  */
 void bt_proxy_message_complete(size_t len);
 
-/**
- * @brief Initialize the Bluetooth proxy.
- *
- * Sets up the HCI device reference and initializes the proxy.
- *
- * @return 0 on success, negative error code on failure
- */
-int bt_proxy_init(void);
 
 #endif /* _BT_PROXY_H_ */

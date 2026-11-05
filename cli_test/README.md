@@ -11,7 +11,7 @@ It is intended for quick manual validation of host-to-device requests such as Wi
 - Query network interfaces from the device
 - Send Wi-Fi connect requests
 - Send Wi-Fi disconnect requests
-- Run a hardware integration test that repeats connect/disconnect cycles
+- Send Bluetooth Low Energy HCI commands to the on-board controller
 
 ## Build
 
@@ -105,6 +105,44 @@ initiated`, verify the link state with `interfaces --iface-type wifi`. The
 Wi-Fi interface reports `dormant=true` once the association is down (the
 carrier flag is not cleared by the driver).
 
+### 7. Send Bluetooth HCI commands
+
+The board runs the nRF5340 on-chip SoftDevice Controller (BLE) on the
+network core. The application core exposes a **raw HCI** channel to the host
+over the common link protocol (traffic type `HCI`), so the host is the
+Bluetooth host and the board is a transparent HCI pipe to the controller.
+
+Subcommands:
+
+```bash
+# Reset the controller (Host-to-Controller HCI_Reset, 0x0C03).
+cargo run -- --port /dev/ttyACM0 hci reset
+
+# Read local version information (0x1001).
+cargo run -- --port /dev/ttyACM0 hci version
+
+# Read the supported-commands bitmap (0x1002).
+cargo run -- --port /dev/ttyACM0 hci commands
+
+# Read the local features bitmap (0x1003).
+cargo run -- --port /dev/ttyACM0 hci features
+
+# Read the controller BD_ADDR (0x1009).
+cargo run -- --port /dev/ttyACM0 hci addr
+
+# Convenience: reset, then read version information.
+cargo run -- --port /dev/ttyACM0 hci info
+
+# Send an arbitrary HCI command by opcode and (optional) hex parameters.
+cargo run -- --port /dev/ttyACM0 hci raw 1001
+cargo run -- --port /dev/ttyACM0 hci raw 0c03
+```
+
+Each subcommand waits for the matching Command Complete event and prints the
+decoded result. `raw` prints the raw parameter bytes for any command. The
+controller has no public Bluetooth address programmed, so `addr` reports
+`00:00:00:00:00:00` until a random address is set by the host.
+
 ## Integration Test
 
 `tests/connect_disconnect.rs` repeats full connect/disconnect cycles against
@@ -133,6 +171,9 @@ test skips, so `cargo test` stays green on hosts without the device attached.
 
 - The device side must be running compatible cfg80211_serial firmware and connected to the selected serial port.
 - Request/response framing and protobuf payloads are generated from `../protos/wifi.proto` and `../protos/network_interface.proto`.
+- `hci` commands carry raw H:4 HCI packets (type byte first) inside the common
+  link protocol frame; they are not protobuf-encoded. The board forwards them
+  to the nRF5340 SoftDevice Controller over HCI IPC and back.
 
 ## Troubleshooting
 
