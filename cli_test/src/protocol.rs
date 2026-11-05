@@ -36,8 +36,9 @@ use network_interface::{
 use wifi_mgmt::{
     GetInterfaceStatusRequest, GetPowerSaveConfigRequest, GetRegulatoryDomainRequest,
     GetWifiVersionRequest, RequestType, SetPowerSaveConfigRequest, SetRegulatoryDomainRequest,
-    WifiConnectRequest, WifiDisconnectRequest, WifiInterfaceState, WifiInterfaceStatus,
-    WifiMfpOptions, WifiMgmtNotification, WifiMgmtRequest, WifiMgmtResponse, WifiPowerSaveConfig,
+    WifiApDisableRequest, WifiApEnableParams, WifiApEnableRequest, WifiConnectRequest,
+    WifiDisconnectRequest, WifiInterfaceState, WifiInterfaceStatus, WifiMfpOptions,
+    WifiMgmtNotification, WifiMgmtRequest, WifiMgmtResponse, WifiPowerSaveConfig,
     WifiPowerSaveType, WifiPsSettings, WifiPsState, WifiRegDomain, WifiScanRequest,
     WifiSecurityType, WifiStatusResponse, wifi_event, wifi_mgmt_request, wifi_mgmt_response,
 };
@@ -712,6 +713,89 @@ pub fn disconnect_request_payload(iface_index: u32) -> Vec<u8> {
     out
 }
 
+/// Builds the encoded protobuf payload of an AP_ENABLE request.
+pub fn ap_enable_request_payload(
+    iface_index: u32,
+    ssid: &str,
+    channel: u32,
+    band: i32,
+    security_type: WifiSecurityType,
+    psk: Option<&str>,
+) -> Vec<u8> {
+    let request = WifiMgmtRequest {
+        request_id: RequestType::ApEnable as i32,
+        payload: Some(wifi_mgmt_request::Payload::ApEnableReq(
+            WifiApEnableRequest {
+                iface_index,
+                params: Some(WifiApEnableParams {
+                    ssid: ssid.as_bytes().to_vec(),
+                    channel,
+                    band,
+                    security_type: security_type as i32,
+                    psk: psk.unwrap_or_default().as_bytes().to_vec(),
+                    hidden_ssid: false,
+                    beacon_interval_tu: 0,
+                    dtim_period: 0,
+                }),
+            },
+        )),
+    };
+    let mut out = Vec::new();
+    request.encode(&mut out).unwrap();
+    out
+}
+
+/// Builds the encoded protobuf payload of an AP_DISABLE request.
+pub fn ap_disable_request_payload(iface_index: u32) -> Vec<u8> {
+    let request = WifiMgmtRequest {
+        request_id: RequestType::ApDisable as i32,
+        payload: Some(wifi_mgmt_request::Payload::ApDisableReq(
+            WifiApDisableRequest { iface_index },
+        )),
+    };
+    let mut out = Vec::new();
+    request.encode(&mut out).unwrap();
+    out
+}
+
+/// Decodes a device->host frame as a WifiMgmtNotification carrying an
+/// ApEnableResultEvent. Returns `(is_enable, status)`; `status` is 0 on
+/// success and a negative errno-style code on failure.
+pub fn decode_ap_result_notification(frame: &Frame) -> Option<(bool, i32)> {
+    if frame.rtype != SerialType::WifiMgmt {
+        return None;
+    }
+    let notification = WifiMgmtNotification::decode(frame.payload.as_slice()).ok()?;
+    let event = notification.event?;
+    match event.event_data {
+        Some(wifi_event::EventData::ApEnableResultEvent(e)) => Some((true, e.status)),
+        Some(wifi_event::EventData::ApDisableResultEvent(e)) => Some((false, e.status)),
+        _ => None,
+    }
+}
+
+/// Decodes a device->host frame as a WifiMgmtNotification carrying an
+/// ApStaConnectedEvent or ApStaDisconnectedEvent. Returns
+/// `(connected, sta_mac)`.
+pub fn decode_ap_sta_event(frame: &Frame) -> Option<(bool, [u8; 6])> {
+    if frame.rtype != SerialType::WifiMgmt {
+        return None;
+    }
+    let notification = WifiMgmtNotification::decode(frame.payload.as_slice()).ok()?;
+    let event = notification.event?;
+    match event.event_data {
+        Some(wifi_event::EventData::ApStaConnectedEvent(e)) => {
+            let mac: [u8; 6] = e.sta_mac_address.as_slice().try_into().ok()?;
+            Some((true, mac))
+        }
+        Some(wifi_event::EventData::ApStaDisconnectedEvent(e)) => {
+            let mac: [u8; 6] = e.sta_mac_address.as_slice().try_into().ok()?;
+            Some((false, mac))
+        }
+        _ => None,
+    }
+}
+
 /// Decodes a device->host frame as a WifiMgmtResponse and returns its
 /// generic status payload (CONNECT/SCAN/DISCONNECT responses).
 pub fn decode_wifi_status_response(frame: &Frame) -> Result<WifiStatusResponse, String> {
@@ -1108,6 +1192,10 @@ pub fn format_scan_results(status: i32, results: &[wifi_mgmt::WifiScanResult]) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wifi_mgmt::{
+        ApDisableResultEvent, ApEnableResultEvent, ApStaConnectedEvent, ApStaDisconnectedEvent,
+        ScanDoneEvent, WifiEvent,
+    };
 
     #[test]
     fn host_frame_has_device_bit_layout() {
@@ -1223,6 +1311,104 @@ mod tests {
             }
             other => panic!("unexpected payload: {other:?}"),
         }
+    }
+
+    fn ap_notification_frame(event_data: wifi_event::EventData) -> Frame {
+        let notification = WifiMgmtNotification {
+            event: Some(WifiEvent {
+                iface_index: 0,
+                event_data: Some(event_data),
+            }),
+        };
+        let mut out = Vec::new();
+        notification.encode(&mut out).unwrap();
+        Frame {
+            rtype: SerialType::WifiMgmt,
+            no_ack: true,
+            host: true,
+            error: ErrorType::NoError,
+            seq: 0,
+            payload: out,
+        }
+    }
+
+    #[test]
+    fn ap_enable_request_payload_encodes_params() {
+        let payload =
+            ap_enable_request_payload(1, "ap-ssid", 6, 1, WifiSecurityType::Psk, Some("ap-psk"));
+        let request = WifiMgmtRequest::decode(&payload[..]).expect("request should decode");
+        assert_eq!(request.request_id, RequestType::ApEnable as i32);
+        match request.payload {
+            Some(wifi_mgmt_request::Payload::ApEnableReq(ap_req)) => {
+                assert_eq!(ap_req.iface_index, 1);
+                let params = ap_req.params.expect("params should be set");
+                assert_eq!(params.ssid, b"ap-ssid");
+                assert_eq!(params.channel, 6);
+                assert_eq!(params.band, 1);
+                assert_eq!(params.security_type, WifiSecurityType::Psk as i32);
+                assert_eq!(params.psk, b"ap-psk");
+                assert!(!params.hidden_ssid);
+                assert_eq!(params.beacon_interval_tu, 0);
+                assert_eq!(params.dtim_period, 0);
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ap_disable_request_payload_encodes_iface_index() {
+        let payload = ap_disable_request_payload(2);
+        let request = WifiMgmtRequest::decode(&payload[..]).expect("request should decode");
+        assert_eq!(request.request_id, RequestType::ApDisable as i32);
+        match request.payload {
+            Some(wifi_mgmt_request::Payload::ApDisableReq(ap_req)) => {
+                assert_eq!(ap_req.iface_index, 2);
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_ap_result_notification_parses_enable_and_disable() {
+        let enable = ap_notification_frame(wifi_event::EventData::ApEnableResultEvent(
+            ApEnableResultEvent { status: 0 },
+        ));
+        assert_eq!(decode_ap_result_notification(&enable), Some((true, 0)));
+
+        let disable = ap_notification_frame(wifi_event::EventData::ApDisableResultEvent(
+            ApDisableResultEvent { status: -1 },
+        ));
+        assert_eq!(decode_ap_result_notification(&disable), Some((false, -1)));
+    }
+
+    #[test]
+    fn decode_ap_result_notification_ignores_other_events() {
+        let scan_done =
+            ap_notification_frame(wifi_event::EventData::ScanDoneEvent(ScanDoneEvent {
+                status: 0,
+                all_results: vec![],
+            }));
+        assert_eq!(decode_ap_result_notification(&scan_done), None);
+        assert_eq!(decode_ap_sta_event(&scan_done), None);
+    }
+
+    #[test]
+    fn decode_ap_sta_event_parses_connected_and_disconnected() {
+        let mac = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06];
+        let connected = ap_notification_frame(wifi_event::EventData::ApStaConnectedEvent(
+            ApStaConnectedEvent {
+                sta_mac_address: mac.to_vec(),
+            },
+        ));
+        assert_eq!(decode_ap_sta_event(&connected), Some((true, mac)));
+        assert_eq!(decode_ap_result_notification(&connected), None);
+
+        let disconnected = ap_notification_frame(wifi_event::EventData::ApStaDisconnectedEvent(
+            ApStaDisconnectedEvent {
+                sta_mac_address: mac.to_vec(),
+            },
+        ));
+        assert_eq!(decode_ap_sta_event(&disconnected), Some((false, mac)));
     }
 
     #[test]

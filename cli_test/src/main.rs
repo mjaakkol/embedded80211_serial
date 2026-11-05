@@ -7,8 +7,9 @@ use cli_test::protocol::wifi_mgmt::WifiSecurityType;
 use cli_test::protocol::{
     Frame, HCI_OP_READ_BD_ADDR, HCI_OP_READ_LOCAL_SUPPORTED_COMMANDS,
     HCI_OP_READ_LOCAL_SUPPORTED_FEATURES, HCI_OP_READ_LOCAL_VERSION, HCI_OP_RESET,
-    HciCommandComplete, SerialType, Session, connect_request_payload,
-    decode_scan_done_notification, decode_wifi_mgmt_response, disconnect_request_payload,
+    HciCommandComplete, SerialType, Session, ap_disable_request_payload, ap_enable_request_payload,
+    connect_request_payload, decode_ap_result_notification, decode_scan_done_notification,
+    decode_wifi_mgmt_response, decode_wifi_status_response, disconnect_request_payload,
     format_hci_command_complete, format_iface_status_response, format_interfaces_response,
     format_ps_response, format_reg_domain_response, format_scan_results, format_status_response,
     format_version_response, get_ps_request_payload, get_reg_domain_request_payload,
@@ -99,6 +100,11 @@ enum Commands {
         #[arg(short = 'i', long, default_value_t = 0)]
         iface_index: u32,
     },
+    /// Wi-Fi access point management (NET_REQUEST_WIFI_AP_ENABLE/DISABLE)
+    Ap {
+        #[command(subcommand)]
+        command: ApCmd,
+    },
     /// Bluetooth HCI test commands (raw HCI over the common link protocol)
     Hci {
         #[command(subcommand)]
@@ -186,6 +192,87 @@ enum HciCmd {
     },
 }
 
+#[derive(Subcommand)]
+enum ApCmd {
+    /// Start the Wi-Fi access point (AP mode)
+    Enable {
+        /// Wi-Fi interface index
+        #[arg(short = 'i', long, default_value_t = 0)]
+        iface_index: u32,
+        /// SSID of the access point (1..=32 characters)
+        #[arg(long)]
+        ssid: String,
+        /// Channel number (0 = driver's choice)
+        #[arg(short = 'c', long, default_value_t = 0)]
+        channel: u32,
+        /// Frequency band
+        #[arg(short = 'b', long, value_enum, default_value_t = ApBandArg::Any)]
+        band: ApBandArg,
+        /// Security mode
+        #[arg(short = 's', long, value_enum, default_value_t = ApSecurityArg::None)]
+        security: ApSecurityArg,
+        /// Pre-shared key (required for PSK/SAE)
+        #[arg(long)]
+        psk: Option<String>,
+    },
+    /// Stop the Wi-Fi access point (tear down AP mode)
+    Disable {
+        /// Wi-Fi interface index
+        #[arg(short = 'i', long, default_value_t = 0)]
+        iface_index: u32,
+    },
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ApBandArg {
+    /// Any band supported by the driver
+    #[value(name = "any")]
+    Any,
+    /// 2.4 GHz band
+    #[value(name = "2g4")]
+    Band2g4,
+    /// 5 GHz band
+    #[value(name = "5g")]
+    Band5g,
+    /// 6 GHz band
+    #[value(name = "6g")]
+    Band6g,
+}
+
+impl ApBandArg {
+    fn to_proto(self) -> i32 {
+        match self {
+            ApBandArg::Any => 0,
+            ApBandArg::Band2g4 => 1,
+            ApBandArg::Band5g => 2,
+            ApBandArg::Band6g => 3,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ApSecurityArg {
+    /// Open (no authentication)
+    None,
+    /// WEP
+    Wep,
+    /// WPA/WPA2 PSK
+    Psk,
+    /// WPA3 SAE
+    Sae,
+}
+
+impl ApSecurityArg {
+    fn to_proto(self) -> WifiSecurityType {
+        match self {
+            ApSecurityArg::None => WifiSecurityType::None,
+            ApSecurityArg::Wep => WifiSecurityType::Wep,
+            ApSecurityArg::Psk => WifiSecurityType::Psk,
+            ApSecurityArg::Sae => WifiSecurityType::Sae,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum InterfaceTypeArg {
     All,
@@ -246,6 +333,12 @@ fn is_wifi_mgmt_response(frame: &Frame) -> bool {
 
 fn is_scan_done_notification(frame: &Frame) -> bool {
     decode_scan_done_notification(frame).is_some()
+}
+
+/// Matches AP result notification frames for the given direction
+/// (`is_enable` selects ApEnableResultEvent vs ApDisableResultEvent).
+fn is_ap_result_notification(is_enable: bool) -> impl Fn(&Frame) -> bool {
+    move |frame: &Frame| decode_ap_result_notification(frame).is_some_and(|(en, _)| en == is_enable)
 }
 
 /// Matches HCI frames carrying a Command Complete event for `opcode`.
@@ -543,6 +636,114 @@ fn main() {
             };
             println!("{}", format_iface_status_response(&frame));
         }
+        Commands::Ap { command: cmd } => match cmd {
+            ApCmd::Enable {
+                iface_index,
+                ssid,
+                channel,
+                band,
+                security,
+                psk,
+            } => {
+                if ssid.is_empty() || ssid.len() > 32 {
+                    die(&"--ssid must be 1..=32 characters");
+                }
+                if matches!(security, ApSecurityArg::Psk | ApSecurityArg::Sae) && psk.is_none() {
+                    die(&"--psk is required for PSK/SAE AP security");
+                }
+                let payload = ap_enable_request_payload(
+                    iface_index,
+                    &ssid,
+                    channel,
+                    band.to_proto(),
+                    security.to_proto(),
+                    psk.as_deref(),
+                );
+                let frame = match session.request(
+                    SerialType::WifiMgmt,
+                    &payload,
+                    deadline,
+                    &is_wifi_mgmt_response,
+                ) {
+                    Ok(frame) => frame,
+                    Err(e) => die(&e),
+                };
+                let status = match decode_wifi_status_response(&frame) {
+                    Ok(status) => status,
+                    Err(message) => die(&message),
+                };
+                match format_status_response(&frame) {
+                    Ok(message) => println!("{message}"),
+                    Err(message) => die(&message),
+                }
+                if !status.success {
+                    eprintln!("AP enable request rejected by device; no result event expected.");
+                    return;
+                }
+                eprintln!(
+                    "Waiting for AP enable result (up to {} s)...",
+                    RESPONSE_TIMEOUT.as_secs()
+                );
+                let done = match session.wait_for(
+                    Instant::now() + RESPONSE_TIMEOUT,
+                    &is_ap_result_notification(true),
+                ) {
+                    Ok(frame) => frame,
+                    Err(e) => die(&e),
+                };
+                let ap_status = match decode_ap_result_notification(&done) {
+                    Some((true, s)) => s,
+                    _ => die(&"malformed AP enable result notification"),
+                };
+                println!(
+                    "AP enable result: status {ap_status}{}",
+                    if ap_status == 0 { " (success)" } else { "" }
+                );
+            }
+            ApCmd::Disable { iface_index } => {
+                let payload = ap_disable_request_payload(iface_index);
+                let frame = match session.request(
+                    SerialType::WifiMgmt,
+                    &payload,
+                    deadline,
+                    &is_wifi_mgmt_response,
+                ) {
+                    Ok(frame) => frame,
+                    Err(e) => die(&e),
+                };
+                let status = match decode_wifi_status_response(&frame) {
+                    Ok(status) => status,
+                    Err(message) => die(&message),
+                };
+                match format_status_response(&frame) {
+                    Ok(message) => println!("{message}"),
+                    Err(message) => die(&message),
+                }
+                if !status.success {
+                    eprintln!("AP disable request rejected by device; no result event expected.");
+                    return;
+                }
+                eprintln!(
+                    "Waiting for AP disable result (up to {} s)...",
+                    RESPONSE_TIMEOUT.as_secs()
+                );
+                let done = match session.wait_for(
+                    Instant::now() + RESPONSE_TIMEOUT,
+                    &is_ap_result_notification(false),
+                ) {
+                    Ok(frame) => frame,
+                    Err(e) => die(&e),
+                };
+                let ap_status = match decode_ap_result_notification(&done) {
+                    Some((false, s)) => s,
+                    _ => die(&"malformed AP disable result notification"),
+                };
+                println!(
+                    "AP disable result: status {ap_status}{}",
+                    if ap_status == 0 { " (success)" } else { "" }
+                );
+            }
+        },
         Commands::Hci { command: cmd } => match cmd {
             HciCmd::Reset => {
                 let cc = hci_request(&mut session, deadline, HCI_OP_RESET, &[]);

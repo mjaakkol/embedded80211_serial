@@ -11,6 +11,7 @@ It is intended for quick manual validation of host-to-device requests such as Wi
 - Query network interfaces from the device
 - Send Wi-Fi connect requests
 - Send Wi-Fi disconnect requests
+- Start/stop the Wi-Fi access point (AP mode) and read its result status
 - Send Bluetooth Low Energy HCI commands to the on-board controller
 
 ## Build
@@ -142,6 +143,32 @@ Each subcommand waits for the matching Command Complete event and prints the
 decoded result. `raw` prints the raw parameter bytes for any command. The
 controller has no public Bluetooth address programmed, so `addr` reports
 `00:00:00:00:00:00` until a random address is set by the host.
+
+### 8. Manage the Wi-Fi access point (AP mode)
+
+```bash
+# Start the AP (open network, driver-chosen channel)
+cargo run -- --port /dev/ttyACM0 ap enable --ssid TestAp
+
+# Start the AP with WPA2-PSK on a 2.4 GHz channel
+cargo run -- --port /dev/ttyACM0 ap enable --ssid TestAp --security psk --psk TestApPass1 --band 2g4 --channel 6
+
+# Tear the AP down
+cargo run -- --port /dev/ttyACM0 ap disable
+```
+
+Supported security values: `none`, `wep`, `psk`, `sae`.
+Supported band values: `any` (default), `2g4`, `5g`, `6g`.
+`--channel` is 0 for the driver's choice, otherwise a concrete channel
+number.
+
+Both subcommands print the request status response. When the device accepts
+the request they then wait for the matching `ApEnableResultEvent` /
+`ApDisableResultEvent` notification and print the AP status (0 = success,
+negative errno-style code on failure). Use `iface-status` to verify the
+interface mode (`mode=AP` while the AP is up). Note: the nrf70 driver in the
+current NCS release does not implement AP mode, so the device answers
+`error_code=-ENOTSUP` until a driver with AP support is used.
 
 ## Integration Test
 

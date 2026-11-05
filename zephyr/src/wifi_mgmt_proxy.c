@@ -386,6 +386,98 @@ static void handle_wifi_scan_result(const struct wifi_scan_result *entry)
     scan_result_count++;
 }
 
+/* --- Wi-Fi AP status reporting ----------------------------------------------
+ *
+ * AP mode is started and stopped by the host with NET_REQUEST_WIFI_AP_ENABLE
+ * and NET_REQUEST_WIFI_AP_DISABLE. The outcomes arrive as
+ * NET_EVENT_WIFI_AP_ENABLE_RESULT / NET_EVENT_WIFI_AP_DISABLE_RESULT events
+ * and station activity as NET_EVENT_WIFI_AP_STA_CONNECTED /
+ * NET_EVENT_WIFI_AP_STA_DISCONNECTED. Each is forwarded to the host as a
+ * WifiMgmtNotification frame (ApEnableResultEvent, ApDisableResultEvent,
+ * ApStaConnectedEvent, ApStaDisconnectedEvent).
+ *
+ * net_mgmt events are dispatched serialized on the network thread, so the
+ * shared notification buffer needs no locking.
+ */
+
+/* Zephyr's wifi_ap_status values are mirrored 1:1 by the proto WifiApStatus
+ * enum, but the event status field is errno-style (0 for success, negative
+ * error code otherwise), so failures are negated: -1 = FAIL,
+ * -2 = CHANNEL_NOT_SUPPORTED, and so on. */
+static int32_t ap_status_to_proto(int status)
+{
+	return (status == WIFI_STATUS_AP_SUCCESS) ? 0 : -(int32_t)status;
+}
+
+static void send_ap_result_notification(struct net_if *iface, int which_tag, int32_t status)
+{
+	embedded_wifi_mgmt_WifiMgmtNotification notification =
+		embedded_wifi_mgmt_WifiMgmtNotification_init_zero;
+
+	notification.has_event = true;
+	notification.event.iface_index = (iface != NULL) ? net_if_get_by_iface(iface) : 0;
+	notification.event.which_event_data = which_tag;
+	/* The enable and disable result events share the same layout: a
+	 * single int32 status field at the start of the event union. */
+	notification.event.event_data.ap_enable_result_event.status = status;
+
+	pb_ostream_t ostream = pb_ostream_from_buffer(wifi_mgmt_notify_buffer,
+	                                              sizeof(wifi_mgmt_notify_buffer));
+
+	if (pb_encode(&ostream, embedded_wifi_mgmt_WifiMgmtNotification_fields,
+	                &notification)) {
+		int tx_ret = serial_mux_send(SERIAL_TYPE_WIFI_MGMT, wifi_mgmt_notify_buffer,
+		                                 ostream.bytes_written);
+		if (tx_ret < 0) {
+			LOG_ERR("Failed to send AP result notification: %d", tx_ret);
+		}
+	} else {
+		LOG_ERR("Failed to encode AP result notification: %s", ostream.errmsg);
+	}
+}
+
+static void send_ap_sta_notification(struct net_if *iface, bool connected,
+                                     const struct wifi_ap_sta_info *sta_info)
+{
+	embedded_wifi_mgmt_WifiMgmtNotification notification =
+		embedded_wifi_mgmt_WifiMgmtNotification_init_zero;
+
+	if (sta_info == NULL) {
+		LOG_ERR("AP STA event without station info");
+		return;
+	}
+
+	notification.has_event = true;
+	notification.event.iface_index = (iface != NULL) ? net_if_get_by_iface(iface) : 0;
+	/* sta_mac_address is a fixed 6-byte array (nanopb fixed_length), no
+	 * size field to set. */
+	if (connected) {
+		notification.event.which_event_data =
+			embedded_wifi_mgmt_WifiEvent_ap_sta_connected_event_tag;
+		memcpy(notification.event.event_data.ap_sta_connected_event.sta_mac_address,
+		       sta_info->mac, WIFI_MAC_ADDR_LEN);
+	} else {
+		notification.event.which_event_data =
+			embedded_wifi_mgmt_WifiEvent_ap_sta_disconnected_event_tag;
+		memcpy(notification.event.event_data.ap_sta_disconnected_event.sta_mac_address,
+		       sta_info->mac, WIFI_MAC_ADDR_LEN);
+	}
+
+	pb_ostream_t ostream = pb_ostream_from_buffer(wifi_mgmt_notify_buffer,
+	                                              sizeof(wifi_mgmt_notify_buffer));
+
+	if (pb_encode(&ostream, embedded_wifi_mgmt_WifiMgmtNotification_fields,
+	                &notification)) {
+		int tx_ret = serial_mux_send(SERIAL_TYPE_WIFI_MGMT, wifi_mgmt_notify_buffer,
+		                                 ostream.bytes_written);
+		if (tx_ret < 0) {
+			LOG_ERR("Failed to send AP STA notification: %d", tx_ret);
+		}
+	} else {
+		LOG_ERR("Failed to encode AP STA notification: %s", ostream.errmsg);
+	}
+}
+
 static void wifi_mgmt_net_event_handler(struct net_mgmt_event_callback *cb,
 					uint64_t mgmt_event,
 					struct net_if *iface)
@@ -402,6 +494,22 @@ static void wifi_mgmt_net_event_handler(struct net_mgmt_event_callback *cb,
         send_scan_done_notification(iface, status);
         break;
     }
+    case NET_EVENT_WIFI_AP_ENABLE_RESULT:
+        send_ap_result_notification(iface,
+                                    embedded_wifi_mgmt_WifiEvent_ap_enable_result_event_tag,
+                                    ap_status_to_proto(*(const enum wifi_ap_status *)cb->info));
+        break;
+    case NET_EVENT_WIFI_AP_DISABLE_RESULT:
+        send_ap_result_notification(iface,
+                                    embedded_wifi_mgmt_WifiEvent_ap_disable_result_event_tag,
+                                    ap_status_to_proto(*(const enum wifi_ap_status *)cb->info));
+        break;
+    case NET_EVENT_WIFI_AP_STA_CONNECTED:
+        send_ap_sta_notification(iface, true, (const struct wifi_ap_sta_info *)cb->info);
+        break;
+    case NET_EVENT_WIFI_AP_STA_DISCONNECTED:
+        send_ap_sta_notification(iface, false, (const struct wifi_ap_sta_info *)cb->info);
+        break;
     default:
         break;
     }
@@ -412,7 +520,11 @@ static struct net_mgmt_event_callback wifi_mgmt_event_cb;
 static int wifi_mgmt_events_init(void)
 {
     net_mgmt_init_event_callback(&wifi_mgmt_event_cb, wifi_mgmt_net_event_handler,
-                                 NET_EVENT_WIFI_SCAN_RESULT | NET_EVENT_WIFI_SCAN_DONE);
+                                 NET_EVENT_WIFI_SCAN_RESULT | NET_EVENT_WIFI_SCAN_DONE |
+                                 NET_EVENT_WIFI_AP_ENABLE_RESULT |
+                                 NET_EVENT_WIFI_AP_DISABLE_RESULT |
+                                 NET_EVENT_WIFI_AP_STA_CONNECTED |
+                                 NET_EVENT_WIFI_AP_STA_DISCONNECTED);
     net_mgmt_add_event_callback(&wifi_mgmt_event_cb);
     return 0;
 }
@@ -443,11 +555,6 @@ struct ScanRequestContext {
     // Add other fields if scan params have more callback-decoded parts
 };
 
-struct ApEnableRequestContext {
-    uint8_t psk[MAX_AP_PSK_LEN + 1]; // +1 for null terminator if used as string
-    size_t psk_len;
-    // Add other fields if AP enable params have more callback-decoded parts
-};
 
 
 // --- Nanopb Decoder Callback Functions ---
@@ -474,24 +581,12 @@ static bool decode_directed_scan_ssid_cb(pb_istream_t *stream, const pb_field_t 
     return true;
 }
 
-static bool decode_ap_psk_cb(pb_istream_t *stream, const pb_field_t *field, void **arg) {
-    struct ApEnableRequestContext *ctx = (struct ApEnableRequestContext*)*arg;
-    if (stream->bytes_left > MAX_AP_PSK_LEN) {
-        LOG_ERR("AP PSK too long (max %d, got %zu)", MAX_AP_PSK_LEN, stream->bytes_left);
-        return false;
-    }
-    ctx->psk_len = stream->bytes_left;
-    if (!pb_read(stream, ctx->psk, ctx->psk_len)) return false;
-    ctx->psk[ctx->psk_len] = '\0';
-    return true;
-}
-
 
 // --- Forward declarations of request handlers ---
 static void handle_connect_request(const embedded_wifi_mgmt_WifiConnectRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
 static void handle_disconnect_request(const embedded_wifi_mgmt_WifiDisconnectRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
 static void handle_scan_request(const embedded_wifi_mgmt_WifiScanRequest *req, struct ScanRequestContext *scan_ctx, embedded_wifi_mgmt_WifiStatusResponse *resp);
-static void handle_ap_enable_request(const embedded_wifi_mgmt_WifiApEnableRequest *req, struct ApEnableRequestContext *ap_ctx, embedded_wifi_mgmt_WifiStatusResponse *resp);
+static void handle_ap_enable_request(const embedded_wifi_mgmt_WifiApEnableRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
 static void handle_ap_disable_request(const embedded_wifi_mgmt_WifiApDisableRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
 static void handle_get_version_request(const embedded_wifi_mgmt_GetWifiVersionRequest *req, embedded_wifi_mgmt_GetWifiVersionResponse *resp);
 static void handle_set_ps_config_request(const embedded_wifi_mgmt_SetPowerSaveConfigRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
@@ -518,7 +613,6 @@ static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint
     pb_istream_t stream = pb_istream_from_buffer(buffer, length);
 
     struct ScanRequestContext scan_ctx = {0};
-    struct ApEnableRequestContext ap_ctx = {0};
 
     // --- Setup decode callbacks if specific fields in the request need them ---
     // This depends on your .options file. If a field like `scan_req.params.directed_scan_ssids`
@@ -528,9 +622,6 @@ static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint
     //    request.payload.scan_req.params.directed_scan_ssids.funcs.decode = &decode_directed_scan_ssid_cb;
     //    request.payload.scan_req.params.directed_scan_ssids.arg = &scan_ctx;
     // }
-    // Similar for ap_enable_req.params.psk if it's bytes with callback
-    // request.payload.ap_enable_req.params.psk.funcs.decode = &decode_ap_psk_cb;
-    // request.payload.ap_enable_req.params.psk.arg = &ap_ctx;
     // Note: Callbacks are often set on the top-level message for fields that are *always* present,
     // or on submessage fields if the .options file is configured for that.
     // For simplicity, we assume callbacks are set if needed by the .options file and nanopb handles it,
@@ -585,9 +676,8 @@ static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint
             break;
         case embedded_wifi_mgmt_RequestType_REQUEST_TYPE_AP_ENABLE:
             if (request.which_payload == embedded_wifi_mgmt_WifiMgmtRequest_ap_enable_req_tag) {
-                // If ap_enable_req.params.psk uses a callback, ap_ctx is populated
                 response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_status_resp_tag;
-                handle_ap_enable_request(&request.payload.ap_enable_req, &ap_ctx, &response.payload.status_resp);
+                handle_ap_enable_request(&request.payload.ap_enable_req, &response.payload.status_resp);
             } else { payload_type_mismatch = true; }
             break;
         case embedded_wifi_mgmt_RequestType_REQUEST_TYPE_AP_DISABLE:
@@ -918,8 +1008,15 @@ static void handle_scan_request(const embedded_wifi_mgmt_WifiScanRequest *req,
 }
 
 
+/* AP enable parameters must outlive the net_mgmt() call: the request is
+ * handled asynchronously on the network thread, so ssid/psk pointers into
+ * the stack-decoded protobuf would dangle. Only one AP enable can be in
+ * flight at a time, so a single static copy is enough. */
+static struct wifi_connect_req_params ap_enable_params;
+static uint8_t ap_enable_ssid[WIFI_SSID_MAX_LEN];
+static uint8_t ap_enable_psk[MAX_AP_PSK_LEN];
+
 static void handle_ap_enable_request(const embedded_wifi_mgmt_WifiApEnableRequest *req,
-                                     struct ApEnableRequestContext *ap_ctx,
                                      embedded_wifi_mgmt_WifiStatusResponse *resp) {
     resp->success = false;
     resp->error_code = -EIO;
@@ -941,7 +1038,6 @@ static void handle_ap_enable_request(const embedded_wifi_mgmt_WifiApEnableReques
         return;
     }
     const embedded_wifi_mgmt_WifiApEnableParams *proto_params = &req->params;
-    struct wifi_connect_req_params params = {0}; // Zephyr's AP enable often reuses connect_req_params
 
     if (proto_params->ssid.size == 0 || proto_params->ssid.size > WIFI_SSID_MAX_LEN) {
         LOG_ERR("Invalid AP SSID length: %zu", proto_params->ssid.size);
@@ -949,52 +1045,71 @@ static void handle_ap_enable_request(const embedded_wifi_mgmt_WifiApEnableReques
         set_status_error_msg_bytes(resp->error_message, "Invalid AP SSID length");
         return;
     }
-    params.ssid = (uint8_t*)proto_params->ssid.bytes;
-    params.ssid_length = proto_params->ssid.size;
 
-    params.band = proto_to_zephyr_band(proto_params->band);
-    params.channel = (uint8_t)proto_params->channel;
-    if (params.channel == embedded_wifi_mgmt_WifiChannelConst_WIFI_CHANNEL_ANY) {
-        params.channel = WIFI_CHANNEL_ANY; // Or a default AP channel e.g. 1, 6, 11 for 2.4GHz
+    /* Zephyr's wifi_connect_req_params in this release has no mapping for a
+     * hidden SSID, beacon interval, or DTIM period; the driver applies its
+     * defaults. Warn instead of silently dropping host-set values. */
+    if (proto_params->hidden_ssid || proto_params->beacon_interval_tu != 0 ||
+        proto_params->dtim_period != 0) {
+        LOG_WRN("AP hidden_ssid/beacon_interval_tu/dtim_period not supported by the "
+                "driver API; driver defaults will be used");
     }
 
-    params.security = proto_to_zephyr_security(proto_params->security_type);
-    if (params.security == WIFI_SECURITY_TYPE_PSK) {
-        // Use PSK from ap_ctx if callback was used, or directly from proto_params if not
-        if (ap_ctx->psk_len > 0) { // Assuming callback populated ap_ctx
-             if (ap_ctx->psk_len > MAX_AP_PSK_LEN) {
-                LOG_ERR("AP PSK (from ctx) too long: %zu", ap_ctx->psk_len);
-                resp->error_code = -EINVAL;
-                set_status_error_msg_bytes(resp->error_message, "AP PSK too long");
-                return;
-            }
-            params.psk = ap_ctx->psk;
-            params.psk_length = ap_ctx->psk_len;
-        } else if (proto_params->psk.size > 0) { // Fallback to direct PSK from proto
-            if (proto_params->psk.size > MAX_AP_PSK_LEN) {
-                LOG_ERR("AP PSK (from proto) too long: %zu", proto_params->psk.size);
-                resp->error_code = -EINVAL;
-                set_status_error_msg_bytes(resp->error_message, "AP PSK too long");
-                return;
-            }
-            params.psk = (uint8_t*)proto_params->psk.bytes;
-            params.psk_length = proto_params->psk.size;
-        } else {
-            LOG_ERR("AP PSK missing for PSK security");
-            resp->error_code = -EINVAL;
-            set_status_error_msg_bytes(resp->error_message, "AP PSK missing");
-            return;
-        }
-    } else if (params.security != WIFI_SECURITY_TYPE_NONE) { // TODO: Requiring security
-        LOG_WRN("Unsupported/unhandled AP security type for PSK: %d", params.security);
-        // Allow to proceed if driver handles it, or return error:
-        // resp->error_code = -ENOTSUP;
-        // set_status_error_msg_bytes(resp->error_message, "Unsupported AP security type");
-        // return;
+    enum wifi_security_type security =
+        proto_to_zephyr_security(proto_params->security_type);
+    if (security != WIFI_SECURITY_TYPE_NONE &&
+        security != WIFI_SECURITY_TYPE_PSK &&
+        security != WIFI_SECURITY_TYPE_SAE &&
+        security != WIFI_SECURITY_TYPE_WEP) {
+        LOG_ERR("Unsupported AP security type: %d", security);
+        resp->error_code = -ENOTSUP;
+        set_status_error_msg_bytes(resp->error_message, "AP security type not supported");
+        return;
     }
-    // params.mfp = (enum wifi_mfp_options)proto_params->mfp; // If MFP is part of AP params in your proto
 
-    int ret = net_mgmt(NET_REQUEST_WIFI_AP_ENABLE, iface, &params, sizeof(params));
+    if (proto_params->psk.size > MAX_AP_PSK_LEN) {
+        LOG_ERR("AP PSK too long (%zu > %d)", proto_params->psk.size, MAX_AP_PSK_LEN);
+        resp->error_code = -EINVAL;
+        set_status_error_msg_bytes(resp->error_message, "AP PSK too long");
+        return;
+    }
+    if ((security == WIFI_SECURITY_TYPE_PSK || security == WIFI_SECURITY_TYPE_SAE) &&
+        proto_params->psk.size == 0) {
+        LOG_ERR("AP PSK missing for PSK/SAE security");
+        resp->error_code = -EINVAL;
+        set_status_error_msg_bytes(resp->error_message, "AP PSK missing");
+        return;
+    }
+
+    if (proto_params->channel != embedded_wifi_mgmt_WifiChannelConst_WIFI_CHANNEL_ANY &&
+        proto_params->channel > 233) {
+        LOG_ERR("Invalid AP channel: %u", proto_params->channel);
+        resp->error_code = -EINVAL;
+        set_status_error_msg_bytes(resp->error_message, "Invalid AP channel");
+        return;
+    }
+
+    memcpy(ap_enable_ssid, proto_params->ssid.bytes, proto_params->ssid.size);
+    if (proto_params->psk.size > 0) {
+        memcpy(ap_enable_psk, proto_params->psk.bytes, proto_params->psk.size);
+    }
+
+    ap_enable_params = (struct wifi_connect_req_params){0};
+    ap_enable_params.ssid = ap_enable_ssid;
+    ap_enable_params.ssid_length = proto_params->ssid.size;
+    ap_enable_params.band = proto_to_zephyr_band(proto_params->band);
+    ap_enable_params.channel =
+        (proto_params->channel == embedded_wifi_mgmt_WifiChannelConst_WIFI_CHANNEL_ANY)
+            ? WIFI_CHANNEL_ANY
+            : (uint8_t)proto_params->channel;
+    ap_enable_params.security = security;
+    if (proto_params->psk.size > 0) {
+        ap_enable_params.psk = ap_enable_psk;
+        ap_enable_params.psk_length = proto_params->psk.size;
+    }
+
+    int ret = net_mgmt(NET_REQUEST_WIFI_AP_ENABLE, iface, &ap_enable_params,
+                       sizeof(ap_enable_params));
     if (ret) {
         LOG_ERR("NET_REQUEST_WIFI_AP_ENABLE failed: %d", ret);
         resp->error_code = ret;
