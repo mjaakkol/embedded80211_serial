@@ -215,6 +215,47 @@ message WifiDisconnectRequest {
   uint32 iface_index = 1;
 }
 
+// Inject a raw 802.11 frame on the air interface (data connectivity testing).
+// The frame is a complete IEEE 802.11 MAC frame (frame control through
+// payload); the driver appends the FCS. This path bypasses the TCP/IP stack
+// entirely.
+message SendRawFrameRequest {
+  uint32 iface_index = 1;
+  bytes frame = 2; // Raw 802.11 frame, 24..2346 bytes (FCS not included).
+}
+
+// Enable raw 802.11 RX capture (monitor-mode sniffer) so the device can
+// capture the frames it transmits (data connectivity loopback testing).
+// The radio is switched to monitor mode on the given channel. Idempotent.
+message EnableRawRxRequest {
+  uint32 iface_index = 1;
+  uint32 channel = 2; // 2.4 GHz channel to listen on (0 = driver default).
+}
+
+// Diagnostic response for EnableRawRxRequest, reporting the state of the
+// raw RX capture path (socket, thread, frame count).
+message EnableRawRxResponse {
+  int32 status = 1;        // 0 = success, negative = error code.
+  int32 socket_fd = 2;     // AF_PACKET socket fd (-1 = not created).
+  bool thread_running = 3; // Whether the RX thread is active.
+  uint32 frames_received = 4; // Cumulative frames received since enable.
+  uint32 current_mode = 5;    // Wi-Fi mode read-back after set (0=not read).
+  int32 iface_state = 6;     // wifi_iface_state from NET_REQUEST_WIFI_IFACE_STATUS.
+  int32 start_zep_step = 7;  // Which step in nrf_wifi_if_start_zep failed (0=ok, 1..10=step).
+  int32 tx_socket_fd = 8;    // TX AF_PACKET socket fd (-1 = not created).
+  uint32 tx_frames_sent = 9; // Cumulative TX frames sent.
+  int32 tx_injection_ret = 10; // Last return from net_eth_txinjection_mode().
+  int32 tx_setup_ret = 11;     // TX socket setup step (0=ok, 100+=socket-fail, 200+=bind-fail).
+  int32 tx_last_ret = 12;      // Last return from wifi_data_raw_frame_tx().
+  uint32 tx_last_len = 13;     // Last frame length passed to wifi_data_raw_frame_tx().
+  int32 tx_last_wifi = 14;     // net_if_is_wifi() result for last TX call.
+}
+
+// Disable raw 802.11 RX (promiscuous). Idempotent.
+message DisableRawRxRequest {
+  uint32 iface_index = 1;
+}
+
 // For specifying a directed scan target
 message WifiDirectedScanSsid {
   bytes ssid = 1;
@@ -491,6 +532,14 @@ message ApStaDisconnectedEvent {
     bytes sta_mac_address = 1; // 6 bytes MAC address of the station that disconnected
 }
 
+// Raw 802.11 frame received on the air interface (data connectivity loopback
+// testing). The device transmits a frame and, with raw/promiscuous RX enabled,
+// captures it back. The payload is the raw received bytes (which may include a
+// driver prefix); the host locates the test marker by content.
+message RawFrameRxEvent {
+  bytes frame = 1; // Raw received 802.11 frame bytes.
+}
+
 
 // Wrapper for all asynchronous events/notifications
 message WifiEvent {
@@ -505,6 +554,7 @@ message WifiEvent {
     ApDisableResultEvent ap_disable_result_event = 7;
     ApStaConnectedEvent ap_sta_connected_event = 8;
     ApStaDisconnectedEvent ap_sta_disconnected_event = 9;
+    RawFrameRxEvent raw_frame_rx_event = 10;
     // Add other events like TWT results, etc.
   }
 }
@@ -529,6 +579,9 @@ enum RequestType {
     REQUEST_TYPE_GET_REG_DOMAIN = 10;
     REQUEST_TYPE_GET_IFACE_STATUS = 11;
     REQUEST_TYPE_GET_PROTOCOL_VERSION = 12;
+    REQUEST_TYPE_SEND_RAW_FRAME = 13;
+    REQUEST_TYPE_ENABLE_RAW_RX = 14;
+    REQUEST_TYPE_DISABLE_RAW_RX = 15;
     // Add other request types as needed
 }
 
@@ -548,6 +601,9 @@ message WifiMgmtRequest {
     SetRegulatoryDomainRequest set_reg_domain_req = 10;
     GetRegulatoryDomainRequest get_reg_domain_req = 11;
     GetInterfaceStatusRequest get_iface_status_req = 12;
+    SendRawFrameRequest send_raw_frame_req = 13;
+    EnableRawRxRequest enable_raw_rx_req = 14;
+    DisableRawRxRequest disable_raw_rx_req = 15;
   }
 }
 
@@ -563,6 +619,7 @@ message WifiMgmtResponse {
     GetInterfaceStatusResponse get_iface_status_resp = 6;
     // Version
     ProtocolVersionResponse get_protocol_version_resp = 7;
+    EnableRawRxResponse enable_raw_rx_resp = 8;
   }
 }
 

@@ -37,4 +37,8 @@ embedded_wifi_mgmt.ScanDoneEvent.all_results       max_count:32
 embedded_wifi_mgmt.ApStaConnectedEvent.sta_mac_address max_size:6 fixed_length:true
 embedded_wifi_mgmt.ApStaDisconnectedEvent.sta_mac_address max_size:6 fixed_length:true
 
+embedded_wifi_mgmt.SendRawFrameRequest.frame      max_size:2346
+
+embedded_wifi_mgmt.RawFrameRxEvent.frame      max_size:2400
+
 embedded_wifi_mgmt.RequestInterfacesResponse.net_ifs max_count:4

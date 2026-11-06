@@ -134,7 +134,6 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
     struct serial_config *config = (struct serial_config *)user_data;
     uint8_t b;
 
-    LOG_DBG("UART IRQ callback triggered");
 
     /*
      * CDC ACM (USB) driver semantics differ from a real UART: this callback
@@ -175,8 +174,12 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
             (*((uint8_t *)&config->serial_header.length + 1)) = b;
             config->serial_header.length = sys_be16_to_cpu(config->serial_header.length);
             if (config->serial_header.length == 0) {
-                LOG_ERR("Invalid Serial Length: 0");
-                config->parsing_state = PARSING_STATE_TYPE;
+                if (config->serial_header.type == SERIAL_TYPE_PROTOCOL_INFO) {
+                    config->parsing_state = PARSING_STATE_DATA;
+                } else {
+                    LOG_ERR("Invalid Serial Length: 0");
+                    config->parsing_state = PARSING_STATE_TYPE;
+                }
             } else if (config->serial_header.length > SERIAL_MAX_PAYLOAD_LEN) {
                 LOG_ERR("Payload too long: %u > %u", config->serial_header.length,
                         SERIAL_MAX_PAYLOAD_LEN);
@@ -268,6 +271,15 @@ static void serial_work_handler(struct k_work *work_item_ptr)
     uint8_t *data_buffer;
     enum SerialType frame_type = config->serial_header.type;
     const struct client_callbacks *callbacks = serial_mux_get_callbacks(frame_type);
+
+    /* Length-0 protocol info request: respond immediately, no payload to read. */
+    if (frame_type == SERIAL_TYPE_PROTOCOL_INFO && config->serial_header.length == 0) {
+        handle_protocol_info(config, config->serial_header.sequence_number);
+        config->parsing_state = PARSING_STATE_TYPE;
+        config->bytes_read = 0;
+        config->serial_header.length = 0;
+        return;
+    }
 
     while (config->bytes_read < config->serial_header.length) {
         size_t buffer_size = config->serial_header.length - config->bytes_read;

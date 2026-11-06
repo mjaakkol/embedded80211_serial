@@ -14,8 +14,8 @@ use cli_test::protocol::{
     format_ps_response, format_reg_domain_response, format_scan_results, format_status_response,
     format_version_response, get_ps_request_payload, get_reg_domain_request_payload,
     hci_command_complete, hci_command_packet, iface_status_request_payload,
-    interfaces_request_payload, scan_request_payload, set_ps_request_payload,
-    set_reg_domain_request_payload, version_request_payload,
+    interfaces_request_payload, scan_request_payload, send_raw_frame_request_payload,
+    set_ps_request_payload, set_reg_domain_request_payload, version_request_payload,
 };
 
 /// How long to wait for a normal request/response round trip.
@@ -104,6 +104,15 @@ enum Commands {
     Ap {
         #[command(subcommand)]
         command: ApCmd,
+    },
+    /// Transmit a raw 802.11 frame (data connectivity testing, no TCP/IP)
+    RawTx {
+        #[arg(short = 'i', long, default_value_t = 0)]
+        iface_index: u32,
+
+        /// Binary file containing the raw 802.11 frame; use `-` for stdin.
+        #[arg(short, long, default_value = "-")]
+        file: String,
     },
     /// Bluetooth HCI test commands (raw HCI over the common link protocol)
     Hci {
@@ -367,6 +376,18 @@ fn parse_hex(value: &str) -> Result<Vec<u8>, String> {
         out.push(((hi << 4) | lo) as u8);
     }
     Ok(out)
+}
+
+/// Reads a raw 802.11 frame from `path`, or from stdin when `path` is `-`.
+fn read_raw_frame_file(path: &str) -> Result<Vec<u8>, String> {
+    if path == "-" {
+        let mut buf = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::stdin(), &mut buf)
+            .map_err(|e| format!("failed to read stdin: {e}"))?;
+        Ok(buf)
+    } else {
+        std::fs::read(path).map_err(|e| format!("failed to read {path}: {e}"))
+    }
 }
 
 /// Sends an HCI command and waits for its Command Complete event.
@@ -744,6 +765,32 @@ fn main() {
                 );
             }
         },
+        Commands::RawTx { iface_index, file } => {
+            let frame_bytes = match read_raw_frame_file(&file) {
+                Ok(bytes) => bytes,
+                Err(e) => die(&e),
+            };
+            if frame_bytes.len() < 24 || frame_bytes.len() > 2346 {
+                die(&format!(
+                    "raw frame must be 24..=2346 bytes, got {}",
+                    frame_bytes.len()
+                ));
+            }
+            let payload = send_raw_frame_request_payload(iface_index, &frame_bytes);
+            let frame = match session.request(
+                SerialType::WifiMgmt,
+                &payload,
+                deadline,
+                &is_wifi_mgmt_response,
+            ) {
+                Ok(frame) => frame,
+                Err(e) => die(&e),
+            };
+            match format_status_response(&frame) {
+                Ok(message) => println!("{message}"),
+                Err(message) => die(&message),
+            }
+        }
         Commands::Hci { command: cmd } => match cmd {
             HciCmd::Reset => {
                 let cc = hci_request(&mut session, deadline, HCI_OP_RESET, &[]);

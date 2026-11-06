@@ -34,8 +34,9 @@ use network_interface::{
     NetIfRequest, NetIfResponse, NetIfType, RequestInterfaces, net_if_request, net_if_response,
 };
 use wifi_mgmt::{
-    GetInterfaceStatusRequest, GetPowerSaveConfigRequest, GetRegulatoryDomainRequest,
-    GetWifiVersionRequest, RequestType, SetPowerSaveConfigRequest, SetRegulatoryDomainRequest,
+    DisableRawRxRequest, EnableRawRxRequest, EnableRawRxResponse, GetInterfaceStatusRequest,
+    GetPowerSaveConfigRequest, GetRegulatoryDomainRequest, GetWifiVersionRequest, RequestType,
+    SendRawFrameRequest, SetPowerSaveConfigRequest, SetRegulatoryDomainRequest,
     WifiApDisableRequest, WifiApEnableParams, WifiApEnableRequest, WifiConnectRequest,
     WifiDisconnectRequest, WifiInterfaceState, WifiInterfaceStatus, WifiMfpOptions,
     WifiMgmtNotification, WifiMgmtRequest, WifiMgmtResponse, WifiPowerSaveConfig,
@@ -758,6 +759,89 @@ pub fn ap_disable_request_payload(iface_index: u32) -> Vec<u8> {
     out
 }
 
+/// Builds the encoded protobuf payload of a SEND_RAW_FRAME request.
+///
+/// `frame` is a complete IEEE 802.11 MAC frame (frame control through
+/// payload, FCS not included). The device transmits it on the air interface
+/// without any TCP/IP processing.
+pub fn send_raw_frame_request_payload(iface_index: u32, frame: &[u8]) -> Vec<u8> {
+    let request = WifiMgmtRequest {
+        request_id: RequestType::SendRawFrame as i32,
+        payload: Some(wifi_mgmt_request::Payload::SendRawFrameReq(
+            SendRawFrameRequest {
+                iface_index,
+                frame: frame.to_vec(),
+            },
+        )),
+    };
+    let mut out = Vec::new();
+    request.encode(&mut out).unwrap();
+    out
+}
+
+/// Builds the encoded protobuf payload of an ENABLE_RAW_RX request.
+///
+/// Enables the device's raw 802.11 RX (promiscuous sniffer) so frames it
+/// transmits are captured and reported back to the host as `RawFrameRxEvent`
+/// notifications (data connectivity loopback testing).
+pub fn enable_raw_rx_request_payload(iface_index: u32, channel: u32) -> Vec<u8> {
+    let request = WifiMgmtRequest {
+        request_id: RequestType::EnableRawRx as i32,
+        payload: Some(wifi_mgmt_request::Payload::EnableRawRxReq(
+            EnableRawRxRequest {
+                iface_index,
+                channel,
+            },
+        )),
+    };
+    let mut out = Vec::new();
+    request.encode(&mut out).unwrap();
+    out
+}
+
+/// Builds the encoded protobuf payload of a DISABLE_RAW_RX request.
+///
+/// Disables the device's raw 802.11 RX (promiscuous sniffer).
+pub fn disable_raw_rx_request_payload(iface_index: u32) -> Vec<u8> {
+    let request = WifiMgmtRequest {
+        request_id: RequestType::DisableRawRx as i32,
+        payload: Some(wifi_mgmt_request::Payload::DisableRawRxReq(
+            DisableRawRxRequest { iface_index },
+        )),
+    };
+    let mut out = Vec::new();
+    request.encode(&mut out).unwrap();
+    out
+}
+
+/// Decodes a device->host frame as a WifiMgmtNotification carrying a
+/// RawFrameRxEvent. Returns the received raw 802.11 frame bytes (which may
+/// include a driver prefix before the 802.11 header).
+pub fn decode_raw_frame_rx_event(frame: &Frame) -> Option<Vec<u8>> {
+    if frame.rtype != SerialType::WifiMgmt {
+        return None;
+    }
+    let notification = WifiMgmtNotification::decode(frame.payload.as_slice()).ok()?;
+    let event = notification.event?;
+    match event.event_data {
+        Some(wifi_event::EventData::RawFrameRxEvent(e)) => Some(e.frame),
+        _ => None,
+    }
+}
+
+/// Decodes a device->host frame as a WifiMgmtResponse carrying an
+/// EnableRawRxResponse with diagnostic state.
+pub fn decode_enable_raw_rx_response(frame: &Frame) -> Option<EnableRawRxResponse> {
+    if frame.rtype != SerialType::WifiMgmt {
+        return None;
+    }
+    let response = WifiMgmtResponse::decode(frame.payload.as_slice()).ok()?;
+    match response.payload {
+        Some(wifi_mgmt_response::Payload::EnableRawRxResp(r)) => Some(r),
+        _ => None,
+    }
+}
+
 /// Decodes a device->host frame as a WifiMgmtNotification carrying an
 /// ApEnableResultEvent. Returns `(is_enable, status)`; `status` is 0 on
 /// success and a negative errno-style code on failure.
@@ -1363,6 +1447,21 @@ mod tests {
         match request.payload {
             Some(wifi_mgmt_request::Payload::ApDisableReq(ap_req)) => {
                 assert_eq!(ap_req.iface_index, 2);
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn send_raw_frame_request_payload_encodes_frame() {
+        let frame = vec![0x40, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
+        let payload = send_raw_frame_request_payload(1, &frame);
+        let request = WifiMgmtRequest::decode(&payload[..]).expect("request should decode");
+        assert_eq!(request.request_id, RequestType::SendRawFrame as i32);
+        match request.payload {
+            Some(wifi_mgmt_request::Payload::SendRawFrameReq(raw_req)) => {
+                assert_eq!(raw_req.iface_index, 1);
+                assert_eq!(raw_req.frame, frame);
             }
             other => panic!("unexpected payload: {other:?}"),
         }

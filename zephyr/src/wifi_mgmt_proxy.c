@@ -12,6 +12,7 @@
 #include "wifi.pb.h"
 #include "wifi_mgmt_proxy.h"
 #include "multiplexer.h"
+#include "wifi_data.h"
 
 LOG_MODULE_REGISTER(wifi_mgmt_proxy, LOG_LEVEL_INF);
 
@@ -594,6 +595,9 @@ static void handle_get_ps_config_request(const embedded_wifi_mgmt_GetPowerSaveCo
 static void handle_set_reg_domain_request(const embedded_wifi_mgmt_SetRegulatoryDomainRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
 static void handle_get_reg_domain_request(const embedded_wifi_mgmt_GetRegulatoryDomainRequest *req, embedded_wifi_mgmt_GetRegulatoryDomainResponse *data_resp, embedded_wifi_mgmt_WifiStatusResponse *err_resp);
 static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfaceStatusRequest *req, embedded_wifi_mgmt_GetInterfaceStatusResponse *data_resp, embedded_wifi_mgmt_WifiStatusResponse *err_resp);
+static void handle_send_raw_frame_request(const embedded_wifi_mgmt_SendRawFrameRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
+static void handle_enable_raw_rx_request(const embedded_wifi_mgmt_EnableRawRxRequest *req, embedded_wifi_mgmt_EnableRawRxResponse *resp);
+static void handle_disable_raw_rx_request(const embedded_wifi_mgmt_DisableRawRxRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
 // Add other handlers as needed, e.g., for TWT, AP STA disconnect, etc.
 // static void handle_set_twt_request(const embedded_wifi_mgmt_SetTwtRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
 
@@ -738,6 +742,24 @@ static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint
                 } else {
                      response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_status_resp_tag;
                 }
+            } else { payload_type_mismatch = true; }
+            break;
+        case embedded_wifi_mgmt_RequestType_REQUEST_TYPE_SEND_RAW_FRAME:
+            if (request.which_payload == embedded_wifi_mgmt_WifiMgmtRequest_send_raw_frame_req_tag) {
+                response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_status_resp_tag;
+                handle_send_raw_frame_request(&request.payload.send_raw_frame_req, &response.payload.status_resp);
+            } else { payload_type_mismatch = true; }
+            break;
+        case embedded_wifi_mgmt_RequestType_REQUEST_TYPE_ENABLE_RAW_RX:
+            if (request.which_payload == embedded_wifi_mgmt_WifiMgmtRequest_enable_raw_rx_req_tag) {
+                response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_enable_raw_rx_resp_tag;
+                handle_enable_raw_rx_request(&request.payload.enable_raw_rx_req, &response.payload.enable_raw_rx_resp);
+            } else { payload_type_mismatch = true; }
+            break;
+        case embedded_wifi_mgmt_RequestType_REQUEST_TYPE_DISABLE_RAW_RX:
+            if (request.which_payload == embedded_wifi_mgmt_WifiMgmtRequest_disable_raw_rx_req_tag) {
+                response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_status_resp_tag;
+                handle_disable_raw_rx_request(&request.payload.disable_raw_rx_req, &response.payload.status_resp);
             } else { payload_type_mismatch = true; }
             break;
         // Add cases for other RequestTypes defined in your wifi.proto
@@ -1574,8 +1596,156 @@ static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfac
     }
 }
 
+static void handle_send_raw_frame_request(const embedded_wifi_mgmt_SendRawFrameRequest *req,
+                                          embedded_wifi_mgmt_WifiStatusResponse *resp) {
+    resp->success = false;
+    resp->error_code = -EIO;
+    set_status_error_msg_bytes(resp->error_message, "Raw frame TX handler init error");
+
+    LOG_INF("Handling Send Raw Frame Request for iface %u, %zu bytes",
+            req->iface_index, req->frame.size);
+
+    struct net_if *iface = resolve_wifi_iface(req->iface_index);
+    if (!iface) {
+        LOG_ERR("Interface with index %u not found for raw TX", req->iface_index);
+        resp->error_code = -ENODEV;
+        set_status_error_msg_bytes(resp->error_message, "Interface not found");
+        return;
+    }
+
+    int ret = wifi_data_raw_frame_tx(iface, req->frame.bytes, req->frame.size);
+    if (ret) {
+        LOG_ERR("Raw frame TX failed: %d", ret);
+        resp->error_code = ret;
+        set_status_error_msg_bytes(resp->error_message, "Raw frame TX failed");
+    } else {
+        LOG_INF("Raw frame TX sent");
+        resp->success = true;
+        resp->error_code = 0;
+        set_status_error_msg_bytes(resp->error_message, "Raw frame transmitted");
+    }
+}
+
+static void handle_enable_raw_rx_request(const embedded_wifi_mgmt_EnableRawRxRequest *req,
+                                         embedded_wifi_mgmt_EnableRawRxResponse *resp) {
+    resp->status = -EIO;
+    resp->socket_fd = -1;
+    resp->thread_running = false;
+    resp->frames_received = 0;
+
+    struct net_if *iface = resolve_wifi_iface(req->iface_index);
+    if (!iface) {
+        LOG_ERR("Interface with index %u not found for raw RX enable", req->iface_index);
+        resp->status = -ENODEV;
+        return;
+    }
+
+    int ret = wifi_data_raw_frame_rx_enable(iface, req->channel);
+    if (ret) {
+        LOG_ERR("Raw RX enable failed: %d", ret);
+        resp->status = ret;
+    } else {
+        resp->status = 0;
+    }
+
+    struct wifi_data_raw_rx_diag diag;
+    wifi_data_raw_rx_diag(&diag);
+    resp->socket_fd = diag.socket_fd;
+    resp->thread_running = diag.thread_running;
+    resp->frames_received = diag.frames_received;
+    resp->current_mode = diag.current_mode;
+    resp->start_zep_step = diag.start_zep_step;
+    resp->tx_socket_fd = diag.tx_socket_fd;
+    resp->tx_frames_sent = diag.tx_frames_sent;
+    resp->tx_injection_ret = diag.tx_injection_ret;
+    resp->tx_setup_ret = diag.tx_setup_ret;
+    resp->tx_last_ret = diag.tx_last_ret;
+    resp->tx_last_len = diag.tx_last_len;
+    resp->tx_last_wifi = diag.tx_last_wifi;
+    struct wifi_iface_status if_status = {0};
+    if (net_mgmt(NET_REQUEST_WIFI_IFACE_STATUS, iface, &if_status,
+                 sizeof(if_status)) == 0) {
+        resp->iface_state = if_status.state;
+    }
+}
+
+static void handle_disable_raw_rx_request(const embedded_wifi_mgmt_DisableRawRxRequest *req,
+                                          embedded_wifi_mgmt_WifiStatusResponse *resp) {
+    resp->success = false;
+    resp->error_code = -EIO;
+    set_status_error_msg_bytes(resp->error_message, "Raw RX disable handler init error");
+
+    struct net_if *iface = resolve_wifi_iface(req->iface_index);
+    if (!iface) {
+        LOG_ERR("Interface with index %u not found for raw RX disable", req->iface_index);
+        resp->error_code = -ENODEV;
+        set_status_error_msg_bytes(resp->error_message, "Interface not found");
+        return;
+    }
+
+    int ret = wifi_data_raw_frame_rx_disable(iface);
+    if (ret) {
+        LOG_ERR("Raw RX disable failed: %d", ret);
+        resp->error_code = ret;
+        set_status_error_msg_bytes(resp->error_message, "Raw RX disable failed");
+    } else {
+        resp->success = true;
+        resp->error_code = 0;
+        set_status_error_msg_bytes(resp->error_message, "Raw RX disabled");
+    }
+}
+
+/* Maximum number of received-frame bytes that can be carried in a
+ * RawFrameRxEvent (matches the nanopb max_size for RawFrameRxEvent.frame). */
+#define RAW_RX_REPORT_MAX_LEN 2400
+
+/* Forward a received raw 802.11 frame to the host as a RawFrameRxEvent
+ * notification. Invoked from the raw-RX thread context. A dedicated static
+ * notification + encode buffer keeps the ~2400-byte payload off the RX thread
+ * stack and avoids contending with the network-thread notify buffer. */
+static embedded_wifi_mgmt_WifiMgmtNotification raw_rx_notification
+    = embedded_wifi_mgmt_WifiMgmtNotification_init_zero;
+static uint8_t raw_rx_notify_buffer[sizeof(embedded_wifi_mgmt_WifiMgmtNotification)];
+
+static void raw_rx_notify_cb(struct net_if *iface, const uint8_t *frame, size_t len)
+{
+    size_t report_len = len;
+    if (report_len > RAW_RX_REPORT_MAX_LEN) {
+        report_len = RAW_RX_REPORT_MAX_LEN;
+    }
+
+    memset(&raw_rx_notification, 0, sizeof(raw_rx_notification));
+    raw_rx_notification.has_event = true;
+    raw_rx_notification.event.iface_index =
+        (iface != NULL) ? net_if_get_by_iface(iface) : 0;
+    raw_rx_notification.event.which_event_data =
+        embedded_wifi_mgmt_WifiEvent_raw_frame_rx_event_tag;
+    raw_rx_notification.event.event_data.raw_frame_rx_event.frame.size =
+        (pb_size_t)report_len;
+    memcpy(raw_rx_notification.event.event_data.raw_frame_rx_event.frame.bytes,
+           frame, report_len);
+
+    pb_ostream_t ostream = pb_ostream_from_buffer(raw_rx_notify_buffer,
+                                                  sizeof(raw_rx_notify_buffer));
+
+    if (pb_encode(&ostream, embedded_wifi_mgmt_WifiMgmtNotification_fields,
+                  &raw_rx_notification)) {
+        int tx_ret = serial_mux_send(SERIAL_TYPE_WIFI_MGMT, raw_rx_notify_buffer,
+                                     ostream.bytes_written);
+        if (tx_ret < 0) {
+            LOG_ERR("Failed to send raw RX notification: %d", tx_ret);
+        }
+    } else {
+        LOG_ERR("Failed to encode raw RX notification: %s", ostream.errmsg);
+    }
+}
+
 int init_proxy(void) {
     LOG_INF("Initializing Wi-Fi Management Proxy");
+
+    /* Route received raw 802.11 frames to the host as RawFrameRxEvent
+     * notifications (data connectivity loopback testing). */
+    wifi_data_set_raw_rx_cb(raw_rx_notify_cb);
 
 
 

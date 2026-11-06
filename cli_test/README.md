@@ -12,7 +12,8 @@ It is intended for quick manual validation of host-to-device requests such as Wi
 - Send Wi-Fi connect requests
 - Send Wi-Fi disconnect requests
 - Start/stop the Wi-Fi access point (AP mode) and read its result status
-- Send Bluetooth Low Energy HCI commands to the on-board controller
+- Transmit a raw 802.11 frame on the air interface (data connectivity testing)
+
 
 ## Build
 
@@ -170,6 +171,21 @@ interface mode (`mode=AP` while the AP is up). Note: the nrf70 driver in the
 current NCS release does not implement AP mode, so the device answers
 `error_code=-ENOTSUP` until a driver with AP support is used.
 
+### 9. Transmit a raw 802.11 frame (data connectivity testing)
+
+The device injects a complete IEEE 802.11 MAC frame on the air interface,
+bypassing the TCP/IP stack. The frame is read from a binary file (or stdin
+with `-`) and must be 24..=2346 bytes (FCS not included; the driver appends
+it). The command prints the device's status response.
+
+```bash
+# Frame from a file
+cargo run -- --port /dev/ttyACM0 raw-tx --file frame.bin
+
+# Frame from stdin
+cat frame.bin | cargo run -- --port /dev/ttyACM0 raw-tx
+```
+
 ## Integration Test
 
 `tests/connect_disconnect.rs` repeats full connect/disconnect cycles against
@@ -193,6 +209,54 @@ Each cycle asserts: connect request accepted, interface reaches the
 connected state (carrier present, not dormant), disconnect request accepted,
 interface reaches the disconnected state (dormant). Without `INTEG_PORT` the
 test skips, so `cargo test` stays green on hosts without the device attached.
+
+### Data connectivity (`tests/data_connectivity.rs`)
+
+Verifies raw 802.11 data connectivity (MAC layer only, no TCP/IP). The
+device is placed in monitor mode on a channel and transmits a raw 802.11
+**broadcast** data frame (a fixed marker plus an iteration sequence
+number). Test case 2 repeats the same sequence with the device's Wi-Fi
+power save enabled before the packet sequence.
+
+The test runs in two modes:
+
+- **Witness mode** (requires root): a host Wi-Fi adapter (default
+  `wlo1`) is placed in monitor mode on the same channel and captures the
+  frame on the air via an `AF_PACKET` socket. The test verifies the exact
+  frame content arrived. The nRF7002 radio does not loop back its own
+  transmissions to the RX path in monitor mode, so a separate on-air
+  receiver is required.
+- **TX-only mode** (no root needed): the device's own diagnostic counters
+  (`tx_frames_sent`, `tx_last_ret`, `tx_last_len`) verify that each frame
+  was accepted by the driver and injected. This validates the TX path
+  but not on-air delivery.
+
+The test automatically selects witness mode when root is available and
+falls back to TX-only mode otherwise.
+
+| Variable       | Meaning                               | Default      |
+|----------------|---------------------------------------|--------------|
+| `INTEG_PORT`   | serial port (required to run the test) | *(skip if unset)* |
+| `INTEG_SSID`   | network SSID                          | `HappyHouse` |
+| `INTEG_SECURITY` | `none` / `wep` / `psk` / `sae` / `eap` | `psk`       |
+| `INTEG_PSK`    | pre-shared key (required unless `none`) | *(none)*    |
+| `INTEG_WITNESS` | host Wi-Fi interface for monitor capture | `wlo1`    |
+
+```bash
+# TX-only mode (no root needed)
+INTEG_PORT=/dev/ttyACM2 INTEG_SSID=HappyHouse INTEG_SECURITY=psk \
+     INTEG_PSK='<ap-psk>' \
+    cargo test --test data_connectivity -- --nocapture
+
+# Witness mode (requires root for AF_PACKET + monitor interface)
+sudo INTEG_PORT=/dev/ttyACM2 INTEG_SSID=HappyHouse INTEG_SECURITY=psk \
+     INTEG_PSK='<ap-psk>' INTEG_WITNESS=wlo1 \
+    cargo test --test data_connectivity -- --nocapture
+```
+
+In witness mode, a frame not captured within the 5 s window fails the
+test. In TX-only mode, a frame whose TX counter does not increment or
+whose `tx_last_ret` is non-zero fails the test.
 
 ## Notes
 
