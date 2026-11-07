@@ -1,0 +1,26 @@
+/ {
+	chosen {
+		zephyr,bt-hci = &bt_hci_virt;
+		embedded80211,bus = &uart1;
+	};
+
+	virt_wifi: virt-wifi {
+		compatible = "embedded80211,virt-wifi";
+	};
+
+	bt_hci_virt: bt-hci-virtual {
+		compatible = "embedded80211,bt-hci-virtual";
+	};
+};
+
+&uart1 {
+	status = "okay";
+	current-speed = <115200>;
+};
+
+/* The lm3s6965evb SoC has a built-in ENET MAC that would register an
+ * Ethernet interface before virt_wifi, shifting virt_wifi off index 1.
+ * Disable it so virt_wifi is the only non-loopback interface. */
+&eth {
+	status = "disabled";
+};

@@ -6,9 +6,11 @@ These are repository-wide requirements. More-specific `AGENTS.md` files may add
 constraints for their directory, but must not weaken these requirements:
 
 - [linux/AGENTS.md](linux/AGENTS.md)
-- [zephyr/AGENTS.md](zephyr/AGENTS.md)
-- [zephyr/src/serial/AGENTS.md](zephyr/src/serial/AGENTS.md)
-- [zephyr/tests/AGENTS.md](zephyr/tests/AGENTS.md)
+- [embedded80211/AGENTS.md](embedded80211/AGENTS.md)
+- [embedded80211/zephyr/device/AGENTS.md](embedded80211/zephyr/device/AGENTS.md)
+- [embedded80211/tests/AGENTS.md](embedded80211/tests/AGENTS.md)
+- [nrf7002dk/AGENTS.md](nrf7002dk/AGENTS.md)
+- [host/AGENTS.md](host/AGENTS.md)
 - [cli_test/AGENTS.md](cli_test/AGENTS.md)
 
 Keep changes focused, preserve existing behavior unless the task requires a

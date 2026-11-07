@@ -93,4 +93,19 @@ Ack is encoded as a regular link-layer header with the same traffic type, length
 Length defines the length of the data after the header.
 
 ### System components
-TBD
+- `embedded80211/` — Zephyr module library. Contains the common link protocol,
+  the device-side (co-processor) transport and technology proxies, and the
+  Zephyr host-side drivers. Consumed via `ZEPHYR_EXTRA_MODULES`. Its `tests/`
+  subdirectory holds the ztest protocol suite.
+- `nrf7002dk/` — board project. The device-side Zephyr application for the
+  nRF7002 DK (nRF5340 CPU app) that instantiates the `embedded80211` module in
+  the device role.
+- `host/` — QEMU host application. A Zephyr app for `qemu_cortex_m3` that
+  instantiates the host-side drivers (virtual Wi-Fi, virtual Bluetooth HCI,
+  link protocol bus) over a UART, plus an optional end-to-end test.
+- `linux/` — Linux host integration (cfg80211-based), separate from the
+  Zephyr host app.
+- `cli_test/` — Rust command-line test harness that drives the link protocol
+  over a serial port.
+- `protos/` — protobuf schemas shared by the device and host builds
+  (generated to nanopb at build time).

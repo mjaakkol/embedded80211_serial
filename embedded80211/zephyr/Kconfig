@@ -1,0 +1,292 @@
+#
+# Copyright (c) 2022 Nordic Semiconductor ASA
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+# Configuration for the embedded80211 common link protocol library.
+
+menu "Embedded 802.11 serial link protocol"
+
+config CONNECTION_IDLE_TIMEOUT
+	int "Time to be waited for a station to connect"
+	default 30
+
+config NRF70_QSPI_ENCRYPTION_KEY
+	string "16 bytes QSPI encryption key, only for testing purposes"
+	depends on BOARD_NRF7002DK_NRF5340_CPUAPP
+	help
+	  Specify the QSPI encryption key
+
+config STA_CONN_TIMEOUT_SEC
+	int "Overall Connection timeout i.e., time to be waited for a station to connect and get an IP address"
+	# Zephyr DHCP retry is 1 minute, so set the default to 70 seconds
+	default 70
+	# 512 has no special meaning, just a reasonable upper limit
+	range 0 512
+	help
+	  Specify the connection timeout, in seconds. This is the overall timeout i.e., time to be waited for
+	  a station to connect and get an IP address. DHCP retries should be taken into account when setting
+	  this value. If the timeout is set to 0, the connection will not timeout.
+
+config STA_SAMPLE_START_WIFI_THREAD_STACK_SIZE
+	int "Stack size for Wi-Fi start thread"
+	default 4096
+	help
+	  Set the stack size for the Wi-Fi start thread.
+
+# Wi-Fi management bearer configuration
+choice WIFI_MGMT_BEARER
+	bool "Enable Wi-Fi management bearer"
+	default WIFI_MGMT_BEARER_SERIAL_USB
+	help
+	  Enable the Wi-Fi management bearer. This allows the sample to use the Wi-Fi management interface
+	  for operations such as scanning and connecting to networks.
+
+config WIFI_MGMT_BEARER_SERIAL_UART
+	bool "Enable Wi-Fi management bearer over UART"
+	help
+	  Enable the Wi-Fi management bearer over UART. This allows the sample to communicate with the Wi-Fi
+	  management interface using a serial connection.
+
+config WIFI_MGMT_BEARER_SERIAL_USB
+	bool "Enable Wi-Fi management bearer over USB"
+	help
+	  Enable the Wi-Fi management bearer over USB. This allows the sample to communicate with the Wi-Fi
+	  management interface using a USB connection.
+endchoice
+
+# Host/device role configuration
+choice SERIAL_ROLE
+	bool "Serial role selection"
+	default SERIAL_DEVICE_ROLE
+	help
+	  Select whether this node operates as an RCP device (responds to host
+	  commands over serial) or as a Zephyr host-driver (issues commands to a
+	  remote device over serial).
+
+config SERIAL_DEVICE_ROLE
+	bool "RCP device role"
+	help
+	  This node acts as a Radio Co-Processor device. It receives management
+	  and data frames from a host over the serial link and calls the
+	  corresponding Zephyr Wi-Fi / net_if / BT APIs.
+
+config SERIAL_HOST_ROLE
+	bool "Zephyr host-driver role"
+	help
+	  This node acts as the serial host driver. It sends management and data
+	  frames to a remote RCP device and exposes the results to the local
+	  Zephyr networking stack.
+endchoice
+
+# Virtual serial over protocol configuration
+config VSERIAL_ENABLE
+	bool "Enable virtual serial device over common link protocol"
+	default y
+	help
+	  Enable a virtual serial device that operates over the common link protocol.
+	  This exposes serial port semantics over the protocol, with support for
+	  baud rate, stop bits, and parity shadowing for readback compatibility.
+
+if VSERIAL_ENABLE
+
+config VSERIAL_RX_BUF_SIZE
+	int "Virtual serial RX buffer size"
+	default 256
+	range 64 4096
+	help
+	  Size of the receive ring buffer for virtual serial data.
+
+config VSERIAL_TX_BUF_SIZE
+	int "Virtual serial TX buffer size"
+	default 256
+	range 64 4096
+	help
+	  Size of the transmit buffer for virtual serial data.
+
+endif # VSERIAL_ENABLE
+
+if SERIAL_DEVICE_ROLE
+
+menu "Serial multiplexer"
+
+config SERIAL_PROTOCOL_MULTIPLEXER
+	bool "Enable serial protocol multiplexer"
+	default y
+	help
+	  Enable a technology multiplexer that maps protocol traffic types to
+	  selected serial interfaces. This allows routing one or many technology
+	  proxies over the same interface.
+
+if SERIAL_PROTOCOL_MULTIPLEXER
+
+config SERIAL_MUX_IFACE_UART
+	bool "Enable UART interface in multiplexer"
+	default y if SERIAL
+	depends on SERIAL
+	help
+	  Register the UART transport as a selectable interface target for
+	  technology proxy egress.
+
+config SERIAL_MUX_IFACE_USB
+	bool "Enable USB CDC ACM interface in multiplexer"
+	default y if USBD_CDC_ACM_CLASS
+	depends on USBD_CDC_ACM_CLASS
+	help
+	  Register the USB CDC ACM transport as a selectable interface target for
+	  technology proxy egress. Requires the USB device stack next CDC ACM
+	  class (USBD_CDC_ACM_CLASS) and a "zephyr,cdc-acm-uart" devicetree node.
+
+config WIFI_MGMT_PROXY_MAX_SCAN_RESULTS
+	int "Maximum Wi-Fi scan results reported to the host"
+	default 32
+	range 1 32
+	depends on SERIAL_PROXY_WIFI_MGMT
+	help
+	  Upper bound for the scan results collected and reported to the host in
+	  a single ScanDoneEvent notification. The limit is also capped by the
+	  protobuf schema (ScanDoneEvent.all_results max_count).
+
+config SERIAL_PROXY_WIFI_MGMT
+	bool "Enable Wi-Fi management proxy"
+	default y
+
+config SERIAL_PROXY_WIFI_DATA
+	bool "Enable Wi-Fi data proxy"
+	default y
+
+config SERIAL_PROXY_NET_IF_MGMT
+	bool "Enable net_if management proxy"
+	default y
+
+config SERIAL_PROXY_BT
+	bool "Enable Bluetooth HCI proxy"
+	default y
+	depends on BT
+	help
+	  Enable the Bluetooth HCI proxy. Host HCI packets (traffic type HCI)
+	  are bridged to the local Bluetooth controller through the Zephyr
+	  raw HCI channel (CONFIG_BT_HCI_RAW); controller events are reported
+	  back to the host as HCI traffic frames.
+
+config SERIAL_PROXY_OT
+	bool "Enable OpenThread/Spinel proxy"
+	default y
+
+config SERIAL_PROXY_VSERIAL
+	bool "Enable virtual serial proxy"
+	default y if VSERIAL_ENABLE
+	depends on VSERIAL_ENABLE
+
+choice SERIAL_MUX_WIFI_MGMT_IFACE
+	bool "Wi-Fi management egress interface"
+	depends on SERIAL_PROXY_WIFI_MGMT
+	default SERIAL_MUX_WIFI_MGMT_IFACE_USB if SERIAL_MUX_IFACE_USB
+	default SERIAL_MUX_WIFI_MGMT_IFACE_UART if SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_WIFI_MGMT_IFACE_UART
+	bool "UART"
+	depends on SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_WIFI_MGMT_IFACE_USB
+	bool "USB CDC ACM"
+	depends on SERIAL_MUX_IFACE_USB
+
+endchoice
+
+choice SERIAL_MUX_WIFI_DATA_IFACE
+	bool "Wi-Fi data egress interface"
+	depends on SERIAL_PROXY_WIFI_DATA
+	default SERIAL_MUX_WIFI_DATA_IFACE_USB if SERIAL_MUX_IFACE_USB
+	default SERIAL_MUX_WIFI_DATA_IFACE_UART if SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_WIFI_DATA_IFACE_UART
+	bool "UART"
+	depends on SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_WIFI_DATA_IFACE_USB
+	bool "USB CDC ACM"
+	depends on SERIAL_MUX_IFACE_USB
+
+endchoice
+
+choice SERIAL_MUX_NET_IF_MGMT_IFACE
+	bool "net_if management egress interface"
+	depends on SERIAL_PROXY_NET_IF_MGMT
+	default SERIAL_MUX_NET_IF_MGMT_IFACE_USB if SERIAL_MUX_IFACE_USB
+	default SERIAL_MUX_NET_IF_MGMT_IFACE_UART if SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_NET_IF_MGMT_IFACE_UART
+	bool "UART"
+	depends on SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_NET_IF_MGMT_IFACE_USB
+	bool "USB CDC ACM"
+	depends on SERIAL_MUX_IFACE_USB
+
+endchoice
+
+choice SERIAL_MUX_BT_IFACE
+	bool "Bluetooth HCI egress interface"
+	depends on SERIAL_PROXY_BT
+	default SERIAL_MUX_BT_IFACE_USB if SERIAL_MUX_IFACE_USB
+	default SERIAL_MUX_BT_IFACE_UART if SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_BT_IFACE_UART
+	bool "UART"
+	depends on SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_BT_IFACE_USB
+	bool "USB CDC ACM"
+	depends on SERIAL_MUX_IFACE_USB
+
+endchoice
+
+choice SERIAL_MUX_OT_IFACE
+	bool "OpenThread egress interface"
+	depends on SERIAL_PROXY_OT
+	default SERIAL_MUX_OT_IFACE_USB if SERIAL_MUX_IFACE_USB
+	default SERIAL_MUX_OT_IFACE_UART if SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_OT_IFACE_UART
+	bool "UART"
+	depends on SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_OT_IFACE_USB
+	bool "USB CDC ACM"
+	depends on SERIAL_MUX_IFACE_USB
+
+endchoice
+
+choice SERIAL_MUX_VSERIAL_IFACE
+	bool "Virtual serial egress interface"
+	depends on SERIAL_PROXY_VSERIAL
+	default SERIAL_MUX_VSERIAL_IFACE_USB if SERIAL_MUX_IFACE_USB
+	default SERIAL_MUX_VSERIAL_IFACE_UART if SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_VSERIAL_IFACE_UART
+	bool "UART"
+	depends on SERIAL_MUX_IFACE_UART
+
+config SERIAL_MUX_VSERIAL_IFACE_USB
+	bool "USB CDC ACM"
+	depends on SERIAL_MUX_IFACE_USB
+
+endchoice
+
+endif # SERIAL_PROTOCOL_MULTIPLEXER
+
+endmenu
+
+endif # SERIAL_DEVICE_ROLE
+
+endmenu
+
+# Host-side drivers (host role only)
+if SERIAL_HOST_ROLE
+rsource "host/Kconfig"
+endif # SERIAL_HOST_ROLE
+
+if SERIAL_DEVICE_ROLE
+rsource "device/serial/Kconfig"
+endif # SERIAL_DEVICE_ROLE

@@ -1,0 +1,46 @@
+# Host-side drivers for the embedded80211 link protocol.
+#
+# These are built only in host role (see the top-level SERIAL_HOST_ROLE) and
+# bind to the device over the DT-chosen `embedded80211-bus` UART.
+#
+# NOTE: no `select` statements here. Kconfig parses the full symbol graph
+# (including inside `if SERIAL_HOST_ROLE`) before evaluation, so a `select`
+# of a subsystem (NET_L2_WIFI / BT_HCI) would create an unconditional
+# dependency edge that cycles back to SERIAL and breaks the device build.
+# The consuming host application enables those subsystems in its prj.conf.
+
+config EMBEDDED80211_HOST_BUS
+	bool "Host link-protocol bus client"
+	default y
+	depends on SERIAL
+	help
+	  Link-protocol client that frames/sequences/ACKs traffic with the
+	  radio co-processor over a UART (the symmetric mirror of the device's
+	  serial.c). Required by the virtual Wi-Fi and BT HCI drivers.
+
+config EMBEDDED80211_HOST_WIFI
+	bool "Host virtual Wi-Fi driver"
+	default y
+	depends on EMBEDDED80211_HOST_BUS
+	# Leaf config (no prompt), like the nrf_wifi driver selects it; not a
+	# subsystem, so no dependency cycle back to SERIAL.
+	select WIFI_USE_NATIVE_NETWORKING
+	help
+	  Virtual Wi-Fi L2 driver (`compatible = "embedded80211,virt-wifi"`)
+	  that proxies Zephyr Wi-Fi management/data to the device over the bus.
+	  The application must also enable CONFIG_NET_L2_WIFI.
+
+config VIRT_WIFI_MTU
+	int "Virtual Wi-Fi MTU"
+	default 1536
+	depends on EMBEDDED80211_HOST_WIFI
+
+config EMBEDDED80211_HOST_BT
+	bool "Host virtual BT HCI driver"
+	default y
+	depends on EMBEDDED80211_HOST_BUS
+	help
+	  Virtual Bluetooth HCI driver
+	  (`compatible = "embedded80211,bt-hci-virtual"`) that proxies H:4
+	  HCI traffic to the device over the bus. The application must also
+	  enable CONFIG_BT_HCI.

@@ -1,0 +1,25 @@
+source "Kconfig.zephyr"
+
+# Host application options.
+# The embedded80211 module Kconfig is sourced automatically when the module
+# is registered via ZEPHYR_EXTRA_MODULES (see CMakeLists.txt).
+
+# E2E test (disabled by default). When enabled, src/e2e_test.c is compiled in
+# and e2e_test_start() is called from main(); WiFi credentials come from
+# HOST_TEST_WIFI_SSID / HOST_TEST_WIFI_PSK (build-time, never committed).
+config HOST_TEST_ENABLED
+	bool "Enable end-to-end test"
+	default n
+	depends on EMBEDDED80211_HOST_WIFI
+	depends on EMBEDDED80211_HOST_BT
+config HOST_TEST_WIFI_SSID
+	string "E2E test SSID (empty = skip WiFi E2E)"
+	default ""
+
+config HOST_TEST_WIFI_PSK
+	string "E2E test PSK"
+	default ""
+
+config HOST_TEST_GATEWAY_PINGS
+	int "Gateway ping count"
+	default 3

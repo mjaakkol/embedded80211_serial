@@ -1,0 +1,11 @@
+# Zephyr module definition for the embedded80211 common link protocol library.
+#
+# Build files live in the standard module location (zephyr/CMakeLists.txt and
+# zephyr/Kconfig). Consumers register this directory as an extra module:
+#   set(ZEPHYR_EXTRA_MODULES <path-to-this-module-root>)
+name: embedded80211
+# Register the module's zephyr/ subdir as a devicetree root so the
+# virtual Wi-Fi and BT HCI bindings (zephyr/dts/bindings) are found.
+build:
+  settings:
+    dts_root: zephyr
