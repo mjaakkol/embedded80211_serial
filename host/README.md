@@ -48,3 +48,9 @@ Notes:
   whose serial mux reports the WiFi/BT traffic types. With no device,
   `bus_open()` times out and the BT scan reports `-EAGAIN`; an empty
   `E2E_SSID` still yields a BT-only pass once the device is up.
+- The `qemu_cortex_m3` (`lm3s6965evb`) board dts enables a built-in Stellaris
+  ENET, which registers an Ethernet interface at index 1 and shifts
+  `virt_wifi` to index 2. The E2E test and `host_wifi` address the interface
+  by index 1 (`VIRT_WIFI_IFACE_INDEX`), so `app.overlay` disables it
+  (`&eth { status = "disabled"; };`). Keep it disabled — re-enabling it makes
+  `get_wifi_api()` cast the ENET's API to a WiFi API and wild-jump on scan.

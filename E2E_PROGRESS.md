@@ -31,6 +31,8 @@ WiFi E2E creds are build-time only (`E2E_SSID`/`E2E_PSK`); never in the repo.
     Host `.config` now has only `SERIAL_HOST_ROLE=y`; device `.config` still
     has `SERIAL_DEVICE_ROLE=y` + proxies.
 - [x] `e2e_test.c` temporary diagnostic added then removed (file is clean).
+- [x] `host/README.md` documents the `&eth` disable requirement (Stellaris
+  ENET shifts virt_wifi off index 1).
 
 ## Blocker: device reports 0 supported types
 
@@ -45,6 +47,9 @@ MGMT / BT traffic times out (`-116`). Ruled out as the cause:
   is populated (verified via GDB read of the live symbols).
 - Host `bus_sync()` / `bus_rx_work()` parse the 4-byte response correctly
   (`p[1] | (p[2]<<8)`).
+- `handle_protocol_info.isra.0` (device ELF) **does** call
+  `serial_mux_supported_types_mask` (`bl 0x5fd3e` at `0x3e1de`), so the code
+  path is confirmed correct.
 
 So the live device is computing 0 even though the code is sound. A temporary
 `printk` diagnostic was added to `handle_protocol_info`
@@ -70,8 +75,6 @@ from the shell.
 4. **Re-run the full E2E**: confirm `E2E WIFI: OK` (scan → connect → DHCP)
    and `E2E BT: SCAN DONE`.
 5. **Remove the temporary `printk`** from `serial.c`.
-6. **Document** the `&eth` disable + interface-index-1 assumption in
-   `host/README.md` if warranted.
 
 ## Key commands (all after `source /home/mikko/ncs/env.sh`)
 
