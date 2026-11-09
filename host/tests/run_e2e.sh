@@ -7,22 +7,40 @@
 # harness reports it as SKIPPED, requiring only the BT scan marker.)
 set -uo pipefail
 
-source /home/mikko/ncs/env.sh
+# NCS environment: Linux dev host or Mac (v3.4.1; toolchain via ~/.zephyrrc).
+if [ -f /home/mikko/ncs/env.sh ]; then
+	source /home/mikko/ncs/env.sh
+elif [ -f /opt/nordic/ncs/v3.4.1/zephyr/zephyr-env.sh ]; then
+	source /opt/nordic/ncs/v3.4.1/zephyr/zephyr-env.sh
+else
+	echo "ERROR: NCS environment not found" >&2
+	exit 1
+fi
 
 SSID="${E2E_SSID:-}"
 PSK="${E2E_PSK:-}"
-BOARD_PORT="${1:-/dev/serial/by-id/usb-Test_Vendor_My_Zephyr_CDC-ACM_Device_2994E6BE83CEFC3F-if00}"
+# Board bus port; auto-detect by probing each /dev/cu.usbmodem* with a
+# PROTOCOL_INFO query (the board's USB CDC-ACM port carrying the common
+# link protocol bus answers; the console port and J-Link ports do not).
+TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BOARD_PORT="${1:-$(python3 "$TESTS_DIR/find_bus_port.py" 2>/dev/null)}"
+if [ -z "$BOARD_PORT" ]; then
+	echo "ERROR: no board bus port found; pass it as \$1" >&2
+	exit 1
+fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cd "$SCRIPT_DIR"
 
-west build -d build/host -s host -b qemu_cortex_m3 --no-sysbuild \
+west build -d ../build/host -s . -b qemu_cortex_m3 --no-sysbuild -- \
 	-DCONFIG_HOST_TEST_ENABLED=y \
 	-DCONFIG_HOST_TEST_WIFI_SSID="\"$SSID\"" \
 	-DCONFIG_HOST_TEST_WIFI_PSK="\"$PSK\"" || { echo "BUILD FAIL"; exit 1; }
 
 rm -f /tmp/e80211-host-console.log
-./run_qemu.sh "$BOARD_PORT" &
+# Redirect the harness stdout: run_qemu.sh's console stream must not inherit
+# this script's stdout, or a pipe (run_e2e.sh | tail) never sees EOF.
+./run_qemu.sh "$BOARD_PORT" > /dev/null 2>&1 &
 HARNESS_PID=$!
 sleep 120   # bound: WiFi E2E + one 30 s BT scan window
 kill "$HARNESS_PID" 2>/dev/null || true
@@ -37,7 +55,7 @@ fi
 
 if [ "$WIFI_EXPECTED" -eq 1 ]; then
 	grep -q "E2E WIFI: DHCP BOUND" "$LOG" || { echo "FAIL: no DHCP"; PASS=0; }
-	grep -q "E2E WIFI: OK"          "$LOG" || { echo "FAIL: wifi e2e"; PASS=0; }
+	grep -q "E2E WIFI: GATEWAY PING OK" "$LOG" || { echo "FAIL: gateway ping"; PASS=0; }
 fi
 grep -q "E2E BT: SCAN DONE" "$LOG" || { echo "FAIL: bt scan"; PASS=0; }
 

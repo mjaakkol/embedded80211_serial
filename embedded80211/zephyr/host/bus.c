@@ -324,7 +324,6 @@ int bus_open(void)
 	bus.bytes_read = 0;
 	bus.rx_seq = 0;
 	bus.tx_seq = 0;
-	bus.opened = true;
 
 	k_work_init(&bus.rx_work, bus_rx_work);
 	/* rx_sem / tx_mutex are statically initialized. */
@@ -332,7 +331,18 @@ int bus_open(void)
 	uart_irq_callback_user_data_set(bus.uart, bus_rx_isr, NULL);
 	uart_irq_rx_enable(bus.uart);
 
-	return bus_sync();
+	int rc = bus_sync();
+
+	/*
+	 * Mark opened only on a completed handshake. virt_wifi / virt_bt call
+	 * bus_open() from device init, before main(); if that first sync fails
+	 * (device not up yet), a later bus_open() must retry the handshake
+	 * instead of returning a cached success with supported_types == 0.
+	 */
+	if (rc == 0) {
+		bus.opened = true;
+	}
+	return rc;
 }
 
 int bus_register_handler(int type, bus_rx_handler_t cb)

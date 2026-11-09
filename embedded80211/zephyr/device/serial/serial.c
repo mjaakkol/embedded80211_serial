@@ -246,7 +246,6 @@ static void handle_protocol_info(struct serial_config *config, uint8_t sequence_
      * (2 bytes, LE), next expected rx sequence number (1 byte). */
     uint8_t payload[4];
 	uint16_t supported_types = serial_get_supported_types_mask();
-	printk("E80211 DIAG: handle_protocol_info supported_types=0x%04x\n", supported_types);
 
     payload[0] = SERIAL_PROTOCOL_VERSION;
     payload[1] = (uint8_t)(supported_types & 0xFF);

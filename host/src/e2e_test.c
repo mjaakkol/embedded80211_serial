@@ -13,6 +13,7 @@
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/wifi_mgmt.h>
+#include <zephyr/net/icmp.h>
 #include <zephyr/net/net_ip.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/addr.h>
@@ -33,6 +34,8 @@ static struct net_mgmt_event_callback mgmt_cb;
 static K_SEM_DEFINE(scan_done_sem, 0, 1);
 static K_SEM_DEFINE(connect_sem, 0, 1);
 static K_SEM_DEFINE(dhcp_sem, 0, 1);
+static K_SEM_DEFINE(ping_sem, 0, 1);
+static struct net_icmp_ctx ping_ctx;
 static int connect_status = -1;
 static int bt_found_count;
 
@@ -116,6 +119,24 @@ static uint64_t e2e_event_mask(void)
 	       NET_EVENT_IPV4_CMD_DHCP_BOUND;
 }
 
+static enum net_verdict ping_reply_handler(struct net_icmp_ctx *ctx,
+					   struct net_pkt *pkt,
+					   struct net_icmp_ip_hdr *ip_hdr,
+					   struct net_icmp_hdr *icmp_hdr,
+					   void *user_data)
+{
+	ARG_UNUSED(ctx);
+	ARG_UNUSED(pkt);
+	ARG_UNUSED(ip_hdr);
+	ARG_UNUSED(icmp_hdr);
+	ARG_UNUSED(user_data);
+
+	LOG_INF("E2E WIFI: GATEWAY PING RECV");
+	k_sem_give(&ping_sem);
+	return NET_OK;
+}
+
+
 static void wifi_e2e_thread(void *p1, void *p2, void *p3)
 {
 	ARG_UNUSED(p1);
@@ -154,7 +175,8 @@ static void wifi_e2e_thread(void *p1, void *p2, void *p3)
 		.ssid_length = sizeof(CONFIG_HOST_TEST_WIFI_SSID) - 1,
 		.psk = (const uint8_t *)CONFIG_HOST_TEST_WIFI_PSK,
 		.psk_length = sizeof(CONFIG_HOST_TEST_WIFI_PSK) - 1,
-		.security = WIFI_SECURITY_TYPE_PSK,
+		.security = (CONFIG_HOST_TEST_WIFI_PSK[0] == '\0') ?
+				WIFI_SECURITY_TYPE_NONE : WIFI_SECURITY_TYPE_PSK,
 		.channel = WIFI_CHANNEL_ANY,
 		.band = WIFI_FREQ_BAND_2_4_GHZ,
 	};
@@ -179,9 +201,37 @@ static void wifi_e2e_thread(void *p1, void *p2, void *p3)
 		return;
 	}
 
-	/* DHCP bound is the E2E success criterion. This Zephyr build has no
-	 * ICMP echo socket, so the gateway ping is omitted. */
-	LOG_INF("E2E WIFI: OK");
+	/* Ping the default gateway: the E2E success criterion is an IP
+	 * address plus a gateway echo reply. */
+	struct net_if_ipv4 *ipv4 = NULL;
+	union {
+		struct net_sockaddr_in dst4;
+		struct net_sockaddr dst;
+	} daddr;
+	int prc;
+
+	if (net_if_config_ipv4_get(wifi_iface, &ipv4) != 0 ||
+	    ipv4 == NULL || ipv4->gw.s4_addr[0] == 0) {
+		LOG_ERR("E2E WIFI: no default gateway");
+		return;
+	}
+
+	net_icmp_init_ctx(&ping_ctx, AF_INET, NET_ICMPV4_ECHO_REPLY, 0,
+			  ping_reply_handler);
+	daddr.dst4.sin_family = AF_INET;
+	daddr.dst4.sin_addr = ipv4->gw;
+
+	prc = net_icmp_send_echo_request(&ping_ctx, wifi_iface, &daddr.dst,
+					 NULL, NULL);
+	if (prc != 0) {
+		LOG_ERR("E2E WIFI: ping send failed: %d", prc);
+	} else if (k_sem_take(&ping_sem, K_SECONDS(5)) != 0) {
+		LOG_ERR("E2E WIFI: GATEWAY PING TIMEOUT");
+	} else {
+		LOG_INF("E2E WIFI: GATEWAY PING OK");
+		LOG_INF("E2E WIFI: OK");
+	}
+	net_icmp_cleanup_ctx(&ping_ctx);
 }
 
 static void bt_adv_cb(const bt_addr_le_t *addr, int8_t rssi,

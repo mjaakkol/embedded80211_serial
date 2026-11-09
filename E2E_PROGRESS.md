@@ -1,130 +1,171 @@
 # e80211-refactor — E2E validation progress & handoff
 
-Status as of 2026-11-07. The refactor (Phase 0–4) is structurally complete:
-the device stack is split into the `embedded80211/` Zephyr library, the
-`nrf7002dk/` board project, and the `host/` QEMU app. The remaining work is
-**Phase 4/6 E2E validation** against the physical nRF7002 DK.
+Status as of 2026-11-08 (Mac session). The refactor (Phase 0–4) is
+structurally complete. Remaining work is **Phase 4/6 E2E validation**
+against the physical nRF7002 DK.
+
+**Transport reverted to USB CDC-ACM (2026-11-08).** The J-Link-UART
+steering (bus on SoC UART1, UART0 disabled, RTS pin hogs,
+`SERIAL_MUX_IFACE_USB=n`) is reverted: the common link protocol bus is
+back on the target USB connector's CDC-ACM port (CDC_ACM_0), the
+pre-steering design. The vserial console
+(`zephyr,console = &vserial`) is kept by design. Temporary diagnostics
+removed (uart.c UARTE register read-back, host bus.c BUSTX/BUSRX/BUSYNC
+printks, serial.c E80211 DIAG printk). Both required NCS local patches
+verified present in the Mac tree (CDC ACM TX-drain in usbd_cdc_acm.c +
+net_if.c start-zep step).
 
 WiFi E2E creds are build-time only (`E2E_SSID`/`E2E_PSK`); never in the repo.
 
+## Environment change: Linux dev host → macOS (arm64)
+
+The dev host changed. Current environment on the Mac:
+
+- NCS: `/opt/nordic/ncs/v3.4.1` (west topdir; `zephyr-env.sh` sources it).
+- Toolchain: `/opt/nordic/ncs/toolchains/97226bad62` — exported via
+  `~/.zephyrrc` (PATH, `ZEPHYR_TOOLCHAIN_VARIANT=zephyr/gnu`,
+  `ZEPHYR_SDK_INSTALL_DIR`, `NRFUTIL_HOME`). `zephyr-env.sh` loads it
+  automatically.
+- J-Link: `/Applications/SEGGER/JLink_V876` (JLinkExe; the Mac
+  `JLinkRTTClient` is GUI-only and `JLinkExe` V8.76 has no `rtt` command).
+- Flashing: nrfutil (toolchain `nrfutil`, needs `NRFUTIL_HOME`):
+  `nrfutil device program --core network --firmware build/nrf7002dk/ipc_radio/zephyr/zephyr.hex`
+  then `nrfutil device program --firmware build/nrf7002dk/nrf7002dk/zephyr/zephyr.hex`
+  (sysbuild produces per-domain images; flash radio core first).
+- USB ports (change on replug): J-Link OB exposes
+  `/dev/cu.usbmodem0010507935211` + `0010507935213` (probe S/N 001050793521).
+  The **target** USB (Zephyr CDC-ACM, VID 0x2FE3) carries the protocol
+  bus (CDC_ACM_0) plus a spare unbound port (CDC_ACM_1). **2026-11-08:
+  not attached to the Mac** (ioreg shows only the J-Link) — and with the
+  board powered only from the J-Link OB the 16 MHz HSE does not start,
+  so the device also cannot enumerate until the target USB provides
+  VBUS. Auto-detect in `host/run_qemu.sh`/`host/tests/run_e2e.sh`
+  probes each `/dev/cu.usbmodem*` with a PROTOCOL_INFO query and uses
+  the one that answers (`host/tests/find_bus_port.py`).
+
 ## Done
 
-- [x] **Host-side wild-jump crash root-caused and fixed.**
-  - Symptom: QEMU host app produced NO console output (crash before the log
-    backend flushed — not a logging bug).
-  - Cause: the `qemu_cortex_m3` (`lm3s6965evb`) board dts enables a built-in
-    Stellaris ENET (`&eth { status = "okay"; }`), which registers an Ethernet
-    interface at **index 1**, shifting `virt_wifi` to index 2. `e2e_test.c` /
-    `host_wifi.c` use `VIRT_WIFI_IFACE_INDEX 1`, so `net_if_get_by_index(1)`
-    returned the ENET; `get_wifi_api()` cast its `dev->api` (an eth API) to
-    `net_wifi_mgmt_offload *` → wild `scan` pointer → jump to garbage
-    (GDB: PC=`0x708xxxxx`, LR=`0x817`, CFSR/HFSR/BFAR all 0 = no HW fault).
-  - Fix: `host/app.overlay` now sets `&eth { status = "disabled"; };`.
-    virt_wifi is now the only non-loopback interface at index 1.
-  - Verified: scan/connect now time out cleanly (`-116`/`-ETIMEDOUT`), no
-    wild jump; interface count dropped 3→2.
+- [x] **Host-side wild-jump crash root-caused and fixed** (QEMU `&eth`
+  disable; see git log `8aa4eec`/`2b91e6a`).
 - [x] **Device-side Kconfig gated to `SERIAL_DEVICE_ROLE`.**
-  - `embedded80211/zephyr/Kconfig`: the "Serial multiplexer" menu
-    (`SERIAL_PROXY_*`, `SERIAL_MUX_*`) and `rsource "device/serial/Kconfig"`
-    were unconditional, so device proxies (which create their own net_if)
-    leaked into the host build. Wrapped in `if SERIAL_DEVICE_ROLE ... endif`.
-    Host `.config` now has only `SERIAL_HOST_ROLE=y`; device `.config` still
-    has `SERIAL_DEVICE_ROLE=y` + proxies.
-- [x] `e2e_test.c` temporary diagnostic added then removed (file is clean).
-- [x] `host/README.md` documents the `&eth` disable requirement (Stellaris
-  ENET shifts virt_wifi off index 1).
+- [x] **Mac environment confirmed & adjusted** (this session):
+  - `~/.zephyrrc` created; device + host apps build on the Mac.
+  - NCS local patch `nrf_wifi_start_zep_last_step` **re-applied** to the
+    fresh Mac NCS tree
+    (`/opt/nordic/ncs/v3.4.1/zephyr/drivers/wifi/nrf_wifi/src/net_if.c`):
+    global `int nrf_wifi_start_zep_last_step` + `E80211_START_ZEP_STEP(n)`
+    markers 1..10 through `nrf_wifi_if_start_zep()` (was only in the old
+    Linux NCS tree; missing here broke the device link).
+  - **Device reflashed and verified alive** via J-Link: CPU running,
+    boot log read from the RTT buffer.
+- [x] **E2E extended: gateway ping** (user requirement: acquire IP **and**
+  ping the default gateway):
+  - `host/src/e2e_test.c`: open-network support (empty PSK →
+    `WIFI_SECURITY_TYPE_NONE`) and ICMP echo to the DHCP gateway via
+    `net_icmp_init_ctx()`/`net_icmp_send_echo_request()`
+    (`zephyr/net/icmp.h`; `icmp.c` builds unconditionally). New markers:
+    `E2E WIFI: GATEWAY PING RECV/OK/TIMEOUT`. `E2E WIFI: OK` now only
+    prints after a gateway echo reply.
+  - `host/tests/run_e2e.sh`: env auto-detect (Linux `env.sh` or Mac
+    `zephyr-env.sh`), port auto-detect, `GATEWAY PING OK` check added.
+  - `host/run_qemu.sh`: port auto-detect (excludes J-Link ports).
+- [x] Current E2E network: **`MedallionNet`, no password** (open).
+  Host app is built with `E2E_SSID=MedallionNet E2E_PSK=""`.
 
-## Blocker: device reports 0 supported types
+## Device console access on the Mac (no RTT client CLI)
 
-The device answers PROTOCOL_INFO with `supported types 0x0000`, so WiFi
-MGMT / BT traffic times out (`-116`). Ruled out as the cause:
+The device console is the **vserial virtual UART** (chosen
+`zephyr,console = &vserial`, by design) — console writes are dropped by
+its poll stub, so the console is effectively silent. The second
+CDC-ACM port (CDC_ACM_1) is exposed but unbound. Logs flow over SEGGER
+RTT (`CONFIG_RTT_CONSOLE=y`/`CONFIG_USE_SEGGER_RTT=y`), readable over
+SWD without the target USB:
 
-- Device config is correct (`SERIAL_PROXY_WIFI_MGMT/BT/NET_IF_MGMT/OT/
-  VSERIAL = y`, all routed to the USB interface).
-- `serial_mux_supported_types_mask()` (`device/multiplexer.c:174`) **always
-  sets bit 7** (`SERIAL_TYPE_PROTOCOL_INFO`) → it cannot return 0.
-- All proxy callback symbols are present in the device ELF; `mux_callbacks[]`
-  is populated (verified via GDB read of the live symbols).
-- Host `bus_sync()` / `bus_rx_work()` parse the 4-byte response correctly
-  (`p[1] | (p[2]<<8)`).
-- `handle_protocol_info.isra.0` (device ELF) **does** call
-  `serial_mux_supported_types_mask` (`bl 0x5fd3e` at `0x3e1de`), so the code
-  path is confirmed correct.
+- RTT control block `_SEGGER_RTT` = `0x20020040`; up-buffer
+  `_acUpBuffer` = `0x20000040` (128 KB, `.rtt_buff_data` section at
+  `0x20000000..0x200200e8`).
+- Dump with JLinkExe:
+  `JLinkExe -CommandFile` with `si SWD / speed 4000 / device nRF5340 /
+  connect / halt / mem8 0x20000040 <len> / go`.
+- `WrOff` (CB+0x64, 32-bit) is the read offset; the J-Link side must not
+  advance it (read-only dumps are safe).
 
-So the live device is computing 0 even though the code is sound. A temporary
-`printk` diagnostic was added to `handle_protocol_info`
-(`embedded80211/zephyr/device/serial/serial.c`) to capture the live value on
-the device console. **This is temporary — remove it before finalizing.**
+## Transport: USB CDC-ACM (reverted 2026-11-08)
 
-## Device hardware state (needs attention on resume)
+The J-Link-UART transport steer (introduced while the target USB was not
+connected) is **reverted**: the protocol bus is back on the target USB
+CDC-ACM port (CDC_ACM_0), as in the pre-steering design. Both USB cables
+are in use: J-Link USB (SWD flash/debug + RTT) and target USB
+(protocol bus). The CDC ACM TX-drain patch is verified applied in the
+Mac NCS tree.
 
-After repeated J-Link flash attempts the nRF7002 DK entered a bad state:
-console empty, SWD unresponsive (`InitTarget()` hangs). It needs a **physical
-RESET** (board reset button, or unplug/replug USB) before the next flash.
-The dev host has no passwordless sudo, so a USB power toggle is not possible
-from the shell.
+**Verified on hardware (2026-11-08):**
+- Both cores flashed via nrfutil 8.1.1 (logs: `$NRFUTIL_HOME/logs/`),
+  board reset via JLinkExe. Boot log (RTT) shows the USB-ACM transport
+  up: `usbd_init: bNumInterfaces 2`, `serial_mux: Registered serial
+  interface 1 (CDC_ACM_0)`, `serial_usb: USB CDC ACM initialized
+  successfully`, `Wi-Fi ready — proxy mode`.
+- **The Mac does NOT show the target USB device** (no VID 0x2FE3 in the
+  ioreg USB tree; only the J-Link). Only the J-Link USB is attached to
+  the Mac.
+- **The app core is running at ~1/43 speed** (a 14 s boot takes ~10 min
+  wall time; DWT CYCCNT advances at ~1.5 MHz vs the 64 MHz the firmware
+  assumes). The 16 MHz HSE is not oscillating (HSE status reg = 0, all
+  FLLs unlocked — read back as 0 via SWD; app-core clock regs are not
+  SWD-readable on this part). Consistent with the board being powered
+  only from the J-Link OB (no target-USB VBUS). This also explains the
+  J-Link-UART steering session's failures: at ~1.5 MHz PCLK the UARTE
+  "115200" setting actually produces ~2.7 kbaud, so the J-Link virtual
+  port could never exchange frames, and USB can't enumerate without the
+  HSE-locked clock.
+
+**Action:** plug the DK **target** USB connector into a working Mac USB
+port (powers the board from VBUS + carries the CDC-ACM bus), verify the
+device enumerates (VID 0x2FE3, two CDC-ACM ports), then re-run the E2E:
+`E2E_SSID=MedallionNet E2E_PSK= host/tests/run_e2e.sh`
 
 ## Pending items
 
-1. **Physically reset the nRF7002 DK.**
-2. **Reflash** the current device build (J-Link recipe below) and read the
-   device console for the
-   `E80211 DIAG: handle_protocol_info supported_types=0x....` line to see the
-   live value the device computes.
-3. **Fix the device 0-supported-types** once the live value is known.
-4. **Re-run the full E2E**: confirm `E2E WIFI: OK` (scan → connect → DHCP)
-   and `E2E BT: SCAN DONE`.
-5. **Remove the temporary `printk`** from `serial.c`.
+1. **Connect the DK target USB to a working Mac USB port** (physical) —
+   this also fixes the ~1/43-speed clock issue (HSE needs proper VBUS
+   power; see the finding above).
+2. **Verify enumeration**: VID 0x2FE3 with two CDC-ACM ports
+   (`ioreg -p IOUSB | grep -i 2fe3`); the bus port is found automatically
+   by the harness (PROTOCOL_INFO probe).
+3. **Re-run the full E2E** against `MedallionNet` (open):
+   `E2E_SSID=MedallionNet E2E_PSK= host/tests/run_e2e.sh` — expect
+   `E2E WIFI: DHCP BOUND <ip> gw <gw>`, `E2E WIFI: GATEWAY PING OK`,
+   `E2E WIFI: OK`, `E2E BT: SCAN DONE`, `E2E PASS`.
 
-## Key commands (all after `source /home/mikko/ncs/env.sh`)
+## Key commands (Mac, all after `source /opt/nordic/ncs/v3.4.1/zephyr/zephyr-env.sh`)
 
-Host build (creds are build args only):
+Host build (creds are build args only; empty PSK = open network):
 
 ```
 west build -d build/host -s host -b qemu_cortex_m3 --no-sysbuild \
   -- -DCONFIG_HOST_TEST_ENABLED=y \
-  -DCONFIG_HOST_TEST_WIFI_SSID="\"HappyHouse\"" \
-  -DCONFIG_HOST_TEST_WIFI_PSK="\"dontenter\""
+  -DCONFIG_HOST_TEST_WIFI_SSID="\"MedallionNet\"" \
+  -DCONFIG_HOST_TEST_WIFI_PSK="\"\""
 ```
 
-Device build: `west build -d build/nrf7002dk`
+Device build: `west build -d build/nrf7002dk -s nrf7002dk -b nrf7002dk/nrf5340/cpuapp/nrf7001`
 
-QEMU one-shot WITH the physical device:
-
-```
-rm -f /tmp/e80211-host-bus /tmp/e80211-host-console.log && : > /tmp/e80211-host-console.log && \
-(socat pty,raw,echo=0,link=/tmp/e80211-host-bus \
-   /dev/serial/by-id/usb-Test_Vendor_My_Zephyr_CDC-ACM_Device_2994E6BE83CEFC3F-if00 & \
- spid=$!; \
- qemu-system-arm -machine lm3s6965evb -cpu cortex-m3 -nographic \
-   -kernel build/host/zephyr/zephyr.elf \
-   -serial "file:/tmp/e80211-host-console.log" -serial "file:/tmp/e80211-host-bus" \
-   -monitor none & qpid=$!; sleep 35; kill $qpid $spid 2>/dev/null; wait 2>/dev/null); \
-cat /tmp/e80211-host-console.log
-```
-
-Full E2E harness: `E2E_SSID=HappyHouse E2E_PSK=dontenter host/tests/run_e2e.sh`
-
-### J-Link flash recipe (nRF7002 DK, on-board J-Link OB)
-
-`/home/mikko/local/jlink/JLink_Linux_V982_x86_64/JLinkExe` with a command file
-containing:
+Device flash (J-Link, nrfutil):
 
 ```
-si SWD
-speed 1000
-device nRF5340
-coresel 0
-connect
-halt
-load build/nrf7002dk/zephyr/zephyr.hex
-reset
-quit
+TC=/opt/nordic/ncs/toolchains/97226bad62
+export NRFUTIL_HOME=$TC/nrfutil/home PATH="$TC/nrfutil/bin:$PATH"
+nrfutil device program --core network --firmware build/nrf7002dk/ipc_radio/zephyr/zephyr.hex
+nrfutil device program --firmware build/nrf7002dk/nrf7002dk/zephyr/zephyr.hex
 ```
 
-Notes: `connect` MUST precede `halt`; the device name is `nRF5340` (NOT
-`nRF5340_app`). The GDB server (`JLinkGDBServer -selectIF SWD -Device nRF5340
--port 5678`) holds the J-Link and must be killed before a flash.
+nrfutil 8.x prints **nothing on stdout** (logs go to
+`$NRFUTIL_HOME/logs/nrfutil-device.log`); check "No errors executing
+operation program" there. It does not reset the board afterwards —
+reset with JLinkExe (`r` + `g`) if the app needs to start.
+
+Full E2E harness: `E2E_SSID=MedallionNet E2E_PSK= host/tests/run_e2e.sh`
+(board port auto-detected; pass it as `$1` to override).
 
 ### Constraints
 
@@ -134,17 +175,41 @@ Notes: `connect` MUST precede `halt`; the device name is `nRF5340` (NOT
 - No PII/credentials in the repo. E2E WiFi creds only via build args/env.
 - NCS tree local patches MUST NOT be reverted:
   `zephyr/subsys/usb/device_next/class/usbd_cdc_acm.c` (TX-drain patch) and
-  `zephyr/drivers/wifi/nrf_wifi/src/net_if.c` (diagnostic counter).
-- `source /home/mikko/ncs/env.sh` before any `west` command. The NCS host app
-  MUST build with `--no-sysbuild`. Kconfig warnings are hard errors.
+  `zephyr/drivers/wifi/nrf_wifi/src/net_if.c` (start-zep step diagnostic).
+  Both are verified applied in the Mac NCS v3.4.1 tree (2026-11-08);
+  if a fresh NCS install appears, re-apply both.
+- `source /opt/nordic/ncs/v3.4.1/zephyr/zephyr-env.sh` before any `west`
+  command (loads `~/.zephyrrc`). The NCS host app MUST build with
+  `--no-sysbuild`. Kconfig warnings are hard errors.
 - `qemu_cortex_m3` has 64 KB RAM → keep net_buf/heap sizes small.
 
-## Files changed this session
+## Files changed (2026-11-08 revert to USB CDC-ACM)
 
-1. `embedded80211/zephyr/Kconfig` — wrapped the "Serial multiplexer" menu and
-   `rsource "device/serial/Kconfig"` in `if SERIAL_DEVICE_ROLE ... endif`.
-2. `host/app.overlay` — added `&eth { status = "disabled"; };` (Stellaris ENET
-   disable).
-3. `embedded80211/zephyr/device/serial/serial.c` — **temporary** `printk`
-   diagnostic in `handle_protocol_info` (remove before final).
-4. `E2E_PROGRESS.md` — this file.
+1. `nrf7002dk/app.overlay` — USB CDC-ACM transport restored (usbd +
+   CDC_ACM_0/CDC_ACM_1, uart0); J-Link UART1/pinctrl/RTS-hog removed;
+   `zephyr,console = &vserial` kept by design.
+2. `nrf7002dk/prj.conf` — USB device stack + CDC ACM config restored;
+   the `SERIAL_MUX_IFACE_USB=n` / `UART_CONSOLE=n` steer removed.
+3. `embedded80211/zephyr/device/serial/uart.c` — restored to committed
+   state (UART0 backend; UARTE register diag removed).
+4. `embedded80211/zephyr/device/serial/serial.c` — temporary E80211 DIAG
+   printk removed (diagnosis complete).
+5. `embedded80211/zephyr/host/bus.c` — BUSTX/BUSRX/BUSYNC trace printks
+   removed; the bus_open retry-on-failed-handshake fix kept.
+6. `host/run_qemu.sh`, `host/tests/run_e2e.sh`,
+   `host/tests/find_bus_port.py` — bus port = target USB CDC-ACM
+   (functional auto-detect kept; wording updated).
+7. `host/src/e2e_test.c` — open-network + gateway ping kept from
+   2026-11-07; stray indent fixed.
+8. `E2E_PROGRESS.md` — this file.
+
+## Files changed (2026-11-07 session)
+
+1. `host/src/e2e_test.c` — open-network security selection; gateway ICMP
+   ping (new success criterion).
+2. `host/tests/run_e2e.sh` — env + port auto-detect; gateway-ping check.
+3. `host/run_qemu.sh` — port auto-detect.
+4. `~/.zephyrrc` (outside repo) — Mac NCS toolchain environment.
+5. `/opt/nordic/ncs/v3.4.1/zephyr/drivers/wifi/nrf_wifi/src/net_if.c`
+   (outside repo) — `nrf_wifi_start_zep_last_step` diagnostic re-applied.
+6. `E2E_PROGRESS.md` — this file.

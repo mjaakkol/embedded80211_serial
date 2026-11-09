@@ -4,9 +4,7 @@
 #include <zephyr/sys/ring_buffer.h>
 #include <string.h>
 
-#include "vserial.h"
-
-LOG_MODULE_REGISTER(vserial, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(vserial, LOG_LEVEL_INF);
 
 /*
  * Virtual serial interface over the common link protocol.

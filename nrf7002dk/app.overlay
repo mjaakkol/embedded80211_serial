@@ -1,8 +1,24 @@
+/*
+ * Serial transport: the nRF5340 target USB connector (a second USB cable,
+ * separate from the J-Link USB used for SWD flash/debug) exposes two USB
+ * CDC-ACM ports (VID 0x2FE3):
+ *
+ *   CDC_ACM_0 (cdc_serial_uart):  common link protocol bus — the
+ *                                 multiplexer's USB backend (serial_usb.c)
+ *   CDC_ACM_1 (cdc_serial_uart2): spare port, not bound to a console
+ *
+ * The console is the vserial virtual UART (chosen below): by design the
+ * Zephyr console has no physical pins, and console writes are dropped by
+ * vserial's poll stub. Real logs flow over SEGGER RTT (SWD, J-Link cable).
+ *
+ * uart0 stays enabled as the multiplexer's UART backend (uart.c; default
+ * CONFIG_SERIAL_MUX_IFACE_UART), but no protocol traffic is routed to it:
+ * every traffic type defaults to the USB interface.
+ */
 &uart0 {
     status = "okay";
-    current-speed = <115200>; // Set baud rate
+    current-speed = <115200>;
 };
-
 
 zephyr_udc0: &usbd {
     status = "okay";
@@ -44,7 +60,12 @@ zephyr_udc0: &usbd {
 
 / {
      chosen {
-         zephyr,console = &cdc_serial_uart2;
+         /*
+          * Console sink: the vserial virtual UART (no physical pins), by
+          * design. Console writes are dropped by vserial's poll stub;
+          * logs flow over SEGGER RTT (SWD, J-Link cable).
+          */
+         zephyr,console = &vserial;
      };
 
      vserial: virtual-serial {
