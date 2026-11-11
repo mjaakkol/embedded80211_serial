@@ -104,7 +104,8 @@ Length defines the length of the data after the header.
   instantiates the host-side drivers (virtual Wi-Fi, virtual Bluetooth HCI,
   link protocol bus) over a UART, plus an optional end-to-end test.
 - `linux/` — Linux host integration (cfg80211-based), separate from the
-  Zephyr host app.
+  Zephyr host app. Phase 1–2 driver plan (protocol mapping, capability
+  matrix, architecture) in [linux/README.md](linux/README.md).
 - `cli_test/` — Rust command-line test harness that drives the link protocol
   over a serial port.
 - `protos/` — protobuf schemas shared by the device and host builds
