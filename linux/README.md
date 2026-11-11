@@ -232,9 +232,9 @@ flowchart TB
         BUS["vserial bus: per-traffic-type in-kernel ports<br/>+ tty exposure"]
         USB["USB CDC-ACM transport (bulk URBs)"]
     end
-    subgraph DEV["nRF7002 device"]
+    subgraph DEV["Zephyr device"]
         MUX["multiplexer (link protocol)"]
-        WP["wifi_mgmt_proxy / wifi_data"]
+        WP["wifi_mgmt_proxy / wifi_data / net_if_mgmt"]
         BP["bt_proxy"]
         RF["nRF70 radio + Zephyr stacks"]
     end
@@ -246,6 +246,8 @@ flowchart TB
 The layers satisfy `linux/AGENTS.md`: serial framing never leaks into
 cfg80211 callbacks; transport, framing, protobuf, and cfg80211 registration
 are separate layers with explicit ownership.
+
+Zephyr device is board agnostic. Thus any board will work with the same Linux driver.
 
 Pairing with the Zephyr host implementation (same protocol, same device):
 
@@ -262,8 +264,8 @@ Pairing with the Zephyr host implementation (same protocol, same device):
 The multiplexed link is exposed as **in-kernel ports, one per traffic type**,
 plus a tty per port:
 
-- The Wi-Fi driver claims two ports exclusively: `wifi-mgmt` (protobuf
-  roundtrips + events) and `wifi-data` (Ethernet frames).
+- The Wi-Fi driver claims three ports exclusively: `wifi-mgmt` (protobuf
+  roundtrips + events), `wifi-data` (Ethernet frames) and 'net-if-mgmt'.
 - `hci` port → Bluetooth path (§3.5); `vserial` port → console tty (D6).
 - Exclusive ownership: only one consumer per port (the Wi-Fi driver for the
   Wi-Fi ports, BlueZ for HCI). A tty bound to a claimed port fails open.
