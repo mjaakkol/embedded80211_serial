@@ -532,6 +532,24 @@ message ApStaDisconnectedEvent {
     bytes sta_mac_address = 1; // 6 bytes MAC address of the station that disconnected
 }
 
+message WifiCapabilitiesResponse {
+  ProtocolVersionResponse protocol_version = 1; // Version of the Wi-Fi management protocol
+  bool supports_raw_rx = 2; // Whether the driver supports raw RX capture (monitor mode)
+  bool supports_raw_tx = 3; // Whether the driver supports raw TX injection
+  bool supports_ap_mode = 4; // Whether the driver supports AP mode
+  bool supports_mesh_mode = 5; // Whether the driver supports mesh point mode
+  bool supports_p2p_go = 6; // Whether the driver supports P2P Group Owner mode
+  bool supports_p2p_client = 7; // Whether the driver supports P2P Client mode
+  bool supports_wpa3_personal = 8; // Whether the driver supports WPA3 Personal (SAE)
+  bool supports_wpa3_enterprise = 9; // Whether the driver supports WPA3 Enterprise (Suite-B)
+  bool supports_mfp = 10; // Whether the driver supports Management Frame Protection (MFP)
+  bool supports_twt = 11; // Whether the driver supports Target Wake Time (TWT)
+  bool supports_5ghz = 12; // Whether the driver supports 5 GHz band
+  bool supports_6ghz = 13; // Whether the driver supports 6 GHz
+  bool supports_p2p = 14; // Whether the driver supports Wi-Fi Direct (P2P)
+  uint32 supported_wifi_aware_version = 15; // Supported Wi-Fi Aware version (0 if not supported)
+}
+
 // Raw 802.11 frame received on the air interface (data connectivity loopback
 // testing). The device transmits a frame and, with raw/promiscuous RX enabled,
 // captures it back. The payload is the raw received bytes (which may include a
@@ -567,21 +585,26 @@ message WifiEvent {
 
 enum RequestType {
     REQUEST_TYPE_UNKNOWN = 0;
-    REQUEST_TYPE_CONNECT = 1;
-    REQUEST_TYPE_DISCONNECT = 2;
-    REQUEST_TYPE_SCAN = 3;
-    REQUEST_TYPE_AP_ENABLE = 4;
-    REQUEST_TYPE_AP_DISABLE = 5;
-    REQUEST_TYPE_GET_WIFI_VERSION = 6;
-    REQUEST_TYPE_SET_PS_CONFIG = 7;
-    REQUEST_TYPE_GET_PS_CONFIG = 8;
-    REQUEST_TYPE_SET_REG_DOMAIN = 9;
-    REQUEST_TYPE_GET_REG_DOMAIN = 10;
-    REQUEST_TYPE_GET_IFACE_STATUS = 11;
-    REQUEST_TYPE_GET_PROTOCOL_VERSION = 12;
-    REQUEST_TYPE_SEND_RAW_FRAME = 13;
-    REQUEST_TYPE_ENABLE_RAW_RX = 14;
-    REQUEST_TYPE_DISABLE_RAW_RX = 15;
+    // Describes the capabilities of the Wi-Fi driver/firmware, including supported features and protocol version.
+    // This this = the response to REQUEST_TYPE_WIFI_CAPABILITIES and should be called very early in the initialization sequence to determine what features are available.
+    // The capabilities response can also be used to determine if the driver supports raw RX/TX, AP mode, mesh mode, P2P, WPA3, MFP, TWT, and other features.
+    // This allows the host to adapt its behavior based on the capabilities of the Wi-Fi driver/firmware without needing to query each feature individually.
+    REQUEST_TYPE_WIFI_CAPABILITIES = 1; // to query driver capabilities
+    REQUEST_TYPE_CONNECT = 2;
+    REQUEST_TYPE_DISCONNECT = 3;
+    REQUEST_TYPE_SCAN = 4;
+    REQUEST_TYPE_AP_ENABLE = 5;
+    REQUEST_TYPE_AP_DISABLE = 6;
+    REQUEST_TYPE_GET_WIFI_VERSION = 7;
+    REQUEST_TYPE_SET_PS_CONFIG = 8;
+    REQUEST_TYPE_GET_PS_CONFIG = 9;
+    REQUEST_TYPE_SET_REG_DOMAIN = 10;
+    REQUEST_TYPE_GET_REG_DOMAIN = 11;
+    REQUEST_TYPE_GET_IFACE_STATUS = 12;
+    REQUEST_TYPE_GET_PROTOCOL_VERSION = 13;
+    REQUEST_TYPE_SEND_RAW_FRAME = 14;
+    REQUEST_TYPE_ENABLE_RAW_RX = 15;
+    REQUEST_TYPE_DISABLE_RAW_RX = 16;
     // Add other request types as needed
 }
 
@@ -617,8 +640,7 @@ message WifiMgmtResponse {
     GetPowerSaveConfigResponse get_ps_config_resp = 4;
     GetRegulatoryDomainResponse get_reg_domain_resp = 5;
     GetInterfaceStatusResponse get_iface_status_resp = 6;
-    // Version
-    ProtocolVersionResponse get_protocol_version_resp = 7;
+    WifiCapabilitiesResponse capabilities_resp = 7;
     EnableRawRxResponse enable_raw_rx_resp = 8;
   }
 }
