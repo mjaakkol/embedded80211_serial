@@ -22,7 +22,8 @@ message IPv6Address {
 
 // ---- Enumerations -----------------------------------------------------------
 
-// Network interface type
+// Product technology classification of the interface. Not Zephyr's
+// net_link_type (which is per-L2: IEEE802154, Ethernet, ...).
 enum NetIfType {
   NET_IF_TYPE_UNKNOWN = 0;
   NET_IF_TYPE_WIFI = 1;
@@ -67,12 +68,14 @@ enum NetAddrType {
   NET_ADDR_TYPE_OVERRIDABLE = 4; // Can be overridden by DHCP/autoconf
 }
 
-// IP address state (net_addr_state)
+// IP address state (net_addr_state).
+// NOTE: values are Zephyr's net_addr_state + 1; do not cast directly.
+// NET_ADDR_STATE_ANY (0) corresponds to Zephyr's NET_ADDR_ANY_STATE (-1).
 enum NetAddrState {
   NET_ADDR_STATE_ANY = 0;
-  NET_ADDR_STATE_TENTATIVE = 1;   // DAD in progress, address not yet usable
-  NET_ADDR_STATE_PREFERRED = 2;   // Address is preferred and usable
-  NET_ADDR_STATE_DEPRECATED = 3;  // Address is deprecated but still valid
+  NET_ADDR_STATE_TENTATIVE = 1;   // Zephyr TENTATIVE: DAD in progress
+  NET_ADDR_STATE_PREFERRED = 2;   // Zephyr PREFERRED
+  NET_ADDR_STATE_DEPRECATED = 3;  // Zephyr DEPRECATED
 }
 
 // ---- Interface Information --------------------------------------------------
@@ -101,6 +104,9 @@ message NetworkInterface {
   bool dormant = 10;
   // True if promiscuous mode active (net_if_is_promisc)
   bool promisc = 11;
+  // Full net_if_flag bitmask (bit n = NetIfFlag n). The per-flag booleans
+  // above remain as derived convenience fields.
+  uint32 flags = 12;
 }
 
 // IPv4 unicast address and associated configuration
@@ -241,7 +247,7 @@ message AddIPv4Addr {
   uint32 index = 1;
   IPv4Address addr = 2;
   NetAddrType addr_type = 3;
-  uint32 vlifetime_s = 4;    // Validity in seconds; 0 = infinite
+  uint32 vlifetime_ms = 4;    // Validity in milliseconds; 0 = infinite
 }
 
 // Remove a unicast IPv4 address (net_if_ipv4_addr_rm)
@@ -326,7 +332,7 @@ message AddIPv6Addr {
   uint32 index = 1;
   IPv6Address addr = 2;
   NetAddrType addr_type = 3;
-  uint32 vlifetime_s = 4;    // Validity in seconds; 0 = infinite
+  uint32 vlifetime_ms = 4;    // Validity in milliseconds; 0 = infinite
 }
 
 // Remove a unicast IPv6 address (net_if_ipv6_addr_rm)
@@ -347,7 +353,7 @@ message GetIPv6ConfigResponse {
   repeated IPv6PrefixInfo prefixes = 3;
   uint32 hop_limit = 4;           // net_if_ipv6_get_hop_limit
   uint32 mcast_hop_limit = 5;     // net_if_ipv6_get_mcast_hop_limit
-  uint32 reachable_time_ms = 6;   // net_if_ipv6_get_reachable_time
+  uint32 reachable_time_ms = 6;   // net_if_ipv6_get_base_reachable_time
   uint32 retrans_timer_ms = 7;    // net_if_ipv6_get_retrans_timer
 }
 

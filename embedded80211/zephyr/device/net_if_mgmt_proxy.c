@@ -59,6 +59,9 @@ static void iface_enum_cb(struct net_if *iface, void *user_data)
     ni->admin_up   = net_if_is_admin_up(iface);
     ni->carrier_ok = net_if_is_carrier_ok(iface);
     ni->dormant    = net_if_is_dormant(iface);
+    ni->offload_supported = net_if_is_ip_offloaded(iface);
+    ni->promisc = net_if_is_promisc(iface);
+    ni->flags = iface->flags;
     ni->oper_state = (embedded_wifi_mgmt_NetIfOperState)net_if_oper_state(iface);
 
     if (net_if_is_wifi(iface)) {
