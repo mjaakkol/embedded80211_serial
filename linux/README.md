@@ -44,7 +44,7 @@ reference host implementation and the pairing target for this driver.
 
 ### 2.1 Firmware (radio co-processor) capabilities
 
-- **Full-MAC**: the radio core runs a complete 802.11 stack (Zephyr `nrf_wifi`
+- **Full-MAC**: the radio core runs a complete 802.11 Zephyr stack (eg. `nrf_wifi`
   on NCS v3.4.1). 802.11↔Ethernet conversion, scanning, authentication/
   association, 4-way handshake, and **all crypto** happen in firmware. The host
   sees Ethernet L2 frames plus management commands.
@@ -227,20 +227,36 @@ netdev — the same class as `ipw2200` (full-MAC, firmware auth) and `brcmfmac`
 flowchart TB
     subgraph HOST["Linux host"]
         C8["cfg80211 (wiphy, netdev)"]
-        DRV["driver core<br/>(cfg80211 ↔ embedded80211 mapping, fw_ops)"]
+        DRV["driver core<br/>(cfg80211 ↔ embedded80211 mapping)"]
         CODEC["proto codec (nanopb-style, build-time codegen)"]
+        VSERIAL["virtual serial tty"]
+        BT_SERIAL["BT virtual serial"]
+        THREAD_SERIAL["Thread virtual serial"]
+        WIFI_SERIAL["WiFi virtual interface"]
         BUS["vserial bus: per-traffic-type in-kernel ports<br/>+ tty exposure"]
-        USB["USB CDC-ACM transport (bulk URBs)"]
+        USB["USB CDC-ACM transport (bulk URBs) or SPI"]
+        BT["BlueZ"]
+        TH["OpenThread"]
     end
     subgraph DEV["Zephyr device"]
         MUX["multiplexer (link protocol)"]
-        WP["wifi_mgmt_proxy / wifi_data / net_if_mgmt"]
+        WP["wifi_mgmt_proxy / net_if_mgmt"]
+        WIFI_DATA["wifi_data"]
+        NET_IF["net_if_mgmt_proxy"]
         BP["bt_proxy"]
+        TP["thread_proxy"]
         RF["nRF70 radio + Zephyr stacks"]
+        ZH["Zephyr"]
     end
-    C8 --> DRV --> CODEC --> BUS --> USB --> MUX
+    C8 --> DRV --> CODEC --> WIFI_SERIAL --> BUS --> USB --> MUX
+    BT --> BT_SERIAL --> BUS
+    TH --> THREAD_SERIAL --> BUS
+    VSERIAL --> BUS
+    MUX --> TP --> RF
     MUX --> WP --> RF
     MUX --> BP --> RF
+    MUX --> WIFI_DATA --> RF
+    MUX --> NET_IF --> ZH
 ```
 
 The layers satisfy `linux/AGENTS.md`: serial framing never leaks into
