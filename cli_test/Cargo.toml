@@ -2,6 +2,7 @@
 name = "cli_test"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.87"
 
 [dependencies]
 serialport = "4.10.1"
@@ -13,3 +14,7 @@ libc = "0.2"
 
 [build-dependencies]
 prost-build = "0.14.4"
+
+[lints.rust]
+# The verification gate in AGENTS.md: no dead code or unused imports.
+unused = "deny"

@@ -54,16 +54,26 @@ pub mod wifi_mgmt {
 
 /// Traffic types. Values are fixed by the link protocol and must match the
 /// device-side `enum SerialType`.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SerialType {
+    /// Wi-Fi management (cfg80211-style control and scan events).
     WifiMgmt = 0,
+    /// Wi-Fi data frames.
     WifiData = 1,
+    /// Network interface management (`net_if` queries).
     NetIfMgmt = 2,
+    /// Bluetooth HCI (H:4 packets).
     Hci = 3,
+    /// OpenThread (Spinel).
     Thread = 4,
+    /// Network offloading (reserved).
     NetOffloading = 5,
+    /// AT commands (reserved).
     AtCmd = 6,
+    /// Protocol information (version, supported types, sequence sync).
     ProtocolInfo = 7,
+    /// Virtual serial.
     VSerial = 8,
 }
 
@@ -91,11 +101,16 @@ impl SerialType {
 }
 
 /// Error codes in the 2-bit error field of the frame header.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorType {
+    /// No error.
     NoError = 0,
+    /// Sequence number mismatch; the device reset its expected sequence to zero.
     IncorrectSequenceNumber = 1,
+    /// The device has no buffers available.
     OutOfBuffers = 2,
+    /// The frame payload exceeded the device limit.
     LengthTooLong = 3,
 }
 
@@ -113,12 +128,17 @@ impl From<u8> for ErrorType {
 /// A decoded link-protocol frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Frame {
-    pub rtype: SerialType,
+    /// Traffic type of the frame payload.
+    pub traffic_type: SerialType,
+    /// No-ACK flag: the receiver must not acknowledge this frame.
     pub no_ack: bool,
-    /// true = device -> host direction
-    pub host: bool,
+    /// True for device -> host direction frames.
+    pub to_host: bool,
+    /// Protocol error carried by the frame, if any.
     pub error: ErrorType,
+    /// Sequence number (0..15, wraps).
     pub seq: u8,
+    /// Frame payload (empty for ACK frames).
     pub payload: Vec<u8>,
 }
 
@@ -138,65 +158,105 @@ impl Frame {
         if length > MAX_PAYLOAD_LEN || data.len() != 4 + length {
             return None;
         }
-        let rtype = SerialType::from_u8(data[0] & 0x0F)?;
-        let no_ack = data[0] & (1 << 4) != 0;
-        let host = data[0] & (1 << 5) != 0;
-        let error = ErrorType::from(data[0] >> 6);
-        let seq = (data[1] >> 4) & 0x0F;
-        if data[1] & 0x0F != 0 {
+        let mut header = [0u8; 4];
+        header.copy_from_slice(&data[0..4]);
+        Self::from_parts(header, data[4..].to_vec())
+    }
+
+    /// Validates a 4-byte header and pairs it with an already-read payload,
+    /// avoiding a second copy of the payload bytes.
+    fn from_parts(header: [u8; 4], payload: Vec<u8>) -> Option<Self> {
+        let length = u16::from_be_bytes([header[2], header[3]]) as usize;
+        if length > MAX_PAYLOAD_LEN || length != payload.len() {
+            return None;
+        }
+        let traffic_type = SerialType::from_u8(header[0] & 0x0F)?;
+        let no_ack = header[0] & (1 << 4) != 0;
+        let to_host = header[0] & (1 << 5) != 0;
+        let error = ErrorType::from(header[0] >> 6);
+        let seq = (header[1] >> 4) & 0x0F;
+        if header[1] & 0x0F != 0 {
             // Reserved bits must be zero.
             return None;
         }
         Some(Self {
-            rtype,
+            traffic_type,
             no_ack,
-            host,
+            to_host,
             error,
             seq,
-            payload: data[4..].to_vec(),
+            payload,
         })
     }
 
     /// Builds a host -> device frame. The device rejects frames with a
     /// zero-length payload, so callers must pass at least one payload byte.
-    pub fn encode_host_frame(rtype: SerialType, seq: u8, payload: &[u8]) -> Vec<u8> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::PayloadTooLong`] when `payload` exceeds the
+    /// 4096-byte link limit.
+    pub fn encode_host_frame(
+        traffic_type: SerialType,
+        seq: u8,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, SessionError> {
         debug_assert!(!payload.is_empty(), "device rejects length-0 frames");
+        if payload.len() > MAX_PAYLOAD_LEN {
+            return Err(SessionError::PayloadTooLong(payload.len()));
+        }
         let length = (payload.len() as u16).to_be_bytes();
         let mut frame = BytesMut::with_capacity(4 + payload.len());
-        frame.put_u8(rtype.to_u8());
+        frame.put_u8(traffic_type.to_u8());
         frame.put_u8((seq & 0x0F) << 4);
         frame.put_u8(length[0]);
         frame.put_u8(length[1]);
         frame.put_slice(payload);
-        frame.into()
+        Ok(frame.into())
     }
 
     /// PROTOCOL_INFO query frame. The device discards the payload and
     /// responds with version, supported-type mask and next expected
     /// sequence number.
     pub fn protocol_info_query(seq: u8) -> Vec<u8> {
+        // A single fixed payload byte can never exceed the link limit.
         Self::encode_host_frame(SerialType::ProtocolInfo, seq, &[0x00])
+            .expect("1-byte payload always encodable")
     }
 }
 
 /// Information reported by the device in the PROTOCOL_INFO response.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProtocolInfo {
+    /// Wire protocol version.
     pub version: u8,
+    /// Bitmask of supported traffic types (bit N = `SerialType` N).
     pub supported_types_mask: u16,
     /// Sequence number the device expects on the next host -> device frame.
     pub next_seq: u8,
 }
 
+/// Failure to decode a fixed-layout protocol payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MalformedPayload;
+
+impl std::fmt::Display for MalformedPayload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "malformed protocol payload")
+    }
+}
+
+impl std::error::Error for MalformedPayload {}
+
 impl TryFrom<&Frame> for ProtocolInfo {
-    type Error = ();
+    type Error = MalformedPayload;
 
     fn try_from(frame: &Frame) -> Result<Self, Self::Error> {
-        if frame.rtype != SerialType::ProtocolInfo
+        if frame.traffic_type != SerialType::ProtocolInfo
             || frame.error != ErrorType::NoError
             || frame.payload.len() != 4
         {
-            return Err(());
+            return Err(MalformedPayload);
         }
         Ok(Self {
             version: frame.payload[0],
@@ -253,8 +313,11 @@ pub fn hci_command_packet(opcode: u16, params: &[u8]) -> Vec<u8> {
 /// status field (that belongs to the Command Status event, 0x0F).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HciCommandComplete {
+    /// Number of command packets this event completes.
     pub num_packets: u8,
+    /// Opcode of the completed command.
     pub opcode: u16,
+    /// Command return parameters.
     pub params: Vec<u8>,
 }
 
@@ -297,14 +360,14 @@ pub struct HciVersionInfo {
 }
 
 impl TryFrom<&HciCommandComplete> for HciVersionInfo {
-    type Error = ();
+    type Error = MalformedPayload;
 
     fn try_from(cc: &HciCommandComplete) -> Result<Self, Self::Error> {
         // The fixed header is 6 bytes (hci, lmp, utf, mfr); the SDP product
         // field is nominally 8 bytes, but some controllers return a shorter
         // blob. Decode what is present and zero-pad a short SDP field.
         if cc.opcode != HCI_OP_READ_LOCAL_VERSION || cc.params.len() < 6 {
-            return Err(());
+            return Err(MalformedPayload);
         }
         let p = &cc.params;
         let mut sdp = [0u8; 8];
@@ -327,12 +390,13 @@ pub struct HciBdAddr {
 }
 
 impl TryFrom<&HciCommandComplete> for HciBdAddr {
-    type Error = ();
+    type Error = MalformedPayload;
 
     fn try_from(cc: &HciCommandComplete) -> Result<Self, Self::Error> {
         if cc.opcode != HCI_OP_READ_BD_ADDR || cc.params.len() != 6 {
-            return Err(());
+            return Err(MalformedPayload);
         }
+        // `params` is exactly 6 bytes here, so this conversion cannot fail.
         Ok(Self {
             addr: cc.params[..6].try_into().unwrap(),
         })
@@ -402,14 +466,14 @@ pub fn format_hci_command_complete(cc: &HciCommandComplete) -> String {
                     v.manufacturer,
                 )
             }
-            Err(()) => "Version: malformed parameters".to_string(),
+            Err(_) => "Version: malformed parameters".to_string(),
         },
         HCI_OP_READ_BD_ADDR => match HciBdAddr::try_from(cc) {
             Ok(a) => format!(
                 "BD ADDR: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
                 a.addr[5], a.addr[4], a.addr[3], a.addr[2], a.addr[1], a.addr[0]
             ),
-            Err(()) => "BD ADDR: malformed parameters".to_string(),
+            Err(_) => "BD ADDR: malformed parameters".to_string(),
         },
         _ => {
             let params: String = cc
@@ -430,6 +494,7 @@ pub fn format_hci_command_complete(cc: &HciCommandComplete) -> String {
 /// Session errors reported back to the caller.
 #[derive(Debug)]
 pub enum SessionError {
+    /// A serial port read, write, or flush failed.
     Io(std::io::Error),
     /// No complete frame arrived before the deadline.
     Timeout,
@@ -437,6 +502,10 @@ pub enum SessionError {
     DeviceError(ErrorType),
     /// A frame arrived that does not match the expected response.
     UnexpectedFrame(Frame),
+    /// A protobuf payload failed to decode.
+    Protobuf(prost::DecodeError),
+    /// An outgoing payload exceeded the 4096-byte link limit.
+    PayloadTooLong(usize),
 }
 
 impl std::fmt::Display for SessionError {
@@ -446,11 +515,23 @@ impl std::fmt::Display for SessionError {
             Self::Timeout => write!(f, "timed out waiting for a response frame"),
             Self::DeviceError(e) => write!(f, "device reported protocol error {e:?}"),
             Self::UnexpectedFrame(frame) => write!(f, "unexpected frame: {frame:?}"),
+            Self::Protobuf(e) => write!(f, "protobuf decode failed: {e}"),
+            Self::PayloadTooLong(len) => {
+                write!(f, "payload length {len} exceeds the 4096-byte limit")
+            }
         }
     }
 }
 
-impl std::error::Error for SessionError {}
+impl std::error::Error for SessionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(e) => Some(e),
+            Self::Protobuf(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 /// A host session over a serial port: owns the host->device sequence
 /// counter and the frame read loop.
@@ -460,6 +541,10 @@ pub struct Session {
 }
 
 impl Session {
+    /// Creates a session on an open serial port.
+    ///
+    /// The host sequence counter starts at zero; call [`Session::sync`]
+    /// before sending any command frame.
     pub fn new(port: Box<dyn serialport::SerialPort>) -> Self {
         Self { port, tx_seq: 0 }
     }
@@ -485,27 +570,29 @@ impl Session {
     }
 
     /// Reads one complete frame, blocking until the deadline.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::Timeout`] when no complete, well-formed frame
+    /// arrives before `deadline`, and [`SessionError::Io`] on port failures.
     pub fn read_frame(&mut self, deadline: Instant) -> Result<Frame, SessionError> {
         let mut header = [0u8; 4];
         if self.read_bytes(&mut header, deadline)? != 4 {
             return Err(SessionError::Timeout);
         }
-        if u16::from_be_bytes([header[2], header[3]]) as usize == 0 {
-            // ACK / error frames carry no payload.
-            return Frame::parse(&header).ok_or(SessionError::Timeout);
-        }
         let length = u16::from_be_bytes([header[2], header[3]]) as usize;
         if length > MAX_PAYLOAD_LEN {
             return Err(SessionError::Timeout);
         }
-        let mut frame_bytes = Vec::with_capacity(4 + length);
-        frame_bytes.extend_from_slice(&header);
+        if length == 0 {
+            // ACK / error frames carry no payload.
+            return Frame::from_parts(header, Vec::new()).ok_or(SessionError::Timeout);
+        }
         let mut payload = vec![0u8; length];
         if self.read_bytes(&mut payload, deadline)? != length {
             return Err(SessionError::Timeout);
         }
-        frame_bytes.extend_from_slice(&payload);
-        Frame::parse(&frame_bytes).ok_or(SessionError::Timeout)
+        Frame::from_parts(header, payload).ok_or(SessionError::Timeout)
     }
 
     /// Sends a raw frame and drains the port first so a stale response
@@ -548,14 +635,14 @@ impl Session {
     /// (the device resets its expected sequence to zero on mismatch).
     pub fn request(
         &mut self,
-        rtype: SerialType,
+        traffic_type: SerialType,
         payload: &[u8],
         deadline: Instant,
         matches: &dyn Fn(&Frame) -> bool,
     ) -> Result<Frame, SessionError> {
         let seq = self.tx_seq;
         self.tx_seq = (self.tx_seq + 1) & 0x0F;
-        self.send(&Frame::encode_host_frame(rtype, seq, payload))?;
+        self.send(&Frame::encode_host_frame(traffic_type, seq, payload)?)?;
 
         let mut retried = false;
         loop {
@@ -564,7 +651,11 @@ impl Session {
                 if frame.error == ErrorType::IncorrectSequenceNumber && !retried {
                     let info = self.sync(deadline)?;
                     self.tx_seq = (info.next_seq + 1) & 0x0F;
-                    self.send(&Frame::encode_host_frame(rtype, info.next_seq, payload))?;
+                    self.send(&Frame::encode_host_frame(
+                        traffic_type,
+                        info.next_seq,
+                        payload,
+                    )?)?;
                     retried = true;
                     continue;
                 }
@@ -604,18 +695,24 @@ impl Session {
         }
     }
 
+    /// The next host -> device sequence number this session will use.
     pub fn tx_seq(&self) -> u8 {
         self.tx_seq
     }
 }
 
 /// Decodes a device->host frame as a WifiMgmtResponse.
+///
+/// # Errors
+///
+/// Returns [`SessionError::UnexpectedFrame`] for non-Wi-Fi-management
+/// frames and [`SessionError::Protobuf`] when the payload is not a valid
+/// `WifiMgmtResponse`.
 pub fn decode_wifi_mgmt_response(frame: &Frame) -> Result<WifiMgmtResponse, SessionError> {
-    if frame.rtype != SerialType::WifiMgmt {
+    if frame.traffic_type != SerialType::WifiMgmt {
         return Err(SessionError::UnexpectedFrame(frame.clone()));
     }
-    WifiMgmtResponse::decode(frame.payload.as_slice())
-        .map_err(|e| SessionError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))
+    WifiMgmtResponse::decode(frame.payload.as_slice()).map_err(SessionError::Protobuf)
 }
 
 /// Decodes a device->host frame as a WifiMgmtNotification carrying a
@@ -623,7 +720,7 @@ pub fn decode_wifi_mgmt_response(frame: &Frame) -> Result<WifiMgmtResponse, Sess
 pub fn decode_scan_done_notification(
     frame: &Frame,
 ) -> Option<(i32, Vec<wifi_mgmt::WifiScanResult>)> {
-    if frame.rtype != SerialType::WifiMgmt {
+    if frame.traffic_type != SerialType::WifiMgmt {
         return None;
     }
     let notification = WifiMgmtNotification::decode(frame.payload.as_slice()).ok()?;
@@ -642,9 +739,7 @@ pub fn version_request_payload() -> Vec<u8> {
             GetWifiVersionRequest {},
         )),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Builds the encoded protobuf payload of a SCAN request.
@@ -656,9 +751,7 @@ pub fn scan_request_payload(iface_index: u32) -> Vec<u8> {
             params: None,
         })),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Builds the encoded protobuf payload of a CONNECT request.
@@ -696,9 +789,7 @@ pub fn connect_request_payload(
             bandwidth: 0,
         })),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Builds the encoded protobuf payload of a DISCONNECT request.
@@ -709,9 +800,7 @@ pub fn disconnect_request_payload(iface_index: u32) -> Vec<u8> {
             WifiDisconnectRequest { iface_index },
         )),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Builds the encoded protobuf payload of an AP_ENABLE request.
@@ -741,9 +830,7 @@ pub fn ap_enable_request_payload(
             },
         )),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Builds the encoded protobuf payload of an AP_DISABLE request.
@@ -754,9 +841,7 @@ pub fn ap_disable_request_payload(iface_index: u32) -> Vec<u8> {
             WifiApDisableRequest { iface_index },
         )),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Builds the encoded protobuf payload of a SEND_RAW_FRAME request.
@@ -774,9 +859,7 @@ pub fn send_raw_frame_request_payload(iface_index: u32, frame: &[u8]) -> Vec<u8>
             },
         )),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Builds the encoded protobuf payload of an ENABLE_RAW_RX request.
@@ -794,9 +877,7 @@ pub fn enable_raw_rx_request_payload(iface_index: u32, channel: u32) -> Vec<u8> 
             },
         )),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Builds the encoded protobuf payload of a DISABLE_RAW_RX request.
@@ -809,16 +890,14 @@ pub fn disable_raw_rx_request_payload(iface_index: u32) -> Vec<u8> {
             DisableRawRxRequest { iface_index },
         )),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Decodes a device->host frame as a WifiMgmtNotification carrying a
 /// RawFrameRxEvent. Returns the received raw 802.11 frame bytes (which may
 /// include a driver prefix before the 802.11 header).
 pub fn decode_raw_frame_rx_event(frame: &Frame) -> Option<Vec<u8>> {
-    if frame.rtype != SerialType::WifiMgmt {
+    if frame.traffic_type != SerialType::WifiMgmt {
         return None;
     }
     let notification = WifiMgmtNotification::decode(frame.payload.as_slice()).ok()?;
@@ -832,7 +911,7 @@ pub fn decode_raw_frame_rx_event(frame: &Frame) -> Option<Vec<u8>> {
 /// Decodes a device->host frame as a WifiMgmtResponse carrying an
 /// EnableRawRxResponse with diagnostic state.
 pub fn decode_enable_raw_rx_response(frame: &Frame) -> Option<EnableRawRxResponse> {
-    if frame.rtype != SerialType::WifiMgmt {
+    if frame.traffic_type != SerialType::WifiMgmt {
         return None;
     }
     let response = WifiMgmtResponse::decode(frame.payload.as_slice()).ok()?;
@@ -846,7 +925,7 @@ pub fn decode_enable_raw_rx_response(frame: &Frame) -> Option<EnableRawRxRespons
 /// ApEnableResultEvent. Returns `(is_enable, status)`; `status` is 0 on
 /// success and a negative errno-style code on failure.
 pub fn decode_ap_result_notification(frame: &Frame) -> Option<(bool, i32)> {
-    if frame.rtype != SerialType::WifiMgmt {
+    if frame.traffic_type != SerialType::WifiMgmt {
         return None;
     }
     let notification = WifiMgmtNotification::decode(frame.payload.as_slice()).ok()?;
@@ -862,7 +941,7 @@ pub fn decode_ap_result_notification(frame: &Frame) -> Option<(bool, i32)> {
 /// ApStaConnectedEvent or ApStaDisconnectedEvent. Returns
 /// `(connected, sta_mac)`.
 pub fn decode_ap_sta_event(frame: &Frame) -> Option<(bool, [u8; 6])> {
-    if frame.rtype != SerialType::WifiMgmt {
+    if frame.traffic_type != SerialType::WifiMgmt {
         return None;
     }
     let notification = WifiMgmtNotification::decode(frame.payload.as_slice()).ok()?;
@@ -884,11 +963,11 @@ pub fn decode_ap_sta_event(frame: &Frame) -> Option<(bool, [u8; 6])> {
 /// generic status payload (CONNECT/SCAN/DISCONNECT responses).
 pub fn decode_wifi_status_response(frame: &Frame) -> Result<WifiStatusResponse, String> {
     let resp = decode_wifi_mgmt_response(frame)
-        .map_err(|_| "Unable to decode Wi-Fi management response".to_string())?;
+        .map_err(|_| "unable to decode Wi-Fi management response".to_string())?;
     match resp.payload {
         Some(wifi_mgmt_response::Payload::StatusResp(status)) => Ok(status),
-        Some(_) => Err("Received non-status response payload".into()),
-        None => Err("Empty response payload".into()),
+        Some(_) => Err("received non-status response payload".into()),
+        None => Err("empty response payload".into()),
     }
 }
 
@@ -896,10 +975,10 @@ pub fn decode_wifi_status_response(frame: &Frame) -> Result<WifiStatusResponse, 
 /// request status field.
 pub fn decode_interfaces_response(frame: &Frame) -> Result<NetIfResponse, String> {
     let response = NetIfResponse::decode(frame.payload.as_slice())
-        .map_err(|e| format!("Unable to decode network interface response: {e}"))?;
+        .map_err(|e| format!("unable to decode network interface response: {e}"))?;
     if response.status != 0 {
         return Err(format!(
-            "Network interface query failed: status={}",
+            "network interface query failed: status={}",
             response.status
         ));
     }
@@ -915,16 +994,14 @@ pub fn interfaces_request_payload(net_if_type: NetIfType, index: u32) -> Vec<u8>
             index,
         })),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Renders a GET_WIFI_VERSION response payload as a string.
 pub fn format_version_response(frame: &Frame) -> String {
     let resp = match decode_wifi_mgmt_response(frame) {
         Ok(resp) => resp,
-        Err(_) => return "Unable to decode version response".into(),
+        Err(_) => return "unable to decode version response".into(),
     };
     match resp.payload {
         Some(wifi_mgmt_response::Payload::GetVersionResp(version_resp)) => {
@@ -940,15 +1017,15 @@ pub fn format_version_response(frame: &Frame) -> String {
                 "Unknown version".into()
             }
         }
-        Some(_) => "Unexpected response payload".into(),
-        None => "Empty response payload".into(),
+        Some(_) => "unexpected response payload".into(),
+        None => "empty response payload".into(),
     }
 }
 
 /// Renders a CONNECT/SCAN status response payload as a string.
 pub fn format_status_response(frame: &Frame) -> Result<String, String> {
     let resp = decode_wifi_mgmt_response(frame)
-        .map_err(|_| "Unable to decode status response".to_string())?;
+        .map_err(|_| "unable to decode status response".to_string())?;
     match resp.payload {
         Some(wifi_mgmt_response::Payload::StatusResp(status)) => {
             let message = status.error_message;
@@ -965,8 +1042,8 @@ pub fn format_status_response(frame: &Frame) -> Result<String, String> {
                 ))
             }
         }
-        Some(_) => Err("Received non-status response payload".into()),
-        None => Err("Empty response payload".into()),
+        Some(_) => Err("received non-status response payload".into()),
+        None => Err("empty response payload".into()),
     }
 }
 
@@ -974,11 +1051,11 @@ pub fn format_status_response(frame: &Frame) -> Result<String, String> {
 pub fn format_interfaces_response(frame: &Frame) -> String {
     let response = match NetIfResponse::decode(frame.payload.as_slice()) {
         Ok(response) => response,
-        Err(_) => return "Unable to decode network interface response".into(),
+        Err(_) => return "unable to decode network interface response".into(),
     };
 
     if response.status != 0 {
-        return format!("Network interface query failed: status={}", response.status);
+        return format!("network interface query failed: status={}", response.status);
     }
 
     match response.payload {
@@ -1008,8 +1085,8 @@ pub fn format_interfaces_response(frame: &Frame) -> String {
             }
             lines.join("\n")
         }
-        Some(_) => "Received non-interface response payload".into(),
-        None => "Empty response payload".into(),
+        Some(_) => "received non-interface response payload".into(),
+        None => "empty response payload".into(),
     }
 }
 
@@ -1028,9 +1105,7 @@ pub fn set_reg_domain_request_payload(iface_index: u32, country: &str, force: bo
             },
         )),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Builds the encoded protobuf payload of a GET_REG_DOMAIN request.
@@ -1041,21 +1116,19 @@ pub fn get_reg_domain_request_payload(iface_index: u32) -> Vec<u8> {
             GetRegulatoryDomainRequest { iface_index },
         )),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Decodes a device->host frame as a GET_REG_DOMAIN response.
 pub fn decode_reg_domain_response(frame: &Frame) -> Result<WifiRegDomain, String> {
     let resp = decode_wifi_mgmt_response(frame)
-        .map_err(|e| format!("Unable to decode Wi-Fi management response: {e}"))?;
+        .map_err(|e| format!("unable to decode Wi-Fi management response: {e}"))?;
     match resp.payload {
         Some(wifi_mgmt_response::Payload::GetRegDomainResp(resp)) => resp
             .reg_domain
-            .ok_or_else(|| "Empty regulatory domain response".to_string()),
-        Some(_) => Err("Received non-reg-domain response payload".into()),
-        None => Err("Empty response payload".into()),
+            .ok_or_else(|| "empty regulatory domain response".to_string()),
+        Some(_) => Err("received non-reg-domain response payload".into()),
+        None => Err("empty response payload".into()),
     }
 }
 
@@ -1122,9 +1195,7 @@ pub fn set_ps_request_payload(
             },
         )),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Builds the encoded protobuf payload of a GET_PS_CONFIG request.
@@ -1135,21 +1206,19 @@ pub fn get_ps_request_payload(iface_index: u32) -> Vec<u8> {
             GetPowerSaveConfigRequest { iface_index },
         )),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Decodes a device->host frame as a GET_PS_CONFIG response.
 pub fn decode_ps_response(frame: &Frame) -> Result<WifiPowerSaveConfig, String> {
     let resp = decode_wifi_mgmt_response(frame)
-        .map_err(|e| format!("Unable to decode Wi-Fi management response: {e}"))?;
+        .map_err(|e| format!("unable to decode Wi-Fi management response: {e}"))?;
     match resp.payload {
         Some(wifi_mgmt_response::Payload::GetPsConfigResp(resp)) => resp
             .config
-            .ok_or_else(|| "Empty power save config response".to_string()),
-        Some(_) => Err("Received non-power-save response payload".into()),
-        None => Err("Empty response payload".into()),
+            .ok_or_else(|| "empty power save config response".to_string()),
+        Some(_) => Err("received non-power-save response payload".into()),
+        None => Err("empty response payload".into()),
     }
 }
 
@@ -1161,7 +1230,7 @@ pub fn format_ps_response(frame: &Frame) -> String {
     };
     let settings = match config.ps_settings {
         Some(settings) => settings,
-        None => return "No power save settings in response".into(),
+        None => return "no power save settings in response".into(),
     };
     let enabled = WifiPsState::try_from(settings.enabled)
         .map(|s| s.as_str_name())
@@ -1187,21 +1256,19 @@ pub fn iface_status_request_payload(iface_index: u32) -> Vec<u8> {
             GetInterfaceStatusRequest { iface_index },
         )),
     };
-    let mut out = Vec::new();
-    request.encode(&mut out).unwrap();
-    out
+    request.encode_to_vec()
 }
 
 /// Decodes a device->host frame as a GET_IFACE_STATUS response.
 pub fn decode_iface_status_response(frame: &Frame) -> Result<WifiInterfaceStatus, String> {
     let resp = decode_wifi_mgmt_response(frame)
-        .map_err(|e| format!("Unable to decode Wi-Fi management response: {e}"))?;
+        .map_err(|e| format!("unable to decode Wi-Fi management response: {e}"))?;
     match resp.payload {
         Some(wifi_mgmt_response::Payload::GetIfaceStatusResp(resp)) => resp
             .status
-            .ok_or_else(|| "Empty interface status response".to_string()),
-        Some(_) => Err("Received non-interface-status response payload".into()),
-        None => Err("Empty response payload".into()),
+            .ok_or_else(|| "empty interface status response".to_string()),
+        Some(_) => Err("received non-interface-status response payload".into()),
+        None => Err("empty response payload".into()),
     }
 }
 
@@ -1243,7 +1310,7 @@ pub fn format_iface_status_response(frame: &Frame) -> String {
 
 /// Renders scan results (status + per-network lines) as a string.
 pub fn format_scan_results(status: i32, results: &[wifi_mgmt::WifiScanResult]) -> String {
-    let mut lines = Vec::new();
+    let mut lines = Vec::with_capacity(results.len() + 1);
     lines.push(format!(
         "Scan done: status={}, results={}",
         status,
@@ -1276,6 +1343,7 @@ pub fn format_scan_results(status: i32, results: &[wifi_mgmt::WifiScanResult]) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mock::{MockPort, MockSerialState};
     use wifi_mgmt::{
         ApDisableResultEvent, ApEnableResultEvent, ApStaConnectedEvent, ApStaDisconnectedEvent,
         ScanDoneEvent, WifiEvent,
@@ -1286,7 +1354,8 @@ mod tests {
         // byte0: type in low nibble, no_ack/host/error zero for host->device
         // byte1: sequence in high nibble, reserved zero
         // bytes 2..3: length big-endian
-        let frame = Frame::encode_host_frame(SerialType::WifiMgmt, 5, &[1, 2, 3, 4]);
+        let frame =
+            Frame::encode_host_frame(SerialType::WifiMgmt, 5, &[1, 2, 3, 4]).expect("encodes");
 
         assert_eq!(frame.len(), 8);
         assert_eq!(frame[0], 0x00); // type 0 (WIFI_MGMT)
@@ -1295,9 +1364,9 @@ mod tests {
         assert_eq!(frame[3], 0x04); // length low
 
         let parsed = Frame::parse(&frame).expect("frame should parse");
-        assert_eq!(parsed.rtype, SerialType::WifiMgmt);
+        assert_eq!(parsed.traffic_type, SerialType::WifiMgmt);
         assert_eq!(parsed.seq, 5);
-        assert!(!parsed.host);
+        assert!(!parsed.to_host);
         assert!(!parsed.no_ack);
         assert_eq!(parsed.error, ErrorType::NoError);
         assert_eq!(parsed.payload, vec![1, 2, 3, 4]);
@@ -1318,8 +1387,8 @@ mod tests {
         // Device ACK for a WIFI_MGMT request with seq 5 (as captured on
         // the wire): type=0, host=1, error=0, length 0.
         let parsed = Frame::parse(&[0x20, 0x50, 0x00, 0x00]).expect("ACK should parse");
-        assert_eq!(parsed.rtype, SerialType::WifiMgmt);
-        assert!(parsed.host);
+        assert_eq!(parsed.traffic_type, SerialType::WifiMgmt);
+        assert!(parsed.to_host);
         assert!(!parsed.no_ack);
         assert_eq!(parsed.error, ErrorType::NoError);
         assert_eq!(parsed.seq, 5);
@@ -1333,8 +1402,8 @@ mod tests {
         // byte1: seq=2 in high nibble
         let bytes: &[u8] = &[0x60, 0x20, 0x00, 0x01, 0xAB];
         let parsed = Frame::parse(bytes).expect("device frame should parse");
-        assert_eq!(parsed.rtype, SerialType::WifiMgmt);
-        assert!(parsed.host);
+        assert_eq!(parsed.traffic_type, SerialType::WifiMgmt);
+        assert!(parsed.to_host);
         assert_eq!(parsed.error, ErrorType::IncorrectSequenceNumber);
         assert_eq!(parsed.seq, 2);
         assert_eq!(parsed.payload, vec![0xAB]);
@@ -1344,7 +1413,7 @@ mod tests {
     fn protocol_info_query_is_type_7_with_payload() {
         let query = Frame::protocol_info_query(0);
         let parsed = Frame::parse(&query).expect("info query should parse");
-        assert_eq!(parsed.rtype, SerialType::ProtocolInfo);
+        assert_eq!(parsed.traffic_type, SerialType::ProtocolInfo);
         assert_eq!(parsed.payload.len(), 1);
     }
 
@@ -1352,7 +1421,8 @@ mod tests {
     fn protocol_info_payload_round_trip() {
         // [version=1, mask_lo=0x1F, mask_hi=0x00, next_seq=3]
         let payload = [1u8, 0x1F, 0x00, 3];
-        let frame = Frame::encode_host_frame(SerialType::ProtocolInfo, 0, &payload);
+        let frame =
+            Frame::encode_host_frame(SerialType::ProtocolInfo, 0, &payload).expect("encodes");
         let parsed = Frame::parse(&frame).expect("frame should parse");
         let info = ProtocolInfo::try_from(&parsed).expect("info should decode");
         assert_eq!(info.version, 1);
@@ -1407,9 +1477,9 @@ mod tests {
         let mut out = Vec::new();
         notification.encode(&mut out).unwrap();
         Frame {
-            rtype: SerialType::WifiMgmt,
+            traffic_type: SerialType::WifiMgmt,
             no_ack: true,
-            host: true,
+            to_host: true,
             error: ErrorType::NoError,
             seq: 0,
             payload: out,
@@ -1546,6 +1616,8 @@ mod tests {
     struct MockDeviceState {
         /// Bytes the device has queued for the host to read.
         to_host: Vec<u8>,
+        /// Maximum bytes a single read call returns (partial-read simulation).
+        max_read: usize,
         /// Host bytes not yet forming a complete frame.
         from_host: Vec<u8>,
         /// Sequence the device expects on the next host->device frame.
@@ -1569,6 +1641,7 @@ mod tests {
         fn new(rx_seq: u8, response_payload: Vec<u8>) -> Self {
             Self {
                 to_host: Vec::new(),
+                max_read: usize::MAX,
                 from_host: Vec::new(),
                 rx_seq,
                 tx_seq: 0,
@@ -1583,7 +1656,7 @@ mod tests {
         }
 
         fn handle_host_frame(&mut self, frame: &Frame) {
-            if frame.rtype == SerialType::ProtocolInfo {
+            if frame.traffic_type == SerialType::ProtocolInfo {
                 self.protocol_info_queries += 1;
                 let next_seq = if self.corrupt_protocol_info {
                     (self.rx_seq + 1) & 0x0F
@@ -1605,7 +1678,7 @@ mod tests {
                 // Echo the sequence we expected, then reset to 0.
                 self.incorrect_seq_acks += 1;
                 self.emit_frame(
-                    frame.rtype,
+                    frame.traffic_type,
                     ErrorType::IncorrectSequenceNumber,
                     self.rx_seq,
                     &[],
@@ -1619,27 +1692,33 @@ mod tests {
             let response = self.response_payload.clone();
             if !response.is_empty() {
                 self.emit_frame(
-                    frame.rtype,
+                    frame.traffic_type,
                     ErrorType::NoError,
                     response_tx_seq,
                     &response,
                     true,
                 );
             }
-            self.emit_frame(frame.rtype, ErrorType::NoError, frame.seq, &[], false);
+            self.emit_frame(
+                frame.traffic_type,
+                ErrorType::NoError,
+                frame.seq,
+                &[],
+                false,
+            );
             self.rx_seq = (self.rx_seq + 1) & 0x0F;
         }
 
         fn emit_frame(
             &mut self,
-            rtype: SerialType,
+            traffic_type: SerialType,
             error: ErrorType,
             seq: u8,
             payload: &[u8],
             advance_tx: bool,
         ) {
             let mut out: Vec<u8> = Vec::with_capacity(4 + payload.len());
-            out.push(((error as u8) << 6) | (1 << 5) | rtype.to_u8()); // host = 1
+            out.push(((error as u8) << 6) | (1 << 5) | traffic_type.to_u8()); // host = 1
             out.push((seq & 0x0F) << 4);
             out.extend_from_slice(&(payload.len() as u16).to_be_bytes());
             out.extend_from_slice(payload);
@@ -1649,129 +1728,34 @@ mod tests {
             }
         }
     }
-
-    /// A `serialport::SerialPort` backed by [`MockDeviceState`]. The shared
-    /// handle lets tests mutate device state mid-session (e.g. simulating a
-    /// device reset).
-    struct MockPort(std::sync::Arc<std::sync::Mutex<MockDeviceState>>);
-
-    impl std::io::Read for MockPort {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let mut state = self.0.lock().unwrap();
-            let n = buf.len().min(state.to_host.len());
-            buf[..n].copy_from_slice(&state.to_host[..n]);
-            state.to_host.drain(..n);
-            Ok(n)
+    impl MockSerialState for MockDeviceState {
+        fn read_data(&mut self, buf: &mut [u8]) -> usize {
+            let n = buf.len().min(self.to_host.len()).min(self.max_read);
+            buf[..n].copy_from_slice(&self.to_host[..n]);
+            self.to_host.drain(..n);
+            n
         }
-    }
 
-    impl std::io::Write for MockPort {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            let mut state = self.0.lock().unwrap();
-            state.from_host.extend_from_slice(buf);
+        fn write_data(&mut self, buf: &[u8]) {
+            self.from_host.extend_from_slice(buf);
             loop {
-                if state.from_host.len() < 4 {
+                if self.from_host.len() < 4 {
                     break;
                 }
-                let len = u16::from_be_bytes([state.from_host[2], state.from_host[3]]) as usize;
+                let len = u16::from_be_bytes([self.from_host[2], self.from_host[3]]) as usize;
                 let total = 4 + len;
-                if state.from_host.len() < total {
+                if self.from_host.len() < total {
                     break;
                 }
-                let frame_bytes: Vec<u8> = state.from_host.drain(..total).collect();
+                let frame_bytes: Vec<u8> = self.from_host.drain(..total).collect();
                 if let Some(frame) = Frame::parse(&frame_bytes) {
-                    state.handle_host_frame(&frame);
+                    self.handle_host_frame(&frame);
                 }
             }
-            Ok(buf.len())
         }
 
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl serialport::SerialPort for MockPort {
-        fn name(&self) -> Option<String> {
-            Some("mock".to_string())
-        }
-        fn baud_rate(&self) -> serialport::Result<u32> {
-            Ok(115200)
-        }
-        fn data_bits(&self) -> serialport::Result<serialport::DataBits> {
-            Ok(serialport::DataBits::Eight)
-        }
-        fn flow_control(&self) -> serialport::Result<serialport::FlowControl> {
-            Ok(serialport::FlowControl::None)
-        }
-        fn parity(&self) -> serialport::Result<serialport::Parity> {
-            Ok(serialport::Parity::None)
-        }
-        fn stop_bits(&self) -> serialport::Result<serialport::StopBits> {
-            Ok(serialport::StopBits::One)
-        }
-        fn timeout(&self) -> std::time::Duration {
-            std::time::Duration::from_millis(100)
-        }
-        fn set_baud_rate(&mut self, _baud_rate: u32) -> serialport::Result<()> {
-            Ok(())
-        }
-        fn set_data_bits(&mut self, _data_bits: serialport::DataBits) -> serialport::Result<()> {
-            Ok(())
-        }
-        fn set_flow_control(
-            &mut self,
-            _flow_control: serialport::FlowControl,
-        ) -> serialport::Result<()> {
-            Ok(())
-        }
-        fn set_parity(&mut self, _parity: serialport::Parity) -> serialport::Result<()> {
-            Ok(())
-        }
-        fn set_stop_bits(&mut self, _stop_bits: serialport::StopBits) -> serialport::Result<()> {
-            Ok(())
-        }
-        fn set_timeout(&mut self, _timeout: std::time::Duration) -> serialport::Result<()> {
-            Ok(())
-        }
-        fn write_request_to_send(&mut self, _level: bool) -> serialport::Result<()> {
-            Ok(())
-        }
-        fn write_data_terminal_ready(&mut self, _level: bool) -> serialport::Result<()> {
-            Ok(())
-        }
-        fn read_clear_to_send(&mut self) -> serialport::Result<bool> {
-            Ok(true)
-        }
-        fn read_data_set_ready(&mut self) -> serialport::Result<bool> {
-            Ok(false)
-        }
-        fn read_ring_indicator(&mut self) -> serialport::Result<bool> {
-            Ok(false)
-        }
-        fn read_carrier_detect(&mut self) -> serialport::Result<bool> {
-            Ok(false)
-        }
-        fn bytes_to_read(&self) -> serialport::Result<u32> {
-            Ok(self.0.lock().unwrap().to_host.len() as u32)
-        }
-        fn bytes_to_write(&self) -> serialport::Result<u32> {
-            Ok(0)
-        }
-        fn clear(&self, _buffer_to_clear: serialport::ClearBuffer) -> serialport::Result<()> {
-            Ok(())
-        }
-        fn try_clone(&self) -> serialport::Result<Box<dyn serialport::SerialPort>> {
-            Err(serialport::Error::new(
-                serialport::ErrorKind::Unknown,
-                "mock port cannot be cloned",
-            ))
-        }
-        fn set_break(&self) -> serialport::Result<()> {
-            Ok(())
-        }
-        fn clear_break(&self) -> serialport::Result<()> {
-            Ok(())
+        fn bytes_ready(&self) -> u32 {
+            self.to_host.len() as u32
         }
     }
 
@@ -1797,7 +1781,8 @@ mod tests {
         // run); a fresh host session must start at 7, not 0.
         let (mut session, device) = mock_session(7, vec![0x01]);
         let deadline = test_deadline();
-        let is_response = |f: &Frame| f.rtype == SerialType::WifiMgmt && !f.payload.is_empty();
+        let is_response =
+            |f: &Frame| f.traffic_type == SerialType::WifiMgmt && !f.payload.is_empty();
 
         let info = session.sync(deadline).expect("sync should succeed");
         assert_eq!(info.next_seq, 7);
@@ -1825,7 +1810,7 @@ mod tests {
         let (mut session, device) = mock_session(0, PAYLOAD.to_vec());
         let deadline = test_deadline();
         let is_response =
-            |f: &Frame| f.rtype == SerialType::WifiMgmt && f.payload == PAYLOAD.to_vec();
+            |f: &Frame| f.traffic_type == SerialType::WifiMgmt && f.payload == PAYLOAD.to_vec();
 
         // Handshake plus two healthy requests: both sides advance to seq 2.
         let info = session.sync(deadline).expect("initial sync");
@@ -1886,7 +1871,8 @@ mod tests {
         let (mut session, device) = mock_session(7, vec![0x01]);
         device.lock().unwrap().corrupt_protocol_info = true;
         let deadline = test_deadline();
-        let is_response = |f: &Frame| f.rtype == SerialType::WifiMgmt && !f.payload.is_empty();
+        let is_response =
+            |f: &Frame| f.traffic_type == SerialType::WifiMgmt && !f.payload.is_empty();
 
         let err = session
             .request(SerialType::WifiMgmt, &[0x01], deadline, &is_response)
@@ -1909,7 +1895,8 @@ mod tests {
     fn request_wraps_sequence_from_15_to_0() {
         let (mut session, device) = mock_session(15, vec![0x01]);
         let deadline = test_deadline();
-        let is_response = |f: &Frame| f.rtype == SerialType::WifiMgmt && !f.payload.is_empty();
+        let is_response =
+            |f: &Frame| f.traffic_type == SerialType::WifiMgmt && !f.payload.is_empty();
 
         let info = session.sync(deadline).expect("sync");
         assert_eq!(info.next_seq, 15);
@@ -2031,5 +2018,63 @@ mod tests {
         let cc = hci_command_complete(&pkt).expect("parse");
         let s = format_hci_command_complete(&cc);
         assert!(s.contains("DE AD"), "got: {s}");
+    }
+    #[test]
+    fn parse_rejects_oversized_payload_length() {
+        // Length field above the 4096-byte limit.
+        assert!(Frame::parse(&[0x00, 0x00, 0x10, 0x01]).is_none());
+        // The encoder rejects the same input before it hits the wire.
+        assert!(Frame::encode_host_frame(SerialType::WifiMgmt, 0, &[0u8; 4097]).is_err());
+    }
+
+    #[test]
+    fn parse_accepts_max_length_payload() {
+        let frame =
+            Frame::encode_host_frame(SerialType::WifiMgmt, 0, &[0u8; 4096]).expect("encodes");
+        let parsed = Frame::parse(&frame).expect("max-length frame parses");
+        assert_eq!(parsed.payload.len(), 4096);
+    }
+
+    #[test]
+    fn session_survives_byte_at_a_time_reads() {
+        let (mut session, device) = mock_session(0, vec![0x01]);
+        // Deliver one byte per read to exercise partial-read reassembly.
+        device.lock().unwrap().max_read = 1;
+        let deadline = test_deadline();
+        let is_response =
+            |f: &Frame| f.traffic_type == SerialType::WifiMgmt && !f.payload.is_empty();
+        session.sync(deadline).expect("sync");
+        session
+            .request(SerialType::WifiMgmt, &[0x01], deadline, &is_response)
+            .expect("request with chunked reads");
+    }
+
+    #[test]
+    fn read_frame_times_out_when_port_stays_silent() {
+        let (mut session, _device) = mock_session(0, vec![0x01]);
+        let err = session
+            .read_frame(Instant::now() + std::time::Duration::from_millis(50))
+            .expect_err("no data before the deadline");
+        match err {
+            SessionError::Timeout => {}
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn request_times_out_when_device_never_responds() {
+        // The mock ACKs the command but has no response payload, so the
+        // request loop only sees empty ACK frames until the deadline.
+        let (mut session, _device) = mock_session(0, Vec::new());
+        let deadline = Instant::now() + std::time::Duration::from_millis(50);
+        let is_response =
+            |f: &Frame| f.traffic_type == SerialType::WifiMgmt && !f.payload.is_empty();
+        let err = session
+            .request(SerialType::WifiMgmt, &[0x01], deadline, &is_response)
+            .expect_err("no response before the deadline");
+        match err {
+            SessionError::Timeout => {}
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }

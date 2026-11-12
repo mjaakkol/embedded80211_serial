@@ -31,9 +31,6 @@ const SCAN_TIMEOUT: Duration = Duration::from_secs(30);
 #[command(version = "1.0")]
 #[command(about = "cli test application for cfg80211_serial", long_about = None)]
 struct Cli {
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    debug: u8,
-
     #[arg(short, long)]
     port: String,
 
@@ -353,7 +350,7 @@ fn is_ap_result_notification(is_enable: bool) -> impl Fn(&Frame) -> bool {
 /// Matches HCI frames carrying a Command Complete event for `opcode`.
 fn is_hci_command_complete(opcode: u16) -> impl Fn(&Frame) -> bool {
     move |frame: &Frame| {
-        frame.rtype == SerialType::Hci
+        frame.traffic_type == SerialType::Hci
             && hci_command_complete(&frame.payload).is_some_and(|cc| cc.opcode == opcode)
     }
 }
@@ -437,14 +434,25 @@ fn main() {
                     println!("No serial ports found.");
                 }
             }
-            _ => unreachable!(),
+            Commands::Version
+            | Commands::Scan { .. }
+            | Commands::Connect { .. }
+            | Commands::Disconnect { .. }
+            | Commands::Interfaces { .. }
+            | Commands::RegDomain { .. }
+            | Commands::PowerSave { .. }
+            | Commands::IfaceStatus { .. }
+            | Commands::Ap { .. }
+            | Commands::RawTx { .. }
+            | Commands::Hci { .. }
+            | Commands::Coexist { .. } => unreachable!("filtered by the guard above"),
         }
         return;
     }
 
     let port = match init_serial_port(&cli.port, cli.baud_rate) {
         Ok(port) => port,
-        Err(e) => die(&format!("Failed to open serial port: {e}")),
+        Err(e) => die(&format!("failed to open serial port: {e}")),
     };
     let mut session = Session::new(port);
 
@@ -561,7 +569,7 @@ fn main() {
             let payload = interfaces_request_payload(iface_type.to_proto(), iface_index);
             let frame =
                 match session.request(SerialType::NetIfMgmt, &payload, deadline, &|f: &Frame| {
-                    f.rtype == SerialType::NetIfMgmt && !f.payload.is_empty()
+                    f.traffic_type == SerialType::NetIfMgmt && !f.payload.is_empty()
                 }) {
                     Ok(frame) => frame,
                     Err(e) => die(&e),

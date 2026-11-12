@@ -5,7 +5,7 @@
 //! environment:
 //!
 //! - `INTEG_PORT`      serial port (required to run, e.g. `/dev/ttyACM2`)
-//! - `INTEG_SSID`      network SSID (default `HappyHouse`)
+//! - `INTEG_SSID`      network SSID (required)
 //! - `INTEG_SECURITY`  none | wep | psk | sae | eap (default `psk`)
 //! - `INTEG_PSK`       pre-shared key (required when security is not `none`)
 //! - `INTEG_CYCLES`    number of connect/disconnect cycles (default `5`)
@@ -52,7 +52,7 @@ fn is_wifi_mgmt_response(frame: &Frame) -> bool {
 }
 
 fn is_net_if_response(frame: &Frame) -> bool {
-    frame.rtype == SerialType::NetIfMgmt && !frame.payload.is_empty()
+    frame.traffic_type == SerialType::NetIfMgmt && !frame.payload.is_empty()
 }
 
 /// Queries the device and returns its Wi-Fi interface description.
@@ -119,13 +119,16 @@ fn connect_disconnect_cycles() {
             return;
         }
     };
-    let ssid = env_var("INTEG_SSID", "HappyHouse");
+    let ssid = env_var("INTEG_SSID", "");
     let security = parse_security(&env_var("INTEG_SECURITY", "psk"));
     let psk = env_var("INTEG_PSK", "");
     let cycles: usize = env_var("INTEG_CYCLES", "5").parse().unwrap_or(5);
 
     if security != WifiSecurityType::None && psk.is_empty() {
         panic!("INTEG_PSK must be set when INTEG_SECURITY is not 'none'");
+    }
+    if ssid.is_empty() {
+        panic!("INTEG_SSID must be set to run the connect/disconnect test");
     }
 
     let serial = serialport::new(&port, 115200)

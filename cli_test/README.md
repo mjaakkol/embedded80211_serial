@@ -13,16 +13,20 @@ It is intended for quick manual validation of host-to-device requests such as Wi
 - Send Wi-Fi disconnect requests
 - Start/stop the Wi-Fi access point (AP mode) and read its result status
 - Transmit a raw 802.11 frame on the air interface (data connectivity testing)
+- Manage the regulatory domain (get/set country code)
+- Get/set the Wi-Fi power save configuration
+- Query the Wi-Fi interface status (state, SSID, BSSID, RSSI, ...)
+- Run a Wi-Fi scan interleaved with a Bluetooth HCI command (coexistence demo)
 
 
 ## Build
 
-System prerequisites (Linux):
+System prerequisites:
 
 - `protoc` (Protocol Buffers compiler), found on `PATH` or via `PROTOC`
   - Fedora: `sudo dnf install -y protobuf-compiler`
   - Debian/Ubuntu: `sudo apt-get install -y protobuf-compiler`
-- `libudev` development files (required by the `serialport` crate)
+- Linux only: `libudev` development files (required by the `serialport` crate)
   - Fedora: `sudo dnf install -y libudev-devel`
   - Debian/Ubuntu: `sudo apt-get install -y libudev-dev`
 

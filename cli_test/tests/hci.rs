@@ -4,9 +4,9 @@
 //! session: PROTOCOL_INFO sync responses and HCI Command Complete events
 //! for the opcodes it receives.
 
-use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
+use cli_test::mock::{MockPort, MockSerialState};
 use cli_test::protocol::{
     Frame, HCI_OP_READ_LOCAL_VERSION, HCI_OP_RESET, SerialType, Session, hci_command_complete,
     hci_command_packet,
@@ -30,9 +30,9 @@ impl HciDeviceState {
         }
     }
 
-    fn emit(&mut self, rtype: SerialType, seq: u8, payload: &[u8], advance_tx: bool) {
+    fn emit(&mut self, traffic_type: SerialType, seq: u8, payload: &[u8], advance_tx: bool) {
         let mut out: Vec<u8> = Vec::with_capacity(4 + payload.len());
-        out.push((1 << 5) | rtype.to_u8()); // host = 1, no error
+        out.push((1 << 5) | traffic_type.to_u8()); // host = 1, no error
         out.push((seq & 0x0F) << 4);
         out.extend_from_slice(&(payload.len() as u16).to_be_bytes());
         out.extend_from_slice(payload);
@@ -58,11 +58,9 @@ impl HciDeviceState {
     }
 
     fn handle_host_frame(&mut self, frame: &Frame) {
-        match frame.rtype {
+        match frame.traffic_type {
             SerialType::ProtocolInfo => {
-                let mask = 0u16.to_le_bytes(); // unused by the test
                 let payload = [1u8, 0x9F, 0x01, self.rx_seq]; // v1, HCI bit set
-                let _ = mask;
                 self.emit(SerialType::ProtocolInfo, self.tx_seq, &payload, true);
             }
             SerialType::Hci => {
@@ -77,29 +75,21 @@ impl HciDeviceState {
                 self.rx_seq = (self.rx_seq + 1) & 0x0F;
             }
             _ => {
-                self.emit(frame.rtype, frame.seq, &[], false);
+                self.emit(frame.traffic_type, frame.seq, &[], false);
                 self.rx_seq = (self.rx_seq + 1) & 0x0F;
             }
         }
     }
 }
-
-struct HciMockPort(Arc<Mutex<HciDeviceState>>);
-
-impl Read for HciMockPort {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let mut state = self.0.lock().unwrap();
-        let n = buf.len().min(state.to_host.len());
-        buf[..n].copy_from_slice(&state.to_host[..n]);
-        state.to_host.drain(..n);
-        Ok(n)
+impl MockSerialState for HciDeviceState {
+    fn read_data(&mut self, buf: &mut [u8]) -> usize {
+        let n = buf.len().min(self.to_host.len());
+        buf[..n].copy_from_slice(&self.to_host[..n]);
+        self.to_host.drain(..n);
+        n
     }
-}
 
-impl Write for HciMockPort {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let mut state = self.0.lock().unwrap();
-        state.to_host.reserve(buf.len() * 4);
+    fn write_data(&mut self, buf: &[u8]) {
         // Buffer incoming bytes, process complete frames.
         let mut pending: Vec<u8> = Vec::new();
         pending.extend_from_slice(buf);
@@ -110,98 +100,13 @@ impl Write for HciMockPort {
             }
             let frame_bytes: Vec<u8> = pending.drain(..4 + len).collect();
             if let Some(frame) = Frame::parse(&frame_bytes) {
-                state.handle_host_frame(&frame);
+                self.handle_host_frame(&frame);
             }
         }
-        Ok(buf.len())
     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl serialport::SerialPort for HciMockPort {
-    fn name(&self) -> Option<String> {
-        Some("hci-mock".to_string())
-    }
-    fn baud_rate(&self) -> serialport::Result<u32> {
-        Ok(115200)
-    }
-    fn data_bits(&self) -> serialport::Result<serialport::DataBits> {
-        Ok(serialport::DataBits::Eight)
-    }
-    fn flow_control(&self) -> serialport::Result<serialport::FlowControl> {
-        Ok(serialport::FlowControl::None)
-    }
-    fn parity(&self) -> serialport::Result<serialport::Parity> {
-        Ok(serialport::Parity::None)
-    }
-    fn stop_bits(&self) -> serialport::Result<serialport::StopBits> {
-        Ok(serialport::StopBits::One)
-    }
-    fn timeout(&self) -> std::time::Duration {
-        std::time::Duration::from_millis(100)
-    }
-    fn set_baud_rate(&mut self, _baud_rate: u32) -> serialport::Result<()> {
-        Ok(())
-    }
-    fn set_data_bits(&mut self, _data_bits: serialport::DataBits) -> serialport::Result<()> {
-        Ok(())
-    }
-    fn set_flow_control(
-        &mut self,
-        _flow_control: serialport::FlowControl,
-    ) -> serialport::Result<()> {
-        Ok(())
-    }
-    fn set_parity(&mut self, _parity: serialport::Parity) -> serialport::Result<()> {
-        Ok(())
-    }
-    fn set_stop_bits(&mut self, _stop_bits: serialport::StopBits) -> serialport::Result<()> {
-        Ok(())
-    }
-    fn set_timeout(&mut self, _timeout: std::time::Duration) -> serialport::Result<()> {
-        Ok(())
-    }
-    fn write_request_to_send(&mut self, _level: bool) -> serialport::Result<()> {
-        Ok(())
-    }
-    fn write_data_terminal_ready(&mut self, _level: bool) -> serialport::Result<()> {
-        Ok(())
-    }
-    fn read_clear_to_send(&mut self) -> serialport::Result<bool> {
-        Ok(true)
-    }
-    fn read_data_set_ready(&mut self) -> serialport::Result<bool> {
-        Ok(false)
-    }
-    fn read_ring_indicator(&mut self) -> serialport::Result<bool> {
-        Ok(false)
-    }
-    fn read_carrier_detect(&mut self) -> serialport::Result<bool> {
-        Ok(false)
-    }
-    fn bytes_to_read(&self) -> serialport::Result<u32> {
-        Ok(self.0.lock().unwrap().to_host.len() as u32)
-    }
-    fn bytes_to_write(&self) -> serialport::Result<u32> {
-        Ok(0)
-    }
-    fn clear(&self, _buffer_to_clear: serialport::ClearBuffer) -> serialport::Result<()> {
-        Ok(())
-    }
-    fn try_clone(&self) -> serialport::Result<Box<dyn serialport::SerialPort>> {
-        Err(serialport::Error::new(
-            serialport::ErrorKind::Unknown,
-            "mock port cannot be cloned",
-        ))
-    }
-    fn set_break(&self) -> serialport::Result<()> {
-        Ok(())
-    }
-    fn clear_break(&self) -> serialport::Result<()> {
-        Ok(())
+    fn bytes_ready(&self) -> u32 {
+        self.to_host.len() as u32
     }
 }
 
@@ -210,7 +115,7 @@ impl serialport::SerialPort for HciMockPort {
 #[test]
 fn hci_command_round_trip() {
     let device = Arc::new(Mutex::new(HciDeviceState::new()));
-    let mut session = Session::new(Box::new(HciMockPort(device.clone())));
+    let mut session = Session::new(Box::new(MockPort(device.clone())));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
 
     let info = session.sync(deadline).expect("sync");
@@ -222,7 +127,7 @@ fn hci_command_round_trip() {
     assert_eq!(pkt, vec![0x01, 0x03, 0x0C, 0x00]);
     let frame = session
         .request(SerialType::Hci, &pkt, deadline, &|f: &Frame| {
-            f.rtype == SerialType::Hci
+            f.traffic_type == SerialType::Hci
                 && hci_command_complete(&f.payload).is_some_and(|cc| cc.opcode == HCI_OP_RESET)
         })
         .expect("reset request");
@@ -233,7 +138,7 @@ fn hci_command_round_trip() {
     let pkt = hci_command_packet(HCI_OP_READ_LOCAL_VERSION, &[]);
     let frame = session
         .request(SerialType::Hci, &pkt, deadline, &|f: &Frame| {
-            f.rtype == SerialType::Hci
+            f.traffic_type == SerialType::Hci
                 && hci_command_complete(&f.payload)
                     .is_some_and(|cc| cc.opcode == HCI_OP_READ_LOCAL_VERSION)
         })

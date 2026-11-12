@@ -4,9 +4,9 @@
 //! parameters are configurable at run time through the environment:
 //!
 //! - `INTEG_PORT`         serial port (required to run, e.g. `/dev/ttyACM2`)
-//! - `INTEG_AP_SSID`      AP SSID (default `TestAp`)
+//! - `INTEG_AP_SSID`      AP SSID (required)
 //! - `INTEG_AP_SECURITY`  none | wep | psk | sae (default `psk`)
-//! - `INTEG_AP_PSK`       pre-shared key (default `TestApPass1`)
+//! - `INTEG_AP_PSK`       pre-shared key (required when security is psk/sae)
 //! - `INTEG_AP_CHANNEL`   channel number, 0 = driver's choice (default `6`)
 //!
 //! Flow: send AP_ENABLE, then (when the device accepts it) wait for the
@@ -125,14 +125,22 @@ fn ap_enable_disable_lifecycle() {
         Err(e) => panic!("protocol sync failed: {e}"),
     }
 
-    let ssid = env_var("INTEG_AP_SSID", "TestAp");
+    let ssid = env_var("INTEG_AP_SSID", "");
     let security = parse_ap_security(&env_var("INTEG_AP_SECURITY", "psk"));
-    let psk = env_var("INTEG_AP_PSK", "TestApPass1");
+    let psk = env_var("INTEG_AP_PSK", "");
     let channel: u32 = env_var("INTEG_AP_CHANNEL", "6")
         .parse()
         .unwrap_or_else(|_| panic!("INTEG_AP_CHANNEL must be a number"));
+    if ssid.is_empty() {
+        panic!("INTEG_AP_SSID must be set to run the AP integration test");
+    }
     let psk_opt = match security {
-        WifiSecurityType::Psk | WifiSecurityType::Sae => Some(psk.as_str()),
+        WifiSecurityType::Psk | WifiSecurityType::Sae => {
+            if psk.is_empty() {
+                panic!("INTEG_AP_PSK must be set for {security:?} AP security");
+            }
+            Some(psk.as_str())
+        }
         _ => None,
     };
 

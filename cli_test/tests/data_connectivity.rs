@@ -5,9 +5,6 @@
 //! environment:
 //!
 //! - `INTEG_PORT`         serial port (required to run, e.g. `/dev/ttyACM2`)
-//! - `INTEG_SSID`         network SSID (default `HappyHouse`)
-//! - `INTEG_SECURITY`     none | wep | psk | sae | eap (default `psk`)
-//! - `INTEG_PSK`          pre-shared key (required when security is not `none`)
 //! - `INTEG_WITNESS`      host Wi-Fi interface for monitor capture (default `wlo1`)
 //!
 //! Two test cases, both pure MAC layer (no TCP/IP anywhere). The device
@@ -23,10 +20,12 @@
 //! - TC2: the same sequence, with the device's Wi-Fi power save enabled
 //!   before the packet sequence.
 
+#[cfg(target_os = "linux")]
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "linux")]
 use cli_test::protocol::network_interface::{NetIfType, NetworkInterface, net_if_response};
-use cli_test::protocol::wifi_mgmt::WifiSecurityType;
+#[cfg(target_os = "linux")]
 use cli_test::protocol::{
     Frame, SerialType, Session, decode_enable_raw_rx_response, decode_interfaces_response,
     decode_wifi_mgmt_response, decode_wifi_status_response, disable_raw_rx_request_payload,
@@ -35,40 +34,38 @@ use cli_test::protocol::{
 };
 
 /// Timeout for a single request/response round trip.
+#[cfg(target_os = "linux")]
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a transmitted frame may take to be captured by the witness.
+#[cfg(target_os = "linux")]
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(target_os = "linux")]
 const IFACE_INDEX: u32 = 0;
+#[cfg(target_os = "linux")]
 const SENDS_PER_CASE: usize = 3;
+#[cfg(target_os = "linux")]
 const CHANNEL: u32 = 6;
 
 /// Marker embedded at the start of every test frame payload.
 const MARKER: &[u8] = b"DATA-CON8";
 const PAYLOAD_LEN: usize = 32;
 
+#[cfg(target_os = "linux")]
 fn env_var(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
-fn parse_security(value: &str) -> WifiSecurityType {
-    match value.to_ascii_lowercase().as_str() {
-        "none" => WifiSecurityType::None,
-        "wep" => WifiSecurityType::Wep,
-        "psk" => WifiSecurityType::Psk,
-        "sae" => WifiSecurityType::Sae,
-        "eap" => WifiSecurityType::Eap,
-        other => panic!("INTEG_SECURITY must be one of none|wep|psk|sae|eap, got '{other}'"),
-    }
-}
-
+#[cfg(target_os = "linux")]
 fn is_wifi_mgmt_response(frame: &Frame) -> bool {
     decode_wifi_mgmt_response(frame).is_ok()
 }
 
+#[cfg(target_os = "linux")]
 fn is_net_if_response(frame: &Frame) -> bool {
-    frame.rtype == SerialType::NetIfMgmt && !frame.payload.is_empty()
+    frame.traffic_type == SerialType::NetIfMgmt && !frame.payload.is_empty()
 }
 
+#[cfg(target_os = "linux")]
 /// Queries the device and returns its Wi-Fi interface description.
 fn wifi_iface(session: &mut Session) -> Result<NetworkInterface, String> {
     let payload = interfaces_request_payload(NetIfType::Wifi, 0);
@@ -130,6 +127,7 @@ fn contains_marker_seq(data: &[u8], marker: &[u8], seq: u32) -> bool {
     find_subsequence(data, &needle).is_some()
 }
 
+#[cfg(target_os = "linux")]
 /// Puts the device in monitor mode on `channel` so it can transmit raw
 /// 802.11 frames.
 fn enable_raw_rx(session: &mut Session, channel: u32) -> Result<(), String> {
@@ -150,6 +148,7 @@ fn enable_raw_rx(session: &mut Session, channel: u32) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 /// Restores the device from monitor mode.
 fn disable_raw_rx(session: &mut Session) -> Result<(), String> {
     let payload = disable_raw_rx_request_payload(IFACE_INDEX);
@@ -195,6 +194,7 @@ mod witness {
         /// Creates a monitor-mode interface on the same PHY as `orig_iface`
         /// and opens an AF_PACKET capture socket on it.
         pub fn setup(orig_iface: &str, channel: u32) -> Result<Self, String> {
+            // SAFETY: geteuid takes no arguments and always returns a valid uid.
             if unsafe { libc::geteuid() } != 0 {
                 return Err("witness capture requires root (euid=0); run with sudo".to_string());
             }
@@ -254,6 +254,9 @@ mod witness {
 
             // AF_PACKET socket bound to the monitor interface.
             let ifindex = Self::iface_index(&mon_iface)?;
+            // SAFETY: AF_PACKET with SOCK_DGRAM|SOCK_RAW and the valid Ethernet
+            // protocol number 0x0003 (htons) are valid socket() arguments; the
+            // returned fd is checked below before use.
             let fd = unsafe {
                 libc::socket(
                     libc::AF_PACKET,
@@ -269,11 +272,15 @@ mod witness {
                 ));
             }
 
+            // SAFETY: sockaddr_ll is a C struct without validity invariants;
+            // all-zero is a valid value and every field is set before use.
             let mut addr: libc::sockaddr_ll = unsafe { std::mem::zeroed() };
             addr.sll_family = libc::AF_PACKET as u16;
             addr.sll_protocol = libc::htons(0x0003);
             addr.sll_ifindex = ifindex;
 
+            // SAFETY: fd is the valid socket created above; addr is a fully
+            // populated sockaddr_ll and the length is its exact size.
             let ret = unsafe {
                 libc::bind(
                     fd,
@@ -282,6 +289,7 @@ mod witness {
                 )
             };
             if ret < 0 {
+                // SAFETY: fd is a valid, uniquely owned socket, closed exactly once.
                 unsafe { libc::close(fd) };
                 Self::cleanup(&mon_iface);
                 return Err(format!(
@@ -295,6 +303,10 @@ mod witness {
                 tv_sec: 2,
                 tv_usec: 0,
             };
+            // SAFETY: fd is valid; SOL_SOCKET/SO_RCVTIMEO with a pointer to the
+            // live timeval and its exact size are valid arguments. The return
+            // value is ignored: a failed timeout cannot corrupt memory, and the
+            // capture loop is bounded by its own deadline.
             unsafe {
                 libc::setsockopt(
                     fd,
@@ -310,7 +322,12 @@ mod witness {
 
         fn iface_index(name: &str) -> Result<i32, String> {
             let cname = std::ffi::CString::new(name).map_err(|e| format!("CString: {e}"))?;
+            // SAFETY: ifreq is a C struct without validity invariants;
+            // all-zero is a valid value and the name field is set before use.
             let mut req: libc::ifreq = unsafe { std::mem::zeroed() };
+            // SAFETY: ifr_name is an IFNAMSIZ-byte array inside req; the copy
+            // length is bounded by IFNAMSIZ and the source is a valid,
+            // NUL-terminated C string of at least that many bytes.
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     cname.as_ptr(),
@@ -318,6 +335,8 @@ mod witness {
                     cname.to_bytes_with_nul().len().min(libc::IFNAMSIZ),
                 );
             }
+            // SAFETY: AF_INET/SOCK_DGRAM/0 are valid socket() arguments; the
+            // returned fd is checked below before use.
             let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
             if fd < 0 {
                 return Err(format!(
@@ -325,6 +344,8 @@ mod witness {
                     std::io::Error::last_os_error()
                 ));
             }
+            // SAFETY: fd is a valid socket; SIOCGIFINDEX takes a pointer to a
+            // live ifreq and writes only within it.
             let ret = unsafe {
                 libc::ioctl(
                     fd,
@@ -332,6 +353,7 @@ mod witness {
                     &req as *const _ as *mut libc::c_void,
                 )
             };
+            // SAFETY: fd is a valid, uniquely owned socket, closed exactly once.
             unsafe { libc::close(fd) };
             if ret < 0 {
                 return Err(format!(
@@ -339,6 +361,7 @@ mod witness {
                     std::io::Error::last_os_error()
                 ));
             }
+            // SAFETY: ifr_ifindex was written by the checked ioctl above.
             Ok(unsafe { req.ifr_ifru.ifru_ifindex })
         }
 
@@ -358,6 +381,8 @@ mod witness {
                         timeout.as_secs()
                     ));
                 }
+                // SAFETY: fd is a valid socket; buf is a live buffer of the
+                // passed length; flags are 0.
                 let n = unsafe {
                     libc::recv(self.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len(), 0)
                 };
@@ -383,6 +408,7 @@ mod witness {
     impl Drop for Witness {
         fn drop(&mut self) {
             Self::cleanup(&self.mon_iface);
+            // SAFETY: fd is a valid, uniquely owned socket, closed exactly once.
             unsafe { libc::close(self.fd) };
         }
     }
@@ -416,6 +442,7 @@ fn send_and_verify(
     wit.capture(MARKER, seq, CAPTURE_TIMEOUT)
 }
 
+#[cfg(target_os = "linux")]
 /// Queries the device's TX diagnostic counters via a re-issued
 /// `EnableRawRxRequest` (the device is already in monitor mode, so the
 /// request is idempotent and returns the current state).
@@ -436,6 +463,7 @@ fn query_tx_diag(
         .ok_or_else(|| "failed to decode EnableRawRxResponse".to_string())
 }
 
+#[cfg(target_os = "linux")]
 /// Transmits `frame` via the device and verifies the TX path using the
 /// device's own diagnostic counters (no witness required).
 /// Returns the updated TX counter.
@@ -498,9 +526,6 @@ fn data_connectivity() {
             return;
         }
     };
-    let _ssid = env_var("INTEG_SSID", "HappyHouse");
-    let _security = parse_security(&env_var("INTEG_SECURITY", "psk"));
-    let _psk = env_var("INTEG_PSK", "");
     let witness_iface = env_var("INTEG_WITNESS", "wlo1");
 
     // ---- Host-side witness (monitor mode capture) ----
