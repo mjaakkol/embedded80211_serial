@@ -59,7 +59,7 @@ title: "Traffic and error mapping (v1)"
 ---
 flowchart LR
     T[Traffic type 0..15] --> T0[0 WIFI_MGMT]
-    T --> T1[1 NET_L2_DATA]
+    T --> T1[1 WIFI_DATA]
     T --> T2[2 NET_IF_MGMT]
     T --> T3[3 BT_H4]
     T --> T4[4 THREAD]
