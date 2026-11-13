@@ -61,7 +61,7 @@ static void iface_enum_cb(struct net_if *iface, void *user_data)
     ni->dormant    = net_if_is_dormant(iface);
     ni->offload_supported = net_if_is_ip_offloaded(iface);
     ni->promisc = net_if_is_promisc(iface);
-    ni->flags = iface->flags;
+    ni->flags = (uint32_t)atomic_get(&iface->if_dev->flags[0]);
     ni->oper_state = (embedded_wifi_mgmt_NetIfOperState)net_if_oper_state(iface);
 
     if (net_if_is_wifi(iface)) {

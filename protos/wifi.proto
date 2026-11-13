@@ -642,6 +642,7 @@ message WifiMgmtResponse {
     GetInterfaceStatusResponse get_iface_status_resp = 6;
     WifiCapabilitiesResponse capabilities_resp = 7;
     EnableRawRxResponse enable_raw_rx_resp = 8;
+    ProtocolVersionResponse get_protocol_version_resp = 9;
   }
 }
 
