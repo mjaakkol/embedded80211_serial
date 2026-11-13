@@ -19,7 +19,7 @@ The solution has been defined serial interfaces in mind. In principle, any seria
 
 C is used as the programming language across hosts and MCU software. Wonderful programming language [Rust](https://www.rust-lang.org/) is used everywhere else. I may consider using Rust for writing Linux kernel-driver if the bindings for cfg80211 are available for the language.
 
-### Serial Medium Access Protocol (MAC)
+### Serial Medium Access Protocol (Serial MAC)
 Serial MAC is providing means to manage the lowest level of interactions between the host and MCU including routing the packets between supported subsystems, abstracting the physical interfaces performing flow-control with serialization between the technology blocks.
 
 The link protocol is defined as:
@@ -32,10 +32,26 @@ packet-beta
     4: "No Ack"
     5: "Host Dir"
     6-7: "Error"
-    8-11: "Reserved"
+    8: "Seq reset"
+    9-11: "Reserved"
     12-15: "Seq (0..15)"
     16-31: "Length (0..4096)"
 ```
+
+```mermaid
+---
+title: "Device configuration"
+---
+packet-beta
+    0-4: "Protocol version"
+    5: "WiFi"
+    6: "BT"
+    7: "Thread"
+    8: "AT-command"
+    9: "Network offloading"
+    10-12: "Number of virtual serial port"
+    13-31: "Reserved"
+    32-63: "Device uptime"
 
 ```mermaid
 ---
@@ -43,9 +59,9 @@ title: "Traffic and error mapping (v1)"
 ---
 flowchart LR
     T[Traffic type 0..15] --> T0[0 WIFI_MGMT]
-    T --> T1[1 WIFI_DATA]
+    T --> T1[1 NET_L2_DATA]
     T --> T2[2 NET_IF_MGMT]
-    T --> T3[3 HCI]
+    T --> T3[3 BT_H4]
     T --> T4[4 THREAD]
     T --> T5[5 NET_OFFLOADING reserved]
     T --> T6[6 AT_CMD reserved]
@@ -63,13 +79,11 @@ flowchart LR
 ```
 Diagram is supported in visualized format in later Mermaid plug-in.
 
-
-
 Traffic Type can take following values:
 - 0: Wi-Fi Management message
-- 1: Wi-Fi Data
+- 1: WiFi Data
 - 2: Network L2 interface management
-- 3: BLE HCI message
+- 3: BT H4 message
 - 4: OpenThread Spinel message
 - 5: Network offloading (reserved)
 - 6: AT-command (reserved)
@@ -92,6 +106,42 @@ Ack is encoded as a regular link-layer header with the same traffic type, length
 
 Length defines the length of the data after the header.
 
+### WiFi management message
+
+WiFi management messages start right after SMAC protocol. WiFi management messages are modeled through Zephyr WiFi management messages carried through in Google Protobuf messages. This streamlines serialization process in Zephyr device and host solution. Linux hosts have more processing power so they are more equipped to do tolerate extra overheads.
+
+Heaving a separate traffic type for WiFi management and type enables simultaneous operations. For example, some calls maybe blocking in management side and that would block the parallel data transmission. Scan operation is one example of long lasting calls that should not block data transfers.
+
+It can be assumed that there is only one WiFi device behind each serial link.
+
+### WiFi Data
+
+WiFi data includes the data being send out and received. WiFi data is exchanged using Ethernet II frames. Ethernet data is included right after SMAC header frame.
+
+### BT H4 messages
+
+BT H4 messages follow right after SMAC protocol. It is up to host BT stack to consolidate all BT packet types into H4 messages. This includes HCI Commands, ACL data, SCO/eSCO, Events and ISO Data.
+
+It can be assumed that there is only one BT device behind each serial link.
+
+### OpenThread Spinel message
+
+OpenThread are specific for the implementation. HDLC framing is happening inside the Spinel protocol stack.
+
+### Network offloading (reserved)
+
+This feature is not implemented yet.
+
+### AT-command (reserved)
+
+This feature is not implemented yet.
+
+### Virtual serial port
+
+Virtual serial port is used for establishing virtual null-modem serials port in Zephyr device that manifest as another virtual serial port in the host side. This can be used by the system to push Zephyr logging information, expose Zephyr shell or any other kind of serial port driven functionality to the host.
+
+Baudrate, bit-width, stop-bit, HW flow-control etc. values shall be shadows (when written, they can be read back having them being unchanged) to emulate real-serial port.
+
 ### System components
 - `embedded80211/` — Zephyr module library. Contains the common link protocol,
   the device-side (co-processor) transport and technology proxies, and the
@@ -110,3 +160,20 @@ Length defines the length of the data after the header.
   over a serial port.
 - `protos/` — protobuf schemas shared by the device and host builds
   (generated to nanopb at build time).
+
+## System operations
+
+### Initialization
+
+When host is establishing the connection, it sends SMAC frame with traffic type "Protocol information" value 7 to which is receives the Device configuration packet. This is used for enumerate the necessary device drivers in Linux host or check that the configuration is matching in Zephyr host. In Zephyr host, the necessary drivers are established in built-time.
+
+The uptime contains the time the device has been up since the last boot. This can be used for detecting if the device has reset.
+
+### Link synchronization
+
+Each traffic type to each direction has its own sequence number. In other words, host->device sequence number has not relation to device->host sequence number.
+
+Sequence number starts from zero. If either party sends a packet with wrong sequence number, the other party shall response to that with error message. The sender of the wrong sequence number is responsible of resetting the sequence number by setting reset sequence number bit and placing the new sequence number into seq field.
+
+Sender is responsible of resending the data in the case of error has occurred.
+
