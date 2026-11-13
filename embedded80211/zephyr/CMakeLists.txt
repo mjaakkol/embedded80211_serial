@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2022 Nordic Semiconductor ASA
+# Copyright (c) 2025 Mikko Jaakkola
 #
 # SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
 #

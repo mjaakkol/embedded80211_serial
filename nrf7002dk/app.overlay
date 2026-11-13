@@ -25,9 +25,6 @@ zephyr_udc0: &usbd {
     cdc_serial_uart: cdc_acm_uart1 { // This creates an instance named "CDC_ACM_0"
         compatible = "zephyr,cdc-acm-uart";
 		current-speed = <115200>;
-		parity = "none";
-		data-bits = <8>;
-		stop-bits = "0_5";
         label = "CDC_ACM_0";
         /* Must hold a full protocol frame (4 B header + 4096 B payload =
          * 4100 B; next power of two is 8192). The CDC ACM driver's

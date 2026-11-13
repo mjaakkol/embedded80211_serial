@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2022 Nordic Semiconductor ASA
+# Copyright (c) 2025 Mikko Jaakkola
 #
 # SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
 #
@@ -14,8 +14,6 @@ cmake_policy(SET CMP0057 NEW)
 set(ZEPHYR_EXTRA_MODULES ${CMAKE_CURRENT_SOURCE_DIR}/../embedded80211)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
-
-add_compile_options(-Wno-unused-function -Wno-unused-variable)
 
 project(embedded80211_serial)
 

@@ -6,7 +6,7 @@
 #include <embedded80211/serial.h>
 #include <embedded80211/multiplexer.h>
 
-LOG_MODULE_REGISTER(serial_uart);
+LOG_MODULE_REGISTER(serial_uart, LOG_LEVEL_INF);
 
 #define UART_DEVICE_NODE DT_NODELABEL(uart0)
 

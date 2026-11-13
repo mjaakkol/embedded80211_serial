@@ -18,6 +18,9 @@ target_include_directories(app PRIVATE
     ${CMAKE_SOURCE_DIR}/../zephyr/device
 )
 
+# The test app builds the multiplexer directly with target_sources()
+# instead of consuming the embedded80211 Zephyr module, so no Kconfig
+# symbols exist in autoconf.h. Inject the one the multiplexer requires.
 target_compile_definitions(app PRIVATE
     CONFIG_SERIAL_MUX_IFACE_UART=1
 )

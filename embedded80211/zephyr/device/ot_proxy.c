@@ -1,7 +1,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
-LOG_MODULE_REGISTER(ot_proxy, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(ot_proxy, LOG_LEVEL_INF);
 
 /* OpenThread Spinel frames are not yet handled; just ACK and drop. */
 
