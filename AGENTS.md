@@ -17,6 +17,18 @@ Keep changes focused, preserve existing behavior unless the task requires a
 behavior change, and update the nearest relevant README or protocol
 documentation when externally visible behavior changes.
 
+## Documentation
+
+- `@docs/architecture.md` is the system blueprint (module boundaries, wire
+  protocol specification, data flows, non-negotiable constraints). Consult
+  it before modifying core modules: the link protocol, multiplexer,
+  technology proxies, host bus drivers, or protobuf schemas.
+- Record significant new technical trade-offs as ADRs in `docs/decisions/`
+  using `0000-template.md`; name files `NNNN-YYYY-MM-DD-short-title.md`.
+  ADRs are a permanent record — supersede, do not rewrite history.
+- Keep `docs/architecture.md` in sync when externally visible architecture
+  changes, in addition to the nearest README or protocol documentation.
+
 ## Product architecture
 
 - Provide a Radio Co-Processor solution for Zephyr-based microcontrollers.
