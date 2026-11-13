@@ -25,3 +25,7 @@ directory and supplement [../../AGENTS.md](../../AGENTS.md).
   hardware.
 - Exercise initialization, shutdown, short transfers, timeout, overflow,
   disconnect, and reinitialization paths.
+
+## Configuration
+
+The implementation uses compile time Zephyr definitions such as CONFIG_WIFI=y, CONFIG_BT=y etc. to statically configure Device configuration information.
