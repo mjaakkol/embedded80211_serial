@@ -26,7 +26,7 @@ AGENTS.md Coverage: 85%+ (core protocol)
 **File:** `protocol_test.c`
 
 Validates protocol-level constants and definitions:
-- Protocol version 2 (4-bit sequence support)
+- Protocol version 1 (4-bit sequence support)
 - Max payload: 4096 bytes
 - Sequence numbers: 0-15 with wraparound
 - Traffic types: 10 total (7 supported)

@@ -15,9 +15,11 @@ link protocol. Definition of record:
 (protocol version 1, wire format is invariant).
 
 - **Header** (4 bytes, wire order):
-  `type(4) | no_ack(1) | host(1) | error(2) | reserved(4)`,
-  `seq(4) | reserved(4)`, `length(16)` big-endian; payload 0..4096 bytes.
-  `host=1` marks device→host frames.
+  `type(4) | no_ack(1) | host(1) | error(2) | crc(1) | reserved(3)`,
+  `seq(4)`, `length(16)` big-endian; payload 0..4096 bytes. `host=1` marks
+  device→host frames. When `crc` is set, a 4-byte big-endian CRC32C (Castagnoli,
+  over header + payload) follows the payload — an optional, runtime-enabled
+  integrity feature (off by default, so v1 peers are unaffected).
 - **Traffic types**: 0 `WIFI_MGMT`, 1 `WIFI_DATA`, 2 `NET_IF_MGMT`, 3 `HCI`,
   4 `THREAD`, 5 `NET_OFFLOADING` (reserved), 6 `AT_CMD` (reserved),
   7 `PROTOCOL_INFO`, 8 `VSERIAL`.
@@ -26,7 +28,8 @@ link protocol. Definition of record:
 - **ACK**: a frame with the same traffic type, length 0, and an error field.
   `INCORRECT_SEQUENCE` → the sender resyncs (see below) and retries exactly once.
   `OUT_OF_BUFFERS` → backpressure signal. `LENGTH_TOO_LONG` also signals an
-  unrecognized command.
+  unrecognized command **and** a CRC32C mismatch (corrupted frame dropped,
+  sequence not advanced, sender retransmits).
 - **Handshake**: `PROTOCOL_INFO` is a length-0 query (`no_ack`); the 4-byte
   response is `[version, mask_lo, mask_hi, next_seq]` and consumes no sequence
   slot. Unsupported traffic types must fail clearly from this mask.

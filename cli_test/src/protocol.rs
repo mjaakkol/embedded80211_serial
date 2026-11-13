@@ -136,6 +136,8 @@ pub struct Frame {
     pub to_host: bool,
     /// Protocol error carried by the frame, if any.
     pub error: ErrorType,
+    /// True when a CRC32C trailer follows the payload.
+    pub crc: bool,
     /// Sequence number (0..15, wraps).
     pub seq: u8,
     /// Frame payload (empty for ACK frames).
@@ -155,12 +157,29 @@ impl Frame {
             return None;
         }
         let length = u16::from_be_bytes([data[2], data[3]]) as usize;
-        if length > MAX_PAYLOAD_LEN || data.len() != 4 + length {
+        if length > MAX_PAYLOAD_LEN {
             return None;
+        }
+        let crc = data[1] & 0x01 != 0;
+        let body_len = 4 + length;
+        let total = body_len + if crc { 4 } else { 0 };
+        if data.len() != total {
+            return None;
+        }
+        if crc {
+            let expected = u32::from_be_bytes([
+                data[body_len],
+                data[body_len + 1],
+                data[body_len + 2],
+                data[body_len + 3],
+            ]);
+            if crc32c::crc32c(&data[..body_len]) != expected {
+                return None;
+            }
         }
         let mut header = [0u8; 4];
         header.copy_from_slice(&data[0..4]);
-        Self::from_parts(header, data[4..].to_vec())
+        Self::from_parts(header, data[4..body_len].to_vec())
     }
 
     /// Validates a 4-byte header and pairs it with an already-read payload,
@@ -174,9 +193,10 @@ impl Frame {
         let no_ack = header[0] & (1 << 4) != 0;
         let to_host = header[0] & (1 << 5) != 0;
         let error = ErrorType::from(header[0] >> 6);
+        let crc = header[1] & 0x01 != 0;
         let seq = (header[1] >> 4) & 0x0F;
-        if header[1] & 0x0F != 0 {
-            // Reserved bits must be zero.
+        if header[1] & 0x0E != 0 {
+            // Reserved bits (1..3) must be zero; bit 0 is the crc flag.
             return None;
         }
         Some(Self {
@@ -184,6 +204,7 @@ impl Frame {
             no_ack,
             to_host,
             error,
+            crc,
             seq,
             payload,
         })
@@ -199,6 +220,7 @@ impl Frame {
     pub fn encode_host_frame(
         traffic_type: SerialType,
         seq: u8,
+        crc: bool,
         payload: &[u8],
     ) -> Result<Vec<u8>, SessionError> {
         debug_assert!(!payload.is_empty(), "device rejects length-0 frames");
@@ -206,21 +228,26 @@ impl Frame {
             return Err(SessionError::PayloadTooLong(payload.len()));
         }
         let length = (payload.len() as u16).to_be_bytes();
-        let mut frame = BytesMut::with_capacity(4 + payload.len());
+        let mut frame = BytesMut::with_capacity(4 + payload.len() + 4);
         frame.put_u8(traffic_type.to_u8());
-        frame.put_u8((seq & 0x0F) << 4);
+        frame.put_u8(((seq & 0x0F) << 4) | (if crc { 1 } else { 0 }));
         frame.put_u8(length[0]);
         frame.put_u8(length[1]);
         frame.put_slice(payload);
+        if crc {
+            // CRC32C over the 4-byte header plus the payload; put_u32 is big-endian.
+            let c = crc32c::crc32c(&frame[..]);
+            frame.put_u32(c);
+        }
         Ok(frame.into())
     }
 
     /// PROTOCOL_INFO query frame. The device discards the payload and
     /// responds with version, supported-type mask and next expected
     /// sequence number.
-    pub fn protocol_info_query(seq: u8) -> Vec<u8> {
+    pub fn protocol_info_query(seq: u8, crc: bool) -> Vec<u8> {
         // A single fixed payload byte can never exceed the link limit.
-        Self::encode_host_frame(SerialType::ProtocolInfo, seq, &[0x00])
+        Self::encode_host_frame(SerialType::ProtocolInfo, seq, crc, &[0x00])
             .expect("1-byte payload always encodable")
     }
 }
@@ -538,6 +565,7 @@ impl std::error::Error for SessionError {
 pub struct Session {
     port: Box<dyn serialport::SerialPort>,
     tx_seq: u8,
+    crc_enabled: bool,
 }
 
 impl Session {
@@ -546,7 +574,19 @@ impl Session {
     /// The host sequence counter starts at zero; call [`Session::sync`]
     /// before sending any command frame.
     pub fn new(port: Box<dyn serialport::SerialPort>) -> Self {
-        Self { port, tx_seq: 0 }
+        Self {
+            port,
+            tx_seq: 0,
+            crc_enabled: false,
+        }
+    }
+
+    /// Enable or disable the per-frame CRC32C feature. When enabled, frames
+    /// this session transmits set the `crc` header bit and append a 4-byte
+    /// CRC32C trailer, and received frames carrying the bit are verified
+    /// (a mismatch is dropped). Off by default.
+    pub fn set_crc_enabled(&mut self, enabled: bool) {
+        self.crc_enabled = enabled;
     }
 
     /// Reads exactly `buf.len()` bytes, or returns the number of bytes read
@@ -584,15 +624,24 @@ impl Session {
         if length > MAX_PAYLOAD_LEN {
             return Err(SessionError::Timeout);
         }
-        if length == 0 {
-            // ACK / error frames carry no payload.
-            return Frame::from_parts(header, Vec::new()).ok_or(SessionError::Timeout);
+        let crc = header[1] & 0x01 != 0;
+        let mut full = Vec::with_capacity(4 + length + (if crc { 4 } else { 0 }));
+        full.extend_from_slice(&header);
+        if length > 0 {
+            let mut payload = vec![0u8; length];
+            if self.read_bytes(&mut payload, deadline)? != length {
+                return Err(SessionError::Timeout);
+            }
+            full.extend_from_slice(&payload);
         }
-        let mut payload = vec![0u8; length];
-        if self.read_bytes(&mut payload, deadline)? != length {
-            return Err(SessionError::Timeout);
+        if crc {
+            let mut trailer = [0u8; 4];
+            if self.read_bytes(&mut trailer, deadline)? != 4 {
+                return Err(SessionError::Timeout);
+            }
+            full.extend_from_slice(&trailer);
         }
-        Frame::from_parts(header, payload).ok_or(SessionError::Timeout)
+        Frame::parse(&full).ok_or(SessionError::Timeout)
     }
 
     /// Sends a raw frame and drains the port first so a stale response
@@ -618,7 +667,7 @@ impl Session {
     /// number. Must be called before any command frame.
     pub fn sync(&mut self, deadline: Instant) -> Result<ProtocolInfo, SessionError> {
         for _ in 0..4 {
-            self.send(&Frame::protocol_info_query(self.tx_seq))?;
+            self.send(&Frame::protocol_info_query(self.tx_seq, self.crc_enabled))?;
             let frame = self.read_frame(deadline)?;
             if let Ok(info) = ProtocolInfo::try_from(&frame) {
                 self.tx_seq = info.next_seq;
@@ -642,18 +691,28 @@ impl Session {
     ) -> Result<Frame, SessionError> {
         let seq = self.tx_seq;
         self.tx_seq = (self.tx_seq + 1) & 0x0F;
-        self.send(&Frame::encode_host_frame(traffic_type, seq, payload)?)?;
+        self.send(&Frame::encode_host_frame(
+            traffic_type,
+            seq,
+            self.crc_enabled,
+            payload,
+        )?)?;
 
         let mut retried = false;
         loop {
             let frame = self.read_frame(deadline)?;
             if frame.error != ErrorType::NoError {
-                if frame.error == ErrorType::IncorrectSequenceNumber && !retried {
+                let retryable = matches!(
+                    frame.error,
+                    ErrorType::IncorrectSequenceNumber | ErrorType::LengthTooLong
+                );
+                if retryable && !retried {
                     let info = self.sync(deadline)?;
                     self.tx_seq = (info.next_seq + 1) & 0x0F;
                     self.send(&Frame::encode_host_frame(
                         traffic_type,
                         info.next_seq,
+                        self.crc_enabled,
                         payload,
                     )?)?;
                     retried = true;
@@ -1355,7 +1414,7 @@ mod tests {
         // byte1: sequence in high nibble, reserved zero
         // bytes 2..3: length big-endian
         let frame =
-            Frame::encode_host_frame(SerialType::WifiMgmt, 5, &[1, 2, 3, 4]).expect("encodes");
+            Frame::encode_host_frame(SerialType::WifiMgmt, 5, false, &[1, 2, 3, 4]).expect("encodes");
 
         assert_eq!(frame.len(), 8);
         assert_eq!(frame[0], 0x00); // type 0 (WIFI_MGMT)
@@ -1411,7 +1470,7 @@ mod tests {
 
     #[test]
     fn protocol_info_query_is_type_7_with_payload() {
-        let query = Frame::protocol_info_query(0);
+        let query = Frame::protocol_info_query(0, false);
         let parsed = Frame::parse(&query).expect("info query should parse");
         assert_eq!(parsed.traffic_type, SerialType::ProtocolInfo);
         assert_eq!(parsed.payload.len(), 1);
@@ -1422,7 +1481,7 @@ mod tests {
         // [version=1, mask_lo=0x1F, mask_hi=0x00, next_seq=3]
         let payload = [1u8, 0x1F, 0x00, 3];
         let frame =
-            Frame::encode_host_frame(SerialType::ProtocolInfo, 0, &payload).expect("encodes");
+            Frame::encode_host_frame(SerialType::ProtocolInfo, 0, false, &payload).expect("encodes");
         let parsed = Frame::parse(&frame).expect("frame should parse");
         let info = ProtocolInfo::try_from(&parsed).expect("info should decode");
         assert_eq!(info.version, 1);
@@ -1481,6 +1540,7 @@ mod tests {
             no_ack: true,
             to_host: true,
             error: ErrorType::NoError,
+            crc: false,
             seq: 0,
             payload: out,
         }
@@ -2024,15 +2084,73 @@ mod tests {
         // Length field above the 4096-byte limit.
         assert!(Frame::parse(&[0x00, 0x00, 0x10, 0x01]).is_none());
         // The encoder rejects the same input before it hits the wire.
-        assert!(Frame::encode_host_frame(SerialType::WifiMgmt, 0, &[0u8; 4097]).is_err());
+        assert!(Frame::encode_host_frame(SerialType::WifiMgmt, 0, false, &[0u8; 4097]).is_err());
     }
 
     #[test]
     fn parse_accepts_max_length_payload() {
         let frame =
-            Frame::encode_host_frame(SerialType::WifiMgmt, 0, &[0u8; 4096]).expect("encodes");
+            Frame::encode_host_frame(SerialType::WifiMgmt, 0, false, &[0u8; 4096]).expect("encodes");
         let parsed = Frame::parse(&frame).expect("max-length frame parses");
         assert_eq!(parsed.payload.len(), 4096);
+    }
+
+    #[test]
+    fn crc32c_known_vector() {
+        // Pins the exact CRC32C (Castagnoli) parameters: init 0xFFFFFFFF,
+        // final XOR 0xFFFFFFFF. Must match Zephyr crc32_c() and the C
+        // serial_frame_crc() on the device and host.
+        assert_eq!(crc32c::crc32c(b"123456789"), 0xE3069283);
+    }
+
+    #[test]
+    fn encode_host_frame_with_crc_round_trips() {
+        let frame =
+            Frame::encode_host_frame(SerialType::WifiMgmt, 5, true, &[1, 2, 3, 4]).expect("encodes");
+        // 4 header + 4 payload + 4 CRC trailer.
+        assert_eq!(frame.len(), 12);
+        // The crc bit (byte1 bit 0) is set.
+        assert_eq!(frame[1] & 0x01, 1);
+        let parsed = Frame::parse(&frame).expect("crc frame parses");
+        assert!(parsed.crc);
+        assert_eq!(parsed.seq, 5);
+        assert_eq!(parsed.payload, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn encode_host_frame_without_crc_is_v1_layout() {
+        let frame =
+            Frame::encode_host_frame(SerialType::WifiMgmt, 5, false, &[1, 2, 3, 4]).expect("encodes");
+        // No trailer: exactly 4 header + 4 payload.
+        assert_eq!(frame.len(), 8);
+        // The crc bit is clear, so the layout is byte-identical to v1.
+        assert_eq!(frame[1] & 0x01, 0);
+        let parsed = Frame::parse(&frame).expect("non-crc frame parses");
+        assert!(!parsed.crc);
+        assert_eq!(parsed.payload, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn parse_rejects_corrupted_crc_trailer() {
+        let mut frame =
+            Frame::encode_host_frame(SerialType::WifiMgmt, 5, true, &[1, 2, 3, 4]).expect("encodes");
+        assert!(Frame::parse(&frame).is_some(), "intact frame parses");
+        // Corrupt a payload byte: the trailer no longer matches.
+        frame[4] ^= 0xFF;
+        assert!(Frame::parse(&frame).is_none(), "corrupted payload rejected");
+        // Corrupt the trailer byte itself: rejected too.
+        let mut frame2 =
+            Frame::encode_host_frame(SerialType::WifiMgmt, 5, true, &[1, 2, 3, 4]).expect("encodes");
+        frame2[11] ^= 0x01;
+        assert!(Frame::parse(&frame2).is_none(), "corrupted trailer rejected");
+    }
+
+    #[test]
+    fn parse_rejects_missing_crc_trailer() {
+        let frame =
+            Frame::encode_host_frame(SerialType::WifiMgmt, 5, true, &[1, 2, 3, 4]).expect("encodes");
+        // The crc bit is set but the 4-byte trailer is absent.
+        assert!(Frame::parse(&frame[..8]).is_none(), "short crc frame rejected");
     }
 
     #[test]

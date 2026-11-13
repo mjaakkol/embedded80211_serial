@@ -8,7 +8,8 @@
  *
  * Request/response semantics mirror cli_test/src/protocol.rs (Session::request):
  * drain-before-send, PROTOCOL_INFO resync consumes no sequence slot, and an
- * INCORRECT_SEQUENCE_NUMBER error ACK triggers exactly one resync+retry.
+ * INCORRECT_SEQUENCE_NUMBER or LENGTH_TOO_LONG (CRC mismatch) error ACK
+ * triggers exactly one resync+retry.
  */
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
@@ -38,6 +39,10 @@ struct bus_state {
 	enum ParsingState state;
 	struct bus_header hdr;
 	size_t bytes_read;
+	/* Raw 4 header wire bytes + CRC32C trailer of the frame being parsed. */
+	uint8_t hdr_wire[4];
+	uint8_t trailer[SERIAL_CRC_LEN];
+	size_t trailer_read;
 	uint8_t rx_buf[E80211_BUS_RX_BUF_SIZE];
 	struct k_work rx_work;
 	/* Sequence counters. tx_seq: host->device. rx_seq: device->host (the
@@ -54,6 +59,8 @@ struct bus_state {
 	bus_rx_handler_t handler[SERIAL_TYPE_UNKNOWN];
 	void *handler_user[SERIAL_TYPE_UNKNOWN];
 	bool opened;
+	/* Runtime per-frame CRC32C feature (off by default). */
+	bool crc_enabled;
 };
 
 static struct bus_state bus = {
@@ -94,13 +101,26 @@ static int bus_data_tx(const struct device *dev, const uint8_t *data, size_t len
 static void bus_send_raw(const struct bus_header *hdr, const uint8_t *payload,
 			 size_t len)
 {
+	struct bus_header h = *hdr;
 	uint8_t wire[4];
 
-	bus_header_encode(hdr, wire);
+	if (bus.crc_enabled) {
+		h.crc = 1;
+	}
+	bus_header_encode(&h, wire);
 	k_mutex_lock(&bus.tx_mutex, K_FOREVER);
 	bus_data_tx(bus.uart, wire, sizeof(wire));
 	if (payload != NULL && len > 0U) {
 		bus_data_tx(bus.uart, payload, len);
+	}
+	if (bus.crc_enabled) {
+		uint32_t crc = serial_frame_crc(wire, payload, len);
+		uint8_t trailer[SERIAL_CRC_LEN] = {
+			(uint8_t)(crc >> 24), (uint8_t)(crc >> 16),
+			(uint8_t)(crc >> 8),  (uint8_t)(crc),
+		};
+
+		bus_data_tx(bus.uart, trailer, sizeof(trailer));
 	}
 	k_mutex_unlock(&bus.tx_mutex);
 }
@@ -141,20 +161,26 @@ static void bus_rx_isr(const struct device *dev, void *user_data)
 			bus.hdr.no_ack = (b >> 4) & 0x1;
 			bus.hdr.host = (b >> 5) & 0x1;
 			bus.hdr.error = (b >> 6) & 0x3;
+			bus.hdr_wire[0] = b;
 			bus.bytes_read = 0;
 			bus.state = PARSING_STATE_SEQUENCE_NUMBER;
 			break;
 		case PARSING_STATE_SEQUENCE_NUMBER:
-			bus.hdr.reserved = b & 0x0F;
+			bus.hdr.crc = b & 0x01;
+			bus.hdr.reserved = (b >> 1) & 0x07;
 			bus.hdr.seq = (b >> 4) & 0x0F;
+			bus.hdr_wire[1] = b;
 			bus.state = PARSING_STATE_LENGTH1;
 			break;
 		case PARSING_STATE_LENGTH1:
 			bus.hdr.length = (uint16_t)(b << 8);
+			bus.hdr_wire[2] = b;
 			bus.state = PARSING_STATE_LENGTH2;
 			break;
 		case PARSING_STATE_LENGTH2:
 			bus.hdr.length |= b;
+			bus.hdr_wire[3] = b;
+			bus.trailer_read = 0;
 			if (bus.hdr.length == 0U) {
 				/*
 				 * Length 0: an ACK (any type) or a PROTOCOL_INFO
@@ -198,10 +224,12 @@ static void bus_rx_work(struct k_work *work)
 	ARG_UNUSED(work);
 	const struct device *dev = bus.uart;
 	enum SerialType type = bus.hdr.type;
+	const size_t length = bus.hdr.length;
+	const bool has_crc = bus.hdr.crc != 0;
 
 	/* Read the payload (may complete across several work invocations). */
-	while (bus.bytes_read < bus.hdr.length) {
-		size_t remaining = bus.hdr.length - bus.bytes_read;
+	while (bus.bytes_read < length) {
+		size_t remaining = length - bus.bytes_read;
 		int n = uart_fifo_read(dev, bus.rx_buf + bus.bytes_read, remaining);
 
 		if (n <= 0) {
@@ -210,10 +238,27 @@ static void bus_rx_work(struct k_work *work)
 		bus.bytes_read += (size_t)n;
 	}
 
-	if (bus.bytes_read < bus.hdr.length) {
-		/* Incomplete: leave the state machine in DATA; the next RX
-		 * event resubmits this work item. */
+	if (bus.bytes_read < length) {
+		/* Incomplete payload: resume on the next RX event. */
 		return;
+	}
+
+	/* Read the CRC32C trailer (if requested), re-entrantly. */
+	if (has_crc) {
+		while (bus.trailer_read < SERIAL_CRC_LEN) {
+			size_t remaining = SERIAL_CRC_LEN - bus.trailer_read;
+			int n = uart_fifo_read(dev, bus.trailer + bus.trailer_read,
+					       remaining);
+
+			if (n <= 0) {
+				break;
+			}
+			bus.trailer_read += (size_t)n;
+		}
+		if (bus.trailer_read < SERIAL_CRC_LEN) {
+			/* Incomplete trailer: resume on the next RX event. */
+			return;
+		}
 	}
 
 	/* Validate the header. */
@@ -222,7 +267,28 @@ static void bus_rx_work(struct k_work *work)
 			bus.hdr.type, bus.hdr.length);
 		bus.state = PARSING_STATE_TYPE;
 		bus.bytes_read = 0;
+		bus.trailer_read = 0;
 		return;
+	}
+
+	/* Verify the CRC32C trailer when requested. A mismatch drops the
+	 * frame without dispatching or acknowledging it. */
+	if (has_crc) {
+		uint32_t expected = ((uint32_t)bus.trailer[0] << 24) |
+				    ((uint32_t)bus.trailer[1] << 16) |
+				    ((uint32_t)bus.trailer[2] << 8) |
+				    (uint32_t)bus.trailer[3];
+		uint32_t actual = serial_frame_crc(bus.hdr_wire, bus.rx_buf, length);
+
+		if (actual != expected) {
+			LOG_ERR("CRC32C mismatch (type %u len %u): expected 0x%08x, "
+				"got 0x%08x", type, (unsigned int)length,
+				(unsigned int)expected, (unsigned int)actual);
+			bus.state = PARSING_STATE_TYPE;
+			bus.bytes_read = 0;
+			bus.trailer_read = 0;
+			return;
+		}
 	}
 
 	if (bus.hdr.length == 0U) {
@@ -251,6 +317,7 @@ static void bus_rx_work(struct k_work *work)
 
 	bus.state = PARSING_STATE_TYPE;
 	bus.bytes_read = 0;
+	bus.trailer_read = 0;
 }
 
 static int bus_sync(void)
@@ -428,7 +495,8 @@ int bus_request(int type, const uint8_t *req, size_t req_len,
 
 			if (last.length == 0U) {
 				/* ACK. */
-				if (last.error == ERROR_TYPE_INCORRECT_SEQUENCE_NUMBER &&
+				if ((last.error == ERROR_TYPE_INCORRECT_SEQUENCE_NUMBER ||
+				     last.error == ERROR_TYPE_LENGTH_TOO_LONG) &&
 				    !retried) {
 					/* Resync and retry exactly once. */
 					bus.request_pending = false;
@@ -472,4 +540,10 @@ int bus_request(int type, const uint8_t *req, size_t req_len,
 uint16_t bus_supported_types(void)
 {
 	return bus.supported_types;
+}
+
+void bus_set_crc_enabled(bool enabled)
+{
+	bus.crc_enabled = enabled;
+	LOG_INF("Per-frame CRC32C %s", enabled ? "enabled" : "disabled");
 }

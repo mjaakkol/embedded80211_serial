@@ -256,3 +256,42 @@ ZTEST(bus_framing, test_host_device_header_agreement)
 	zassert_equal(d.length, 42, "length");
 	zassert_equal(bus_validate_rx(&d), 0, "device would accept header");
 }
+
+/* CRC bit: encodes into byte1 bit 0 and survives the decode round-trip,
+ * while the reserved bits (1..3) stay clear and seq is unaffected. */
+ZTEST(bus_framing, test_crc_bit_roundtrip)
+{
+	struct bus_header h = {
+		.type = SERIAL_TYPE_WIFI_MGMT,
+		.no_ack = 0,
+		.host = 0,
+		.error = 0,
+		.crc = 1,
+		.reserved = 0,
+		.seq = 7,
+		.length = 10,
+	};
+	uint8_t wire[4];
+	struct bus_header d;
+
+	bus_header_encode(&h, wire);
+	bus_header_decode(wire, &d);
+
+	zassert_equal(wire[1] & 0x01, 1, "crc bit set in byte1");
+	zassert_equal((wire[1] >> 1) & 0x07, 0, "reserved bits clear");
+	zassert_equal(d.crc, 1, "crc survives decode");
+	zassert_equal(d.reserved, 0, "reserved survives decode");
+	zassert_equal(d.seq, 7, "seq unaffected by crc bit");
+}
+
+/* serial_frame_crc: pins the CRC32C (Castagnoli) check value for the byte
+ * string "123456789", split as a 4-byte header and a 5-byte payload. Must
+ * match Zephyr crc32_c() and the Rust crc32c crate (0xE3069283). */
+ZTEST(bus_framing, test_frame_crc_check_value)
+{
+	uint8_t hdr[4] = { '1', '2', '3', '4' };
+	uint8_t payload[5] = { '5', '6', '7', '8', '9' };
+
+	zassert_equal(serial_frame_crc(hdr, payload, 5), 0xE3069283U,
+		      "CRC32C check value");
+}

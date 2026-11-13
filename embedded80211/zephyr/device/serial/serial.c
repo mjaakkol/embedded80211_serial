@@ -100,6 +100,7 @@ int serial_send_frame(struct serial_config *config,
         .no_ack = no_ack,
         .host = true,
         .error = error,
+        .crc = config->crc_enabled,
         .reserved = 0,
         .sequence_number = config->tx_sequence_number,
         /* Length is transmitted big-endian on the wire: byte2 = high,
@@ -108,9 +109,21 @@ int serial_send_frame(struct serial_config *config,
         .length = sys_cpu_to_be16((uint16_t)len),
     };
 
-    serial_data_tx(config->serial_dev, (const uint8_t *)&hdr, sizeof(hdr));
+    const uint8_t *wire = (const uint8_t *)&hdr;
+
+    serial_data_tx(config->serial_dev, wire, sizeof(hdr));
     if (payload != NULL && len > 0U) {
         serial_data_tx(config->serial_dev, payload, len);
+    }
+
+    if (config->crc_enabled) {
+        uint32_t crc = serial_frame_crc(wire, payload, len);
+        uint8_t trailer[SERIAL_CRC_LEN] = {
+            (uint8_t)(crc >> 24), (uint8_t)(crc >> 16),
+            (uint8_t)(crc >> 8),  (uint8_t)(crc),
+        };
+
+        serial_data_tx(config->serial_dev, trailer, sizeof(trailer));
     }
 
     config->tx_sequence_number = (config->tx_sequence_number >= SEQUENCE_NUMBER_MAX) ? 0
@@ -157,22 +170,30 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
         switch (config->parsing_state) {
         case PARSING_STATE_TYPE:
             *(uint8_t *)&config->serial_header = b;
+            config->hdr_wire[0] = b;
             LOG_DBG("Received Serial Type: %u", config->serial_header.type);
             config->parsing_state = PARSING_STATE_SEQUENCE_NUMBER;
             config->bytes_read = 0; // Reset bytes read for new packet
             break;
         case PARSING_STATE_SEQUENCE_NUMBER:
             (*((uint8_t *)&config->serial_header + 1)) = b;
+            config->hdr_wire[1] = b;
             LOG_DBG("Received Serial Seq: %u", config->serial_header.sequence_number);
             config->parsing_state = PARSING_STATE_LENGTH1;
             break;
         case PARSING_STATE_LENGTH1:
             *(uint8_t *)&config->serial_header.length = b;
+            config->hdr_wire[2] = b;
             config->parsing_state = PARSING_STATE_LENGTH2;
             break;
         case PARSING_STATE_LENGTH2:
             (*((uint8_t *)&config->serial_header.length + 1)) = b;
+            config->hdr_wire[3] = b;
             config->serial_header.length = sys_be16_to_cpu(config->serial_header.length);
+            /* Seed the running CRC with the complete 4-byte header and reset
+             * the trailer state for this frame. */
+            config->rx_crc = crc32_c(0U, config->hdr_wire, 4U, true, false);
+            config->trailer_read = 0;
             if (config->serial_header.length == 0) {
                 if (config->serial_header.type == SERIAL_TYPE_PROTOCOL_INFO) {
                     config->parsing_state = PARSING_STATE_DATA;
@@ -189,11 +210,23 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
                     .no_ack = false,
                     .host = true,
                     .error = ERROR_TYPE_LENGTH_TOO_LONG,
+                    .crc = config->crc_enabled,
                     .reserved = 0,
                     .sequence_number = config->serial_header.sequence_number,
                     .length = sys_cpu_to_be16(0),
                 };
-                serial_data_tx(dev, (const uint8_t *)&ack, sizeof(ack));
+                const uint8_t *ack_wire = (const uint8_t *)&ack;
+
+                serial_data_tx(dev, ack_wire, sizeof(ack));
+                if (config->crc_enabled) {
+                    uint32_t ack_crc = serial_frame_crc(ack_wire, NULL, 0U);
+                    uint8_t ack_trailer[SERIAL_CRC_LEN] = {
+                        (uint8_t)(ack_crc >> 24), (uint8_t)(ack_crc >> 16),
+                        (uint8_t)(ack_crc >> 8),  (uint8_t)(ack_crc),
+                    };
+
+                    serial_data_tx(dev, ack_trailer, sizeof(ack_trailer));
+                }
                 config->parsing_state = PARSING_STATE_TYPE;
             } else {
                 LOG_DBG("Received Serial Length: %u", config->serial_header.length);
@@ -220,19 +253,33 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
     }
 }
 
-static void send_ack(const struct device *dev, enum SerialType type,
+static void send_ack(struct serial_config *config, enum SerialType type,
                      uint8_t sequence_number, enum ErrorType error)
 {
+    const struct device *dev = config->serial_dev;
+
     struct SerialHeader ack = {
         .type = type,
         .no_ack = false,
         .host = true,
         .error = error,
+        .crc = config->crc_enabled,
         .reserved = 0,
         .sequence_number = sequence_number,
         .length = sys_cpu_to_be16(0),
     };
-    serial_data_tx(dev, (const uint8_t *)&ack, sizeof(ack));
+    const uint8_t *wire = (const uint8_t *)&ack;
+
+    serial_data_tx(dev, wire, sizeof(ack));
+    if (config->crc_enabled) {
+        uint32_t crc = serial_frame_crc(wire, NULL, 0U);
+        uint8_t trailer[SERIAL_CRC_LEN] = {
+            (uint8_t)(crc >> 24), (uint8_t)(crc >> 16),
+            (uint8_t)(crc >> 8),  (uint8_t)(crc),
+        };
+
+        serial_data_tx(dev, trailer, sizeof(trailer));
+    }
 }
 
 static uint16_t serial_get_supported_types_mask(void)
@@ -267,124 +314,196 @@ static void serial_work_handler(struct k_work *work_item_ptr)
         CONTAINER_OF(work_item_ptr, struct serial_config, work_item);
 
     const struct device *dev = config->serial_dev;
-
-    uint8_t *data_buffer;
+    uint8_t *data_buffer = NULL;
     enum SerialType frame_type = config->serial_header.type;
     const struct client_callbacks *callbacks = serial_mux_get_callbacks(frame_type);
+    const size_t length = config->serial_header.length;
+    const bool has_crc = config->serial_header.crc != 0;
+    const size_t frame_total = length + (has_crc ? SERIAL_CRC_LEN : 0U);
 
-    /* Length-0 protocol info request: respond immediately, no payload to read. */
-    if (frame_type == SERIAL_TYPE_PROTOCOL_INFO && config->serial_header.length == 0) {
+    /* Length-0 protocol info request: respond immediately, no payload to read.
+     * A CRC trailer, if present, is consumed for stream alignment (the query
+     * is idempotent, so a split trailer is not fatal). */
+    if (frame_type == SERIAL_TYPE_PROTOCOL_INFO && length == 0) {
+        if (has_crc) {
+            (void)uart_fifo_read(dev, config->trailer, SERIAL_CRC_LEN);
+        }
         handle_protocol_info(config, config->serial_header.sequence_number);
         config->parsing_state = PARSING_STATE_TYPE;
         config->bytes_read = 0;
+        config->trailer_read = 0;
         config->serial_header.length = 0;
         return;
     }
 
-    while (config->bytes_read < config->serial_header.length) {
-        size_t buffer_size = config->serial_header.length - config->bytes_read;
+    /* Read the frame body: `length` payload bytes plus, when the crc bit is
+     * set, a 4-byte CRC32C trailer. Re-entrant: it breaks when the FIFO is
+     * empty and the next RX event resubmits this work item. The running CRC is
+     * updated with every byte read, so the payload need not be contiguous. */
+    while (config->bytes_read < frame_total) {
+        if (config->bytes_read < length) {
+            /* Payload phase. */
+            size_t buffer_size = length - config->bytes_read;
 
-        /* Protocol Info frames are handled inline — no client buffer needed. */
-        if (frame_type == SERIAL_TYPE_PROTOCOL_INFO) {
-            uint8_t discard[64];
-            size_t to_read = MIN(buffer_size, sizeof(discard));
-            int n = uart_fifo_read(dev, discard, to_read);
+            /* Protocol Info frames are handled inline — no client buffer. */
+            if (frame_type == SERIAL_TYPE_PROTOCOL_INFO) {
+                uint8_t discard[64];
+                size_t to_read = MIN(buffer_size, sizeof(discard));
+                int n = uart_fifo_read(dev, discard, to_read);
+                if (n < 0) {
+                    LOG_ERR("UART FIFO read error: %d", n);
+                    break;
+                }
+                config->rx_crc =
+                    crc32_c(config->rx_crc, discard, (size_t)n, false, false);
+                config->bytes_read += (size_t)n;
+                continue;
+            }
+
+            /* Validate client callback is wired for this traffic type. */
+            if (frame_type >= SERIAL_TYPE_UNKNOWN || callbacks == NULL ||
+                callbacks->acquire_buffer == NULL || callbacks->commit_data == NULL ||
+                callbacks->message_complete == NULL) {
+                uint8_t discard[64];
+                size_t to_read = MIN(buffer_size, sizeof(discard));
+                int n = uart_fifo_read(dev, discard, to_read);
+                if (n < 0) {
+                    break;
+                }
+                config->rx_crc =
+                    crc32_c(config->rx_crc, discard, (size_t)n, false, false);
+                config->bytes_read += (size_t)n;
+                continue;
+            }
+
+            if (!callbacks->acquire_buffer(&data_buffer, buffer_size)) {
+                LOG_ERR("Buffer acquisition failed for type %d", frame_type);
+                send_ack(config, frame_type, config->serial_header.sequence_number,
+                         ERROR_TYPE_OUT_OF_BUFFERS);
+                config->parsing_state = PARSING_STATE_TYPE;
+                config->bytes_read = 0;
+                config->trailer_read = 0;
+                break;
+            }
+
+            int n = uart_fifo_read(dev, data_buffer + config->bytes_read, buffer_size);
             if (n < 0) {
                 LOG_ERR("UART FIFO read error: %d", n);
                 break;
-            }
-            config->bytes_read += (size_t)n;
-            if (config->bytes_read >= config->serial_header.length) {
-                handle_protocol_info(config, config->serial_header.sequence_number);
-                /* Reset parser for next frame; clear length so the loop
-                 * exits instead of re-entering with a stale header.
-                 */
-                config->parsing_state = PARSING_STATE_TYPE;
-                config->bytes_read = 0;
-                config->serial_header.length = 0;
-            }
-            continue;
-        }
-
-        /* Validate client callback is wired for this traffic type. */
-        if (frame_type >= SERIAL_TYPE_UNKNOWN || callbacks == NULL ||
-            callbacks->acquire_buffer == NULL || callbacks->commit_data == NULL ||
-            callbacks->message_complete == NULL) {
-            LOG_ERR("No callback for type %d, dropping", frame_type);
-            uint8_t discard[64];
-            size_t to_read = MIN(buffer_size, sizeof(discard));
-            int n = uart_fifo_read(dev, discard, to_read);
-            if (n < 0) {
+            } else if (n == 0) {
+                LOG_DBG("No more data available, waiting for next interrupt");
                 break;
             }
+            config->rx_crc = crc32_c(config->rx_crc, data_buffer + config->bytes_read,
+                                     (size_t)n, false, false);
             config->bytes_read += (size_t)n;
-            if (config->bytes_read >= config->serial_header.length) {
-                send_ack(dev, frame_type, config->serial_header.sequence_number,
-                         ERROR_TYPE_LENGTH_TOO_LONG); /* reuse: unrecognised handler */
-                config->parsing_state = PARSING_STATE_TYPE;
-                config->bytes_read = 0;
+
+            if (config->bytes_read < length) {
+                LOG_DBG("Read %d bytes, total: %zu/%u", n, config->bytes_read,
+                        (unsigned int)length);
+                callbacks->commit_data((size_t)n);
             }
-            continue;
-        }
-
-        if (!callbacks->acquire_buffer(&data_buffer, buffer_size)) {
-            LOG_ERR("Buffer acquisition failed for type %d", frame_type);
-            send_ack(dev, frame_type, config->serial_header.sequence_number,
-                     ERROR_TYPE_OUT_OF_BUFFERS);
-            config->parsing_state = PARSING_STATE_TYPE;
-            config->bytes_read = 0;
-            break;
-        }
-
-        int bytes_read = uart_fifo_read(dev, data_buffer + config->bytes_read, buffer_size);
-        if (bytes_read < 0) {
-            LOG_ERR("UART FIFO read error: %d", bytes_read);
-            break;
-        } else if (bytes_read == 0) {
-            LOG_DBG("No more data available, waiting for next interrupt");
-            break;
-        }
-
-        config->bytes_read += bytes_read;
-
-        if (config->bytes_read >= config->serial_header.length) {
-            LOG_INF("Received complete packet of length %u", config->serial_header.length);
-
-            /* Validate sequence number. */
-            if (config->rx_sequence_number != config->serial_header.sequence_number) {
-                LOG_ERR("Incorrect sequence number: expected %u, received %u",
-                        config->rx_sequence_number, config->serial_header.sequence_number);
-                send_ack(dev, frame_type, config->rx_sequence_number,
-                         ERROR_TYPE_INCORRECT_SEQUENCE_NUMBER);
-                /* Reset expected sequence to 0 per AGENTS spec. */
-                config->rx_sequence_number = 0;
-            } else {
-                /* Sequence OK — commit data and notify client. */
-                callbacks->commit_data(config->serial_header.length);
-                callbacks->message_complete(config->serial_header.length);
-
-                /* Advance and wrap rx sequence number. */
-                config->rx_sequence_number =
-                    (config->rx_sequence_number >= SEQUENCE_NUMBER_MAX) ? 0
-                    : config->rx_sequence_number + 1;
-
-                /* Send ACK to host unless no_ack was requested. */
-                if (!config->serial_header.no_ack) {
-                    send_ack(dev, frame_type,
-                             config->serial_header.sequence_number,
-                             ERROR_TYPE_NO_ERROR);
-                }
-            }
-
-            /* Reset parser for next frame. */
-            config->parsing_state = PARSING_STATE_TYPE;
-            config->bytes_read = 0;
+            /* Final payload chunk: commit_data(length) is called at completion. */
         } else {
-            LOG_DBG("Read %d bytes, total: %zu/%u", bytes_read, config->bytes_read,
-                    config->serial_header.length);
-            callbacks->commit_data(bytes_read);
+            /* Trailer phase (crc bit set). */
+            size_t to_read = SERIAL_CRC_LEN - config->trailer_read;
+            int n = uart_fifo_read(dev, config->trailer + config->trailer_read,
+                                   to_read);
+            if (n < 0) {
+                LOG_ERR("UART FIFO read error: %d", n);
+                break;
+            } else if (n == 0) {
+                break;
+            }
+            config->trailer_read += (size_t)n;
+            config->bytes_read += (size_t)n;
         }
     }
+
+    /* Incomplete frame: leave state so the next RX event resumes. */
+    if (config->bytes_read < frame_total) {
+        return;
+    }
+
+    /* Frame body complete. Verify the CRC32C trailer when requested. */
+    if (has_crc) {
+        uint32_t expected = ((uint32_t)config->trailer[0] << 24) |
+                            ((uint32_t)config->trailer[1] << 16) |
+                            ((uint32_t)config->trailer[2] << 8) |
+                            (uint32_t)config->trailer[3];
+        uint32_t actual = crc32_c(config->rx_crc, NULL, 0U, false, true);
+
+        if (actual != expected) {
+            LOG_ERR("CRC32C mismatch (type %u len %u): expected 0x%08x, got 0x%08x",
+                    frame_type, (unsigned int)length, (unsigned int)expected,
+                    (unsigned int)actual);
+            /* Reject: the frame is corrupted. Signal it with LENGTH_TOO_LONG
+             * (repurposed as the generic "frame not accepted" code) and echo
+             * the expected sequence (unchanged) so the sender re-syncs and
+             * retransmits. Do NOT advance the rx sequence and do NOT hand the
+             * corrupted payload to the proxy. */
+            send_ack(config, frame_type, config->rx_sequence_number,
+                     ERROR_TYPE_LENGTH_TOO_LONG);
+            config->parsing_state = PARSING_STATE_TYPE;
+            config->bytes_read = 0;
+            config->trailer_read = 0;
+            return;
+        }
+    }
+
+    /* Completion (previously inline in the read loop). */
+    if (frame_type == SERIAL_TYPE_PROTOCOL_INFO) {
+        handle_protocol_info(config, config->serial_header.sequence_number);
+        config->parsing_state = PARSING_STATE_TYPE;
+        config->bytes_read = 0;
+        config->trailer_read = 0;
+        config->serial_header.length = 0;
+        return;
+    }
+
+    if (frame_type >= SERIAL_TYPE_UNKNOWN || callbacks == NULL ||
+        callbacks->acquire_buffer == NULL || callbacks->commit_data == NULL ||
+        callbacks->message_complete == NULL) {
+        LOG_ERR("No callback for type %d, dropping", frame_type);
+        send_ack(config, frame_type, config->serial_header.sequence_number,
+                 ERROR_TYPE_LENGTH_TOO_LONG); /* reuse: unrecognised handler */
+        config->parsing_state = PARSING_STATE_TYPE;
+        config->bytes_read = 0;
+        config->trailer_read = 0;
+        return;
+    }
+
+    LOG_INF("Received complete packet of length %u", (unsigned int)length);
+
+    /* Validate sequence number. */
+    if (config->rx_sequence_number != config->serial_header.sequence_number) {
+        LOG_ERR("Incorrect sequence number: expected %u, received %u",
+                config->rx_sequence_number, config->serial_header.sequence_number);
+        send_ack(config, frame_type, config->rx_sequence_number,
+                 ERROR_TYPE_INCORRECT_SEQUENCE_NUMBER);
+        /* Reset expected sequence to 0 per AGENTS spec. */
+        config->rx_sequence_number = 0;
+    } else {
+        /* Sequence OK — commit data and notify client. */
+        callbacks->commit_data(length);
+        callbacks->message_complete(length);
+
+        /* Advance and wrap rx sequence number. */
+        config->rx_sequence_number =
+            (config->rx_sequence_number >= SEQUENCE_NUMBER_MAX) ? 0
+            : config->rx_sequence_number + 1;
+
+        /* Send ACK to host unless no_ack was requested. */
+        if (!config->serial_header.no_ack) {
+            send_ack(config, frame_type, config->serial_header.sequence_number,
+                     ERROR_TYPE_NO_ERROR);
+        }
+    }
+
+    /* Reset parser for next frame. */
+    config->parsing_state = PARSING_STATE_TYPE;
+    config->bytes_read = 0;
+    config->trailer_read = 0;
 
     uart_irq_rx_enable(dev);
 }
@@ -407,4 +526,13 @@ void initialize_uart(struct serial_config *config)
     uart_irq_rx_enable(dev);
 
     LOG_INF("UART initialized and RX interrupts enabled");
+}
+
+void serial_set_crc_enabled(struct serial_config *config, bool enabled)
+{
+    if (config == NULL) {
+        return;
+    }
+    config->crc_enabled = enabled;
+    LOG_INF("Per-frame CRC32C %s", enabled ? "enabled" : "disabled");
 }

@@ -96,7 +96,7 @@ packet-beta
     4: "No Ack"
     5: "Host Dir"
     6-7: "Error"
-    8: "Seq reset"
+    8: "CRC (opt)"
     9-11: "Reserved"
     12-15: "Seq (0..15)"
     16-31: "Length (0..4096)"
@@ -108,8 +108,10 @@ packet-beta
 - **Host Dir** (1 bit): direction metadata (`host=1` marks device→host
   frames).
 - **Error** (2 bits): link-layer status (see 5.3).
-- **Seq / Seq reset** (4+1 bits): 4-bit sequence number, 0..15, wraps after
-  15; reset bit re-establishes ordering (see 5.5).
+- **CRC** (1 bit, bit 8): optional per-frame integrity. When set, a 4-byte
+  CRC32C trailer follows the payload (see 5.7). Off by default; frames with
+  the bit clear are byte-identical to the original v1 format.
+- **Seq** (4 bits): 4-bit sequence number, 0..15, wraps after 15 (see 5.5).
 - **Length** (16 bits): payload length, 0..4096 bytes. Payloads are
   32-bit aligned.
 
@@ -141,7 +143,7 @@ serial link.
 | 0 | `NO_ERROR` |
 | 1 | `INCORRECT_SEQUENCE` |
 | 2 | `OUT_OF_BUFFERS` |
-| 3 | `LENGTH_TOO_LONG` (also used for unrecognized command) |
+| 3 | `LENGTH_TOO_LONG` (also used for unrecognized command and CRC mismatch) |
 
 - An ACK is a regular link-layer header with the same traffic type, length
   0, and the error field indicating success/failure.
@@ -151,6 +153,11 @@ serial link.
   to zero) and retries; resend behavior is explicit — the sender is
   responsible for resending after an error.
 - `OUT_OF_BUFFERS` is a backpressure signal.
+- `LENGTH_TOO_LONG` is the generic "frame not accepted" code. Beyond an
+  oversize payload and an unrecognized traffic type, it is also the device's
+  response to a **CRC32C mismatch**: the corrupted frame is dropped, the
+  expected sequence is not advanced, and the sender re-syncs and retransmits
+  (see 5.7).
 
 ### 5.4 Initialization
 
@@ -209,12 +216,37 @@ flowchart LR
     E[Error 2-bit] --> E0[0 NO_ERROR]
     E --> E1[1 INCORRECT_SEQUENCE]
     E --> E2[2 OUT_OF_BUFFERS]
-    E --> E3[3 LENGTH_TOO_LONG or UNRECOGNIZED]
+    E --> E3[3 LENGTH_TOO_LONG / UNRECOGNIZED / CRC]
 
     A[ACK behavior] --> A1[ACK uses same traffic type]
     A --> A2[Length is 0]
     A --> A3[Error encodes status]
 ```
+
+### 5.7 Optional per-frame integrity (CRC32C)
+
+The link is error-protected by an *optional* per-frame CRC32C trailer, enabled
+independently by each endpoint at runtime. This is **not** a protocol-version
+change: the feature is additive and off by default, so a peer that never
+enables it sees frames byte-identical to the original v1 format.
+
+- When the `crc` bit (header bit 8) is set, a 4-byte **big-endian CRC32C**
+  (Castagnoli / iSCSI: polynomial `0x1EDC6F41`, reflected, init `0xFFFFFFFF`,
+  final XOR `0xFFFFFFFF`) is appended after the payload.
+- The CRC is computed over the 4-byte header **plus** the payload.
+- A receiver verifies the trailer only when the bit is set. On a mismatch the
+  frame is **dropped** (not decoded, not dispatched) and the expected
+  sequence is **not** advanced; the receiver replies with an error ACK carrying
+  the unchanged expected sequence so the sender re-syncs and retransmits.
+- The device signals this rejection with the `LENGTH_TOO_LONG` error code
+  (the generic "frame not accepted" code). The host bus and the Rust harness
+  treat `LENGTH_TOO_LONG` like `INCORRECT_SEQUENCE` — exactly one resync +
+  retry.
+- Primitives, all producing the identical value (check vector
+  `crc32c("123456789") = 0xE3069283`, pinned by unit tests on each side):
+  Zephyr `crc32_c()`, Linux `crc32c()`, Rust `crc32c` crate.
+
+See [decisions/](decisions/) for the ADR.
 
 ## 6. Technology payload rules
 

@@ -40,7 +40,8 @@ struct bus_header {
 	uint8_t no_ack: 1;
 	uint8_t host: 1;
 	uint8_t error: 2;
-	uint8_t reserved: 4;
+	uint8_t crc: 1;
+	uint8_t reserved: 3;
 	uint8_t seq: 4;
 	uint16_t length;
 };
@@ -54,7 +55,7 @@ static inline void bus_header_encode(const struct bus_header *h, uint8_t out[4])
 {
 	out[0] = (uint8_t)((h->error << 6) | (h->host << 5) |
 			  (h->no_ack << 4) | (h->type & 0x0F));
-	out[1] = (uint8_t)((h->seq << 4) | (h->reserved & 0x0F));
+	out[1] = (uint8_t)((h->seq << 4) | (h->reserved & 0x0E) | (h->crc & 0x01));
 	out[2] = (uint8_t)(h->length >> 8);
 	out[3] = (uint8_t)(h->length & 0xFF);
 }
@@ -66,7 +67,8 @@ static inline void bus_header_decode(const uint8_t in[4], struct bus_header *h)
 	h->no_ack = (in[0] >> 4) & 0x1;
 	h->host = (in[0] >> 5) & 0x1;
 	h->error = (in[0] >> 6) & 0x3;
-	h->reserved = in[1] & 0x0F;
+	h->crc = in[1] & 0x01;
+	h->reserved = (in[1] >> 1) & 0x07;
 	h->seq = (in[1] >> 4) & 0x0F;
 	h->length = (uint16_t)(((uint16_t)in[2] << 8) | in[3]);
 }
@@ -139,6 +141,15 @@ void bus_set_handler_user(int type, void *user);
 
 /* Send a host->device data frame (no_ack=0). Returns 0 on success. */
 int bus_send(int type, const uint8_t *payload, size_t len);
+
+/*
+ * Enable or disable the per-frame CRC32C feature on the host bus. When
+ * enabled, frames the host transmits set the `crc` header bit and append a
+ * 4-byte CRC32C trailer, and received frames carrying the bit are verified
+ * (a mismatch drops the frame). Off by default, so the wire format is
+ * byte-identical to protocol v1 until both peers opt in.
+ */
+void bus_set_crc_enabled(bool enabled);
 
 /*
  * Send a request frame and wait for the matching device->host response.
