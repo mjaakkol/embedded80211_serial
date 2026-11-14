@@ -3,8 +3,9 @@
  *
  * Async mirror of the device-side serial.c. The host is the client: frames it
  * transmits clear the `host` bit (host->device), frames it receives set it
- * (device->host). A single bus work item parses incoming frames and either
- * dispatches them to a per-type handler or wakes a pending bus_request().
+ * (device->host). The RX ISR parses the header and drains the payload out of
+ * the UART FIFO; a single bus work item then validates and dispatches the
+ * frame to a per-type handler or wakes a pending bus_request().
  *
  * Request/response semantics mirror cli_test/src/protocol.rs (Session::request):
  * drain-before-send, PROTOCOL_INFO resync consumes no sequence slot, and an
@@ -35,7 +36,7 @@ LOG_MODULE_REGISTER(bus, LOG_LEVEL_INF);
 
 struct bus_state {
 	const struct device *uart;
-	/* RX state machine (header parsing in ISR context, payload in work). */
+	/* RX state machine (header + payload drained in ISR context). */
 	enum ParsingState state;
 	struct bus_header hdr;
 	size_t bytes_read;
@@ -142,8 +143,16 @@ static void bus_send_ack(enum SerialType type, uint8_t seq, enum ErrorType error
 
 /*
  * UART RX interrupt callback. Reads header bytes (4) one at a time from the
- * FIFO and advances the parse state machine. The payload is left in the FIFO
- * for the work item (mirrors uart_irq_callback in serial.c).
+ * FIFO and advances the parse state machine, then drains the payload (and
+ * CRC32C trailer, if requested) out of the FIFO as well.
+ *
+ * Draining happens here, in ISR context, and not in the work item: the RX
+ * interrupt is level-triggered on the FIFO level. If the ISR left a full
+ * payload in the FIFO, the interrupt would stay asserted and re-enter this
+ * handler forever, starving the system workqueue that is supposed to drain
+ * the FIFO — a hard wedge. Byte-at-a-time serial hardware hides this (the
+ * FIFO level falls between byte arrivals); emulators that deliver a whole
+ * frame at once expose it.
  */
 static void bus_rx_isr(const struct device *dev, void *user_data)
 {
@@ -204,13 +213,51 @@ static void bus_rx_isr(const struct device *dev, void *user_data)
 		}
 	}
 
-	if (bus.state == PARSING_STATE_DATA) {
+	if (bus.state != PARSING_STATE_DATA) {
+		return;
+	}
+
+	/* Drain payload + trailer until the FIFO is empty or the frame is
+	 * complete.
+	 */
+	const size_t total = bus.hdr.length +
+		((size_t)bus.hdr.crc * SERIAL_CRC_LEN);
+
+	while (bus.bytes_read + bus.trailer_read < total) {
+		uint8_t *dst;
+		size_t remaining;
+		int n;
+
+		if (bus.bytes_read < bus.hdr.length) {
+			dst = bus.rx_buf + bus.bytes_read;
+			remaining = bus.hdr.length - bus.bytes_read;
+		} else {
+			dst = bus.trailer + bus.trailer_read;
+			remaining = SERIAL_CRC_LEN - bus.trailer_read;
+		}
+
+		n = uart_fifo_read(dev, dst, remaining);
+		if (n <= 0) {
+			/* FIFO empty: frame continues on the next RX event. */
+			break;
+		}
+		if (bus.bytes_read < bus.hdr.length) {
+			bus.bytes_read += (size_t)n;
+		} else {
+			bus.trailer_read += (size_t)n;
+		}
+	}
+
+	if (bus.bytes_read + bus.trailer_read == total) {
 		(void)k_work_submit(&bus.rx_work);
 	}
 }
 
 /*
- * Bus work item: read the payload, then dispatch or wake the requester.
+ * Bus work item: dispatch a fully-drained frame or wake the requester.
+ * The ISR has already moved the header, payload, and trailer out of the
+ * UART FIFO (see bus_rx_isr); this runs in thread context and only
+ * validates and dispatches.
  *
  * The host does NOT sequence-check device->host frames. The device is the
  * authority for host->device sequencing; the device->host stream is read in
@@ -222,44 +269,9 @@ static void bus_rx_isr(const struct device *dev, void *user_data)
 static void bus_rx_work(struct k_work *work)
 {
 	ARG_UNUSED(work);
-	const struct device *dev = bus.uart;
 	enum SerialType type = bus.hdr.type;
 	const size_t length = bus.hdr.length;
 	const bool has_crc = bus.hdr.crc != 0;
-
-	/* Read the payload (may complete across several work invocations). */
-	while (bus.bytes_read < length) {
-		size_t remaining = length - bus.bytes_read;
-		int n = uart_fifo_read(dev, bus.rx_buf + bus.bytes_read, remaining);
-
-		if (n <= 0) {
-			break;
-		}
-		bus.bytes_read += (size_t)n;
-	}
-
-	if (bus.bytes_read < length) {
-		/* Incomplete payload: resume on the next RX event. */
-		return;
-	}
-
-	/* Read the CRC32C trailer (if requested), re-entrantly. */
-	if (has_crc) {
-		while (bus.trailer_read < SERIAL_CRC_LEN) {
-			size_t remaining = SERIAL_CRC_LEN - bus.trailer_read;
-			int n = uart_fifo_read(dev, bus.trailer + bus.trailer_read,
-					       remaining);
-
-			if (n <= 0) {
-				break;
-			}
-			bus.trailer_read += (size_t)n;
-		}
-		if (bus.trailer_read < SERIAL_CRC_LEN) {
-			/* Incomplete trailer: resume on the next RX event. */
-			return;
-		}
-	}
 
 	/* Validate the header. */
 	if (bus_validate_rx(&bus.hdr) != 0) {
