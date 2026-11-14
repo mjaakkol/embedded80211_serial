@@ -1,0 +1,5 @@
+# Renode virtual Cortex-M3 SoC (host application).
+
+config SOC_RENODE_CORTEX_M3
+	select ARM
+	select CPU_CORTEX_M3

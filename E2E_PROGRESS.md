@@ -16,6 +16,25 @@ verified present in the Mac tree (CDC ACM TX-drain in usbd_cdc_acm.c +
 net_if.c start-zep step).
 
 WiFi E2E creds are build-time only (`E2E_SSID`/`E2E_PSK`); never in the repo.
+## Emulation migrated QEMU → Renode (2026-11-13)
+
+The host app now runs under **Renode** (v1.17.0) on the app-local board
+`renode_cortex_m3` (board + SoC under `host/boards/` + `host/soc/`; NCS
+v3.4.1 ships no Renode board). `host/run_qemu.sh` is deleted;
+`host/run_renode.sh` + `host/tests/tunnel_bus.py` replace it (socat-free:
+the bus UART is a Renode socket terminal on 127.0.0.1:25999 bridged to the
+device port in Python). See ADR 0009.
+
+The migration exposed a real liveness bug in `embedded80211/zephyr/host/bus.c`:
+the RX ISR parsed only the 4-byte header and left the payload in the PL011
+FIFO. With a whole frame in the FIFO at once (the emulator delivers frames
+instantly; serial hardware does not), the level-triggered RX interrupt stayed
+asserted, the CPU re-entered the ISR forever, and the system workqueue that
+was supposed to drain the FIFO was starved — a hard system wedge. Fix: the
+ISR now drains payload + trailer out of the FIFO; the work item only
+validates and dispatches. Verified with a fake device over the Renode bus
+bridge (`Bus synced: version 1, types 0x000f, next seq 0`).
+
 
 ## Environment change: Linux dev host → macOS (arm64)
 
@@ -142,7 +161,7 @@ device enumerates (VID 0x2FE3, two CDC-ACM ports), then re-run the E2E:
 Host build (creds are build args only; empty PSK = open network):
 
 ```
-west build -d build/host -s host -b qemu_cortex_m3 --no-sysbuild \
+west build -d build/host -s host -b renode_cortex_m3 --no-sysbuild \
   -- -DCONFIG_HOST_TEST_ENABLED=y \
   -DCONFIG_HOST_TEST_WIFI_SSID="\"MedallionNet\"" \
   -DCONFIG_HOST_TEST_WIFI_PSK="\"\""
@@ -181,7 +200,9 @@ Full E2E harness: `E2E_SSID=MedallionNet E2E_PSK= host/tests/run_e2e.sh`
 - `source /opt/nordic/ncs/v3.4.1/zephyr/zephyr-env.sh` before any `west`
   command (loads `~/.zephyrrc`). The NCS host app MUST build with
   `--no-sysbuild`. Kconfig warnings are hard errors.
-- `qemu_cortex_m3` has 64 KB RAM → keep net_buf/heap sizes small.
+- The `renode_cortex_m3` board has 32 MiB RAM (the old `qemu_cortex_m3`
+  64 KB limit no longer applies); net_buf/heap sizes are no longer
+  constrained by RAM size.
 
 ## Files changed (2026-11-08 revert to USB CDC-ACM)
 

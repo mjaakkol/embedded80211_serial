@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Automated E2E harness: build the host app, launch QEMU + the socat bridge,
+# Automated E2E harness: build the host app, launch Renode + the bus bridge,
 # and assert the E2E log markers.
 #
 # Usage: E2E_SSID=... E2E_PSK=... ./tests/run_e2e.sh [board_port]
@@ -32,15 +32,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cd "$SCRIPT_DIR"
 
-west build -d ../build/host -s . -b qemu_cortex_m3 --no-sysbuild -- \
+west build -d ../build/host -s . -b renode_cortex_m3 --no-sysbuild -- \
 	-DCONFIG_HOST_TEST_ENABLED=y \
 	-DCONFIG_HOST_TEST_WIFI_SSID="\"$SSID\"" \
 	-DCONFIG_HOST_TEST_WIFI_PSK="\"$PSK\"" || { echo "BUILD FAIL"; exit 1; }
 
 rm -f /tmp/e80211-host-console.log
-# Redirect the harness stdout: run_qemu.sh's console stream must not inherit
+# Redirect the harness stdout: run_renode.sh's console stream must not inherit
 # this script's stdout, or a pipe (run_e2e.sh | tail) never sees EOF.
-./run_qemu.sh "$BOARD_PORT" > /dev/null 2>&1 &
+./run_renode.sh "$BOARD_PORT" > /dev/null 2>&1 &
 HARNESS_PID=$!
 sleep 120   # bound: WiFi E2E + one 30 s BT scan window
 kill "$HARNESS_PID" 2>/dev/null || true

@@ -1,0 +1,10 @@
+# Renode virtual Cortex-M3 SoC (host application).
+
+if SOC_RENODE_CORTEX_M3
+
+config NUM_IRQS
+	# must be >= the highest interrupt number used
+	# - the two PL011 UARTs (console + bus)
+	default 32
+
+endif # SOC_RENODE_CORTEX_M3

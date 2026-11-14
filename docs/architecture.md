@@ -17,12 +17,14 @@ technologies. Hosts can be Zephyr (reference implementation) or Linux
 It is a hobby project with no commercial aims; the goal is to see if this can
 be done efficiently using the most straightforward implementation approaches.
 
+The key philosophy is to expose Zephyr WiFi management & data, and net_if interface as RPC-like calls so that Zephyr host driver can easily be integrated as well as enable vendor agnostic maintainable Linux host options using cfg80211.
+
 ## 2. Technology stack
 
 | Area | Choice | Notes |
 |------|--------|-------|
 | Device firmware | C, Zephyr (NCS v3.4.1) | nRF7002 DK: nRF5340 app core + nRF70 radio core |
-| Host (reference) | C, Zephyr | `qemu_cortex_m3` app + hardware over USB CDC-ACM |
+| Host (reference) | C, Zephyr | `renode_cortex_m3` app (Renode) + hardware over USB CDC-ACM |
 | Host (Linux) | C, kernel cfg80211 driver | planning — see [../linux/README.md](../linux/README.md) |
 | Tooling | Rust 2024 | `cli_test` CLI + integration tests |
 | Schemas | Google Protobuf → nanopb | generated at build time; never committed |
@@ -36,7 +38,7 @@ be done efficiently using the most straightforward implementation approaches.
 |------|----------|
 | `embedded80211/` | Zephyr module library: common link protocol, device-side transport + technology proxies, Zephyr host-side drivers. Consumed via `ZEPHYR_EXTRA_MODULES`. `tests/` holds the ztest protocol suite. |
 | `nrf7002dk/` | Board project: device-side Zephyr app for the nRF7002 DK (nRF5340 CPU app) instantiating the module in the device role. |
-| `host/` | QEMU host application (`qemu_cortex_m3`): host-side drivers (virtual Wi-Fi, virtual Bluetooth HCI, link bus) over a UART, plus optional end-to-end test. |
+| `host/` | Renode host application (`renode_cortex_m3`): host-side drivers (virtual Wi-Fi, virtual Bluetooth HCI, link bus) over a UART, plus optional end-to-end test. The board + SoC are app-local (see [ADR 0009](decisions/0009-2026-11-13-renode-host-emulation.md)). |
 | `linux/` | Linux host integration (cfg80211-based). Phase 1–2 driver plan in [../linux/README.md](../linux/README.md). |
 | `cli_test/` | Rust command-line test harness driving the link protocol over a serial port. |
 | `protos/` | Protobuf schemas shared by device and host builds (generated to nanopb at build time). |
@@ -279,7 +281,7 @@ See [decisions/](decisions/) for the ADR.
 
 `host/` + `embedded80211/zephyr/host/` is the reference host: link bus
 client (`bus_request` roundtrip), virtual Wi-Fi (`virt_wifi_ops`), and
-virtual BT HCI over a UART under QEMU, plus the end-to-end test. Any host
+virtual BT HCI over a UART under Renode, plus the end-to-end test. Any host
 implementation (e.g. the Linux driver) must pair with this reference
 behavior.
 
@@ -315,8 +317,9 @@ HCI commands) and runs hardware integration tests.
   (lengths, alignment, traffic types, reserved bits, direction, sequence
   state, protocol version) before decoding.
 - **Build constraints**: the NCS host app must build with `--no-sysbuild`;
-  Kconfig warnings are hard errors; `qemu_cortex_m3` has 64 KB RAM, so
-  net_buf/heap sizes stay small.
+  Kconfig warnings are hard errors. The app-local `renode_cortex_m3` board
+  provides 32 MiB of RAM (the old `qemu_cortex_m3` 64 KB limit no longer
+  applies), so net_buf/heap sizes are no longer constrained by it.
 
 ## 9. Decisions
 

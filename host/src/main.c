@@ -1,5 +1,5 @@
 /*
- * Host application entry point (QEMU board profile).
+ * Host application entry point (Renode board profile).
  *
  * Boots the virtual Wi-Fi / BT HCI drivers (registered via app.overlay),
  * opens the link-protocol bus to the device, and starts the E2E test threads.

@@ -1,0 +1,14 @@
+:name: Renode-Cortex-M3
+:description: Runs the Zephyr host app on the Renode virtual Cortex-M3 board.
+
+$name?="Renode-Cortex-M3"
+
+using sysbus
+mach add "$name"
+machine LoadPlatformDescription $ORIGIN/renode_cortex_m3.repl
+
+macro reset
+"""
+    sysbus LoadELF $elf
+"""
+runMacro $reset

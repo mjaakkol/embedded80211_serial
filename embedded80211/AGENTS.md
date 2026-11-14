@@ -6,8 +6,8 @@ These rules apply to the `embedded80211` Zephyr module and supplement
 [../AGENTS.md](../AGENTS.md). The module is the shared Radio Co-Processor
 library: the common link protocol, the device-side transport and technology
 proxies, and the Zephyr host-side drivers. It is consumed as a Zephyr module
-(via `ZEPHYR_EXTRA_MODULES`) by the board app (`nrf7002dk/`) and by the QEMU
-host app (`host/`).
+(via `ZEPHYR_EXTRA_MODULES`) by the board app (`nrf7002dk/`) and by the
+Renode host app (`host/`).
 
 ## Layout
 

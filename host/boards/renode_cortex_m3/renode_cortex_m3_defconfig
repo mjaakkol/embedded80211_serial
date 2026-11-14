@@ -1,0 +1,9 @@
+# Renode virtual Cortex-M3 board (host application).
+
+# Must match `systickFrequency` in host/renode/renode_cortex_m3.repl.
+CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC=100000000
+
+CONFIG_SERIAL=y
+CONFIG_CONSOLE=y
+CONFIG_UART_CONSOLE=y
+CONFIG_UART_INTERRUPT_DRIVEN=y

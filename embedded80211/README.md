@@ -33,5 +33,5 @@ builds the host drivers.
 ## Verification
 
 - Board app: `west build -d build -s nrf7002dk -b nrf7002dk/nrf5340/cpuapp`
-- Host app: `west build -d build/host -s host -b qemu_cortex_m3 --no-sysbuild`
+- Host app: `west build -d build/host -s host -b renode_cortex_m3 --no-sysbuild`
 - Protocol tests: `embedded80211/tests/run_tests.sh`

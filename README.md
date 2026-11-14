@@ -20,7 +20,7 @@ design decisions are recorded as ADRs in
 |------|----------|
 | `embedded80211/` | Zephyr module: common link protocol, device-side transport + technology proxies, Zephyr host drivers, protocol test suite |
 | `nrf7002dk/` | Board project: device-side app for the nRF7002 DK (nRF5340 + nRF70) |
-| `host/` | QEMU host application (`qemu_cortex_m3`) + end-to-end test |
+| `host/` | Renode host application (`renode_cortex_m3`) + end-to-end test |
 | `linux/` | Linux cfg80211 driver plan (see [linux/README.md](linux/README.md)) |
 | `cli_test/` | Rust CLI test harness over a serial port |
 | `protos/` | Protobuf schemas (generated to nanopb at build time) |
@@ -34,6 +34,8 @@ design decisions are recorded as ADRs in
   connector must be plugged in** — it provides VBUS (without it the 16 MHz
   HSE does not start and all communication fails) and carries the protocol
   bus on CDC-ACM interface `CDC_ACM_0`.
+- **Renode** (for the host app): `run_renode.sh` finds it via `$RENODE`,
+  `PATH`, or `~/tools/renode/Renode.app/Contents/MacOS/renode`.
 - **For `cli_test`**: Rust, `protoc`, and on Linux the `libudev` dev files.
 - **NCS local patches** (CDC-ACM TX-drain + nrf_wifi markers) must be
   present; see [nrf7002dk/README.md](nrf7002dk/README.md). Re-apply after a
@@ -48,12 +50,12 @@ source /path/to/ncs/zephyr-env.sh
 west build -d build/nrf7002dk -s nrf7002dk -b nrf7002dk/nrf5340/cpuapp/nrf7001
 ```
 
-### Build the QEMU host app
+### Build the Renode host app
 
 The NCS host app must build with `--no-sysbuild`:
 
 ```bash
-west build -d build/host -s host -b qemu_cortex_m3 --no-sysbuild
+west build -d build/host -s host -b renode_cortex_m3 --no-sysbuild
 ```
 
 ### Run the protocol tests
@@ -80,7 +82,7 @@ Wi-Fi credentials are build-time arguments / environment variables only —
 never commit real SSIDs or passphrases:
 
 ```bash
-west build -d build/host -s host -b qemu_cortex_m3 --no-sysbuild \
+west build -d build/host -s host -b renode_cortex_m3 --no-sysbuild \
   -- -DCONFIG_HOST_TEST_ENABLED=y
 E2E_SSID=MySSID E2E_PSK=mypassword host/tests/run_e2e.sh
 ```

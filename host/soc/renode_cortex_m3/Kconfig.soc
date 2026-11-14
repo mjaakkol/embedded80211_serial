@@ -1,0 +1,9 @@
+# Renode virtual Cortex-M3 SoC (host application).
+
+config SOC_RENODE_CORTEX_M3
+	bool
+	help
+	  Renode virtual Cortex-M3
+
+config SOC
+	default "renode_cortex_m3" if SOC_RENODE_CORTEX_M3

@@ -1,0 +1,4 @@
+# Renode virtual Cortex-M3 board (host application).
+
+config BOARD_RENODE_CORTEX_M3
+	select SOC_RENODE_CORTEX_M3
