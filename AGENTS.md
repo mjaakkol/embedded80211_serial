@@ -12,6 +12,7 @@ constraints for their directory, but must not weaken these requirements:
 - [nrf7002dk/AGENTS.md](nrf7002dk/AGENTS.md)
 - [host/AGENTS.md](host/AGENTS.md)
 - [cli_test/AGENTS.md](cli_test/AGENTS.md)
+- [secrets/AGENTS.md](secrets/AGENTS.md)
 
 Keep changes focused, preserve existing behavior unless the task requires a
 behavior change, and update the nearest relevant README or protocol
@@ -88,3 +89,7 @@ documentation when externally visible behavior changes.
 
 - Keep code, examples, README, test assets and Githubs free from personal identifiable data. For example, SSID and passwords used as part of agentic testing shall not be left into the code or part of git commits.
 - Never use length or attributes from externally interfacing directly without checking boundary conditions.
+
+## Secrets
+
+Local test environment secrets and other private data is held in secrets folder. The secrets are not to migrated from outside the folder. Agents and others day add environment setting scripts into the folder.
