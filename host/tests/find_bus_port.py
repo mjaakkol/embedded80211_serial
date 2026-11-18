@@ -65,7 +65,8 @@ def probe(port: str, timeout: float) -> bool:
 
 def main() -> None:
     timeout = float(sys.argv[1]) if len(sys.argv) > 1 else 0.5
-    for port in sorted(glob.glob("/dev/cu.usbmodem*")):
+    ports = sorted(glob.glob("/dev/cu.usbmodem*") + glob.glob("/dev/ttyACM*"))
+    for port in ports:
         if probe(port, timeout):
             print(port)
             return

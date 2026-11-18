@@ -2,11 +2,12 @@
 # Launch Renode (board renode_cortex_m3) for the host app, bridging the bus
 # UART to the board's common link protocol port.
 #
-# uart0 (PL011 @ 0x40000000) is the console, written directly to a log file
-# (Renode file backend, flushed immediately).
-# uart1 (PL011 @ 0x40040000) is the bus, exposed as a Renode socket terminal
-# on 127.0.0.1:25999 and bridged bidirectionally to the board port by
-# tests/tunnel_bus.py.
+# uart0 (PL011 @ 0x40000000) is the console, written to a log file via
+# Renode's file backend (flushed immediately).
+# uart1 (PL011 @ 0x40040000) is the bus, exposed via a Renode file backend
+# log (TX) and the monitor port (RX, WriteChar commands). The bridge
+# (tests/tunnel_bus.py) connects to the monitor port, sends the setup
+# commands + LoadELF, then pumps bytes bidirectionally to the board port.
 #
 # On the nRF7002 DK the bus port is the board's USB CDC-ACM protocol port
 # (target USB connector, VID 0x2FE3; the CDC_ACM_0 instance), auto-detected
@@ -17,19 +18,22 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Board bus port. Auto-detect by probing each /dev/cu.usbmodem* with a
+# Board bus port. Auto-detect by probing each /dev/ttyACM* with a
 # PROTOCOL_INFO query (the bus port answers; the console port does not).
 BOARD_PORT="${1:-$(python3 "$SCRIPT_DIR/tests/find_bus_port.py" 2>/dev/null)}"
 if [ -z "$BOARD_PORT" ]; then
 	echo "ERROR: no board bus port found; pass it as \$1" >&2
 	exit 1
 fi
-BUS_PORT=25999
-CONSOLE_LOG=/tmp/e80211-host-console.log
-ELF=../build/host/zephyr/zephyr.elf
 
-if [ ! -f "$SCRIPT_DIR/$ELF" ]; then
-	echo "ERROR: $SCRIPT_DIR/$ELF not found; build the host app first." >&2
+MONITOR_PORT=25997
+CONSOLE_LOG=/tmp/e80211-host-console.log
+BUS_TX_LOG=/tmp/e80211-bus-tx.log
+ELF="$SCRIPT_DIR/../build/host/zephyr/zephyr.elf"
+REPL="$SCRIPT_DIR/boards/renode_cortex_m3/support/renode_cortex_m3.repl"
+
+if [ ! -f "$ELF" ]; then
+	echo "ERROR: $ELF not found; build the host app first." >&2
 	exit 1
 fi
 
@@ -43,54 +47,41 @@ if [ -z "$RENODE_BIN" ]; then
 	exit 1
 fi
 
-rm -f "$CONSOLE_LOG"
-: > "$CONSOLE_LOG"
-
-# Generate the runner script: bus socket terminal, machine, console file
-# backend, bus connection, ELF load.
-RUN_RESC=/tmp/e80211-host-renode.resc
-{
-	echo "emulation CreateServerSocketTerminal $BUS_PORT \"bustcp\" false"
-	echo
-	echo "mach add \"host\""
-	echo "machine LoadPlatformDescription @$SCRIPT_DIR/boards/renode_cortex_m3/support/renode_cortex_m3.repl"
-	echo
-	echo "sysbus.uart0 CreateFileBackend @$CONSOLE_LOG true"
-	echo "connector Connect sysbus.uart1 bustcp"
-	echo "sysbus LoadELF @$SCRIPT_DIR/$ELF"
-	echo "s"
-} > "$RUN_RESC"
+rm -f "$CONSOLE_LOG" "$BUS_TX_LOG"
 
 RENODE_PID=""
 TUNNEL_PID=""
 TAIL_PID=""
 cleanup() {
-	[ -n "$RENODE_PID" ] && kill "$RENODE_PID" 2>/dev/null
 	[ -n "$TAIL_PID" ] && kill "$TAIL_PID" 2>/dev/null
 	[ -n "$TUNNEL_PID" ] && kill "$TUNNEL_PID" 2>/dev/null
-	exec 9>&- 2>/dev/null
-	rm -f "$STDIN_FIFO"
+	[ -n "$RENODE_PID" ] && kill "$RENODE_PID" 2>/dev/null
 }
 trap cleanup EXIT
 
-# Keep renode's stdin open for the whole run: a closed stdin makes the
-# monitor exit. A FIFO opened for read+write stays open without a writer.
-STDIN_FIFO=/tmp/e80211-host-renode-stdin
-rm -f "$STDIN_FIFO"
-mkfifo "$STDIN_FIFO"
-exec 9<>"$STDIN_FIFO"
-
-"$RENODE_BIN" -p --console "$RUN_RESC" <&9 &
+# Start Renode with the monitor port (no --console script; the tunnel
+# bridge sends all commands via the port).
+"$RENODE_BIN" -p -P "$MONITOR_PORT" --disable-gui < /dev/null &
 RENODE_PID=$!
 
-# Bridge the bus socket to the board port. The bridge retries the socket
-# connect itself, so it can start before Renode is up.
-python3 "$SCRIPT_DIR/tests/tunnel_bus.py" "$BUS_PORT" "$BOARD_PORT" &
+# Bridge the bus UART to the board port. The bridge connects to the monitor
+# port, sends setup + LoadELF, then pumps bytes bidirectionally.
+python3 "$SCRIPT_DIR/tests/tunnel_bus.py" \
+	"$MONITOR_PORT" "$BOARD_PORT" "$BUS_TX_LOG" "$CONSOLE_LOG" "$ELF" "$REPL" &
 TUNNEL_PID=$!
 
-# Stream the console log (Renode writes to $CONSOLE_LOG directly). Run in
-# the background so the EXIT trap can reap it; an orphaned tail -f would
-# keep the harness's stdout pipe open (run_e2e.sh | tail never sees EOF).
+# Wait for the console log file to be created by the tunnel bridge's
+# CreateFileBackend command, then stream it.
+for _ in $(seq 1 30); do
+	if [ -f "$CONSOLE_LOG" ]; then
+		break
+	fi
+	sleep 0.5
+done
+
+# Stream the console log. Run in the background so the EXIT trap can reap
+# it; an orphaned tail -f would keep the harness's stdout pipe open.
 tail -f "$CONSOLE_LOG" &
 TAIL_PID=$!
+
 wait "$TAIL_PID"

@@ -244,6 +244,7 @@ K_EVENT_DEFINE(wifi_mgmt_event);
 static uint8_t wifi_mgmt_tx_buffer[sizeof(embedded_wifi_mgmt_WifiMgmtResponse)];
 static uint8_t wifi_mgmt_rx_buffer[sizeof(embedded_wifi_mgmt_WifiMgmtRequest)];
 static size_t message_length;
+static bool msg_pending; /* previous message not yet consumed by the thread */
 
 static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint8_t *response_buffer, size_t* response_buffer_len_io);
 
@@ -278,12 +279,20 @@ static void wifi_mgmt_thread_entry_point(void *p1, void *p2, void *p3)
 
             /* Reset RX buffer for next message. */
             message_length = 0;
+            msg_pending = false;
         }
     }
 }
 
 bool wifi_mgmt_acquire_buffer(uint8_t **data, size_t len)
 {
+    // Reject a new message while the previous one is still pending: the
+    // single RX buffer cannot hold two frames. The serial layer answers
+    // with an OUT_OF_BUFFERS ACK; the host backs off and resends.
+    if (msg_pending) {
+        return false;
+    }
+
     // Check if the ring buffer has enough space
     if (len > (sizeof(wifi_mgmt_rx_buffer) - message_length)) {
         LOG_WRN("Not enough space in buffer for %zu bytes, Abort", len);
@@ -307,6 +316,7 @@ void wifi_mgmt_message_complete(size_t len)
     // It can be used to signal the main thread or other components that a message is ready for processing.
 
     LOG_INF("Message complete, length: %zu", message_length);
+    msg_pending = true;
     k_event_set(&wifi_mgmt_event, DATA_COMPLETE_EVENT); // Signal the event
 }
 
@@ -410,7 +420,7 @@ static int32_t ap_status_to_proto(int status)
 	return (status == WIFI_STATUS_AP_SUCCESS) ? 0 : -(int32_t)status;
 }
 
-static void send_ap_result_notification(struct net_if *iface, int which_tag, int32_t status)
+static void send_status_result_notification(struct net_if *iface, int which_tag, int32_t status)
 {
 	embedded_wifi_mgmt_WifiMgmtNotification notification =
 		embedded_wifi_mgmt_WifiMgmtNotification_init_zero;
@@ -418,9 +428,22 @@ static void send_ap_result_notification(struct net_if *iface, int which_tag, int
 	notification.has_event = true;
 	notification.event.iface_index = (iface != NULL) ? net_if_get_by_iface(iface) : 0;
 	notification.event.which_event_data = which_tag;
-	/* The enable and disable result events share the same layout: a
-	 * single int32 status field at the start of the event union. */
-	notification.event.event_data.ap_enable_result_event.status = status;
+	switch (which_tag) {
+	case embedded_wifi_mgmt_WifiEvent_connect_result_event_tag:
+		notification.event.event_data.connect_result_event.status = status;
+		break;
+	case embedded_wifi_mgmt_WifiEvent_disconnect_result_event_tag:
+		notification.event.event_data.disconnect_result_event.initiated_by_user = true;
+		break;
+	case embedded_wifi_mgmt_WifiEvent_ap_enable_result_event_tag:
+		notification.event.event_data.ap_enable_result_event.status = status;
+		break;
+	case embedded_wifi_mgmt_WifiEvent_ap_disable_result_event_tag:
+		notification.event.event_data.ap_disable_result_event.status = status;
+		break;
+	default:
+		break;
+	}
 
 	pb_ostream_t ostream = pb_ostream_from_buffer(wifi_mgmt_notify_buffer,
 	                                              sizeof(wifi_mgmt_notify_buffer));
@@ -430,10 +453,10 @@ static void send_ap_result_notification(struct net_if *iface, int which_tag, int
 		int tx_ret = serial_mux_send(SERIAL_TYPE_WIFI_MGMT, wifi_mgmt_notify_buffer,
 		                                 ostream.bytes_written);
 		if (tx_ret < 0) {
-			LOG_ERR("Failed to send AP result notification: %d", tx_ret);
+			LOG_ERR("Failed to send status result notification: %d", tx_ret);
 		}
 	} else {
-		LOG_ERR("Failed to encode AP result notification: %s", ostream.errmsg);
+		LOG_ERR("Failed to encode status result notification: %s", ostream.errmsg);
 	}
 }
 
@@ -496,12 +519,12 @@ static void wifi_mgmt_net_event_handler(struct net_mgmt_event_callback *cb,
         break;
     }
     case NET_EVENT_WIFI_AP_ENABLE_RESULT:
-        send_ap_result_notification(iface,
+        send_status_result_notification(iface,
                                     embedded_wifi_mgmt_WifiEvent_ap_enable_result_event_tag,
                                     ap_status_to_proto(*(const enum wifi_ap_status *)cb->info));
         break;
     case NET_EVENT_WIFI_AP_DISABLE_RESULT:
-        send_ap_result_notification(iface,
+        send_status_result_notification(iface,
                                     embedded_wifi_mgmt_WifiEvent_ap_disable_result_event_tag,
                                     ap_status_to_proto(*(const enum wifi_ap_status *)cb->info));
         break;
@@ -511,6 +534,42 @@ static void wifi_mgmt_net_event_handler(struct net_mgmt_event_callback *cb,
     case NET_EVENT_WIFI_AP_STA_DISCONNECTED:
         send_ap_sta_notification(iface, false, (const struct wifi_ap_sta_info *)cb->info);
         break;
+    case NET_EVENT_WIFI_CONNECT_RESULT: {
+        const struct wifi_status *wstatus =
+            (const struct wifi_status *)cb->info;
+        int32_t status = (wstatus != NULL) ? wstatus->status : 0;
+
+        send_status_result_notification(iface,
+                                        embedded_wifi_mgmt_WifiEvent_connect_result_event_tag,
+                                        status);
+        break;
+    }
+    case NET_EVENT_WIFI_DISCONNECT_RESULT: {
+        const struct wifi_status *wstatus =
+            (const struct wifi_status *)cb->info;
+        int32_t status = (wstatus != NULL) ? wstatus->status : 0;
+
+        send_status_result_notification(iface,
+                                        embedded_wifi_mgmt_WifiEvent_disconnect_result_event_tag,
+                                        status);
+        break;
+    }
+    case NET_EVENT_WIFI_IFACE_STATUS: {
+        const struct wifi_iface_status *ist =
+            (const struct wifi_iface_status *)cb->info;
+
+        if (ist == NULL) {
+            break;
+        }
+        if (ist->state == WIFI_STATE_COMPLETED) {
+            send_status_result_notification(iface,
+                embedded_wifi_mgmt_WifiEvent_connect_result_event_tag, 0);
+        } else if (ist->state == WIFI_STATE_DISCONNECTED) {
+            send_status_result_notification(iface,
+                embedded_wifi_mgmt_WifiEvent_disconnect_result_event_tag, 0);
+        }
+        break;
+    }
     default:
         break;
     }
@@ -525,7 +584,10 @@ static int wifi_mgmt_events_init(void)
                                  NET_EVENT_WIFI_AP_ENABLE_RESULT |
                                  NET_EVENT_WIFI_AP_DISABLE_RESULT |
                                  NET_EVENT_WIFI_AP_STA_CONNECTED |
-                                 NET_EVENT_WIFI_AP_STA_DISCONNECTED);
+                                 NET_EVENT_WIFI_AP_STA_DISCONNECTED |
+                                 NET_EVENT_WIFI_CONNECT_RESULT |
+                                 NET_EVENT_WIFI_DISCONNECT_RESULT |
+                                 NET_EVENT_WIFI_IFACE_STATUS);
     net_mgmt_add_event_callback(&wifi_mgmt_event_cb);
     return 0;
 }

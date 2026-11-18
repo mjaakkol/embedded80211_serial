@@ -19,6 +19,7 @@
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/ethernet.h>
 #include <zephyr/net/wifi_mgmt.h>
+#include <zephyr/net/net_mgmt.h>
 #include <zephyr/net_buf.h>
 #include <string.h>
 
@@ -181,9 +182,26 @@ static struct net_if *virt_wifi_netif(void)
 
 static int virt_wifi_l2_send(const struct device *dev, struct net_pkt *pkt)
 {
-	const uint8_t *data = pkt->frags->data;
-	size_t len = net_buf_frags_len(pkt->frags);
-	int rc = bus_send(SERIAL_TYPE_WIFI_DATA, data, len);
+	size_t total_len = net_buf_frags_len(pkt->frags);
+	uint8_t tx_buf[1536];
+	size_t off = 0;
+	struct net_buf *frag;
+
+	/* Linearize all fragments into a contiguous buffer. The bus
+	 * protocol requires a single contiguous payload; sending only
+	 * pkt->frags->data drops any subsequent fragments. */
+	frag = pkt->frags;
+	while (frag != NULL && off < total_len) {
+		size_t flen = frag->len;
+		if (off + flen > sizeof(tx_buf)) {
+			flen = sizeof(tx_buf) - off;
+		}
+		memcpy(tx_buf + off, frag->data, flen);
+		off += flen;
+		frag = frag->frags;
+	}
+
+	int rc = bus_send(SERIAL_TYPE_WIFI_DATA, tx_buf, total_len);
 
 	net_pkt_unref(pkt);
 	return rc;
@@ -209,7 +227,10 @@ static void wifi_data_rx(const uint8_t *payload, size_t len, void *user)
 		return;
 	}
 
-	net_if_recv_data(iface, pkt);
+	enum net_verdict v = net_if_recv_data(iface, pkt);
+	if (v == NET_DROP) {
+		net_pkt_unref(pkt);
+	}
 }
 
 /* ---------------------------------------------------------------------------
@@ -265,12 +286,20 @@ static void wifi_mgmt_notify(const uint8_t *payload, size_t len, void *user)
 	case embedded_wifi_mgmt_WifiEvent_scan_done_event_tag:
 		handle_scan_done(&notif.event.event_data.scan_done_event, iface);
 		break;
-	case embedded_wifi_mgmt_WifiEvent_connect_result_event_tag:
-		wifi_mgmt_raise_connect_result_event(
-			iface, notif.event.event_data.connect_result_event.status);
+	case embedded_wifi_mgmt_WifiEvent_connect_result_event_tag: {
+		int32_t status =
+			notif.event.event_data.connect_result_event.status;
+
+		wifi_mgmt_raise_connect_result_event(iface, status);
+		if (status == 0) {
+			net_if_carrier_off(iface);
+			net_if_carrier_on(iface);
+		}
 		break;
+	}
 	case embedded_wifi_mgmt_WifiEvent_disconnect_result_event_tag:
 		wifi_mgmt_raise_disconnect_result_event(iface, 0);
+		net_if_carrier_off(iface);
 		break;
 	case embedded_wifi_mgmt_WifiEvent_interface_status_event_tag: {
 		const embedded_wifi_mgmt_WifiInterfaceStatus *s =
@@ -356,7 +385,6 @@ static int mgmt_roundtrip(const embedded_wifi_mgmt_WifiMgmtRequest *req,
 	if (rc != 0) {
 		return rc;
 	}
-
 	pb_istream_t istream = pb_istream_from_buffer(resp_buf, resp_len);
 
 	if (!pb_decode(&istream, embedded_wifi_mgmt_WifiMgmtResponse_fields,
@@ -722,8 +750,24 @@ static const struct wifi_mgmt_ops virt_wifi_ops = {
 	.reg_domain = virt_wifi_reg_domain,
 };
 
+static void virt_wifi_if_init(struct net_if *iface)
+{
+	struct ethernet_context *eth_ctx = net_if_l2_data(iface);
+
+	if (eth_ctx != NULL) {
+		eth_ctx->eth_if_type = L2_ETH_IF_TYPE_WIFI;
+	}
+
+	static const uint8_t mac[NET_ETH_ADDR_LEN] = {
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x02
+	};
+
+	net_if_set_link_addr(iface, mac, NET_ETH_ADDR_LEN, NET_LINK_ETHERNET);
+}
+
 static const struct net_wifi_mgmt_offload virt_wifi_offload = {
 	.wifi_iface = {
+		.iface_api.init = virt_wifi_if_init,
 		.send = virt_wifi_l2_send,
 	},
 	.wifi_mgmt_api = &virt_wifi_ops,
@@ -733,25 +777,7 @@ static int virt_wifi_init(const struct device *dev)
 {
 	ARG_UNUSED(dev);
 
-	int rc = bus_open();
-
-	if (rc != 0) {
-		LOG_ERR("virt_wifi: bus_open failed: %d", rc);
-		return rc;
-	}
-
 	struct net_if *iface = virt_wifi_netif();
-
-	/* Mark the Ethernet L2 context as a Wi-Fi interface so that
-	 * net_if_is_wifi() (and thus get_wifi_api()) recognizes this
-	 * interface for NET_REQUEST_WIFI_SCAN/CONNECT routing. Without this,
-	 * the wifi_mgmt subsystem returns -ENOTSUP for scan/connect.
-	 */
-	struct ethernet_context *eth_ctx = net_if_l2_data(iface);
-
-	if (eth_ctx != NULL) {
-		eth_ctx->eth_if_type = L2_ETH_IF_TYPE_WIFI;
-	}
 
 	bus_register_handler(SERIAL_TYPE_WIFI_DATA, wifi_data_rx);
 	bus_set_handler_user(SERIAL_TYPE_WIFI_DATA, iface);

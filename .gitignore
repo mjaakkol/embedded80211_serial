@@ -4,3 +4,6 @@
 # Zephyr build outputs
 build/
 tests-build/
+
+# Primacy data
+secrets/

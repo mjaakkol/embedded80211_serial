@@ -40,6 +40,17 @@ documentation when externally visible behavior changes.
 - Keep transport adaptation, common framing, technology protocols, and host
   APIs separated so each layer can be tested independently.
 
+## SDK and upstream trust
+
+- Agents can assume Zephyr upstream and vendor SDKs (NCS, nrfx, nrf_wifi,
+  etc.) work correctly. Do not modify upstream driver internals, register
+  access patterns, or DMA scheduling logic to debug project-level issues.
+- All development and debugging must happen on top of Zephyr SDK APIs
+  (device tree, Kconfig, public driver APIs, `usbd_ep_enqueue()`,
+  `uart_*()`, `net_if_*()`, `bt_*()`, etc.). If an upstream API misbehaves,
+  the root cause is in project configuration, device tree, Kconfig, or
+  application code — not in the SDK source.
+
 ## Common link protocol
 
 - The frame header is no larger than 64 bits and includes traffic type, payload
@@ -93,3 +104,17 @@ documentation when externally visible behavior changes.
 ## Secrets
 
 Local test environment secrets and other private data is held in secrets folder. The secrets are not to migrated from outside the folder. Agents and others day add environment setting scripts into the folder.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as local markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), recorded as `Status:` lines in issue files. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` at the repo root + ADRs in `docs/decisions/`. See `docs/agents/domain.md`.

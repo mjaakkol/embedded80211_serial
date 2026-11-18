@@ -85,7 +85,7 @@ static int virt_bt_init(const struct device *dev)
 {
 	ARG_UNUSED(dev);
 
-	return bus_open();
+	return 0;
 }
 
 DEVICE_DT_DEFINE(DT_DRV_INST(0), virt_bt_init, NULL, NULL, NULL,

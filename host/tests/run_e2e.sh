@@ -28,6 +28,23 @@ if [ -z "$BOARD_PORT" ]; then
 	echo "ERROR: no board bus port found; pass it as \$1" >&2
 	exit 1
 fi
+
+# Reset the board via J-Link SWD (optional; skips silently if JLinkExe
+# is not on PATH).  A stale board state (leftover bus sequence, stuck
+# WiFi state) makes the PI handshake time out.
+if command -v JLinkExe &>/dev/null; then
+	cat > /tmp/e80211-reset.jlink <<'JL'
+si SWD
+speed 4000
+connect
+r
+g
+exit
+JL
+	JLinkExe -device nRF5340 -CommandFile /tmp/e80211-reset.jlink \
+		>/dev/null 2>&1 || true
+	sleep 1
+fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cd "$SCRIPT_DIR"

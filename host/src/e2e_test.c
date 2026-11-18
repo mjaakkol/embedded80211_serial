@@ -251,6 +251,11 @@ static void bt_e2e_thread(void *p1, void *p2, void *p3)
 	ARG_UNUSED(p1);
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
+	/* Wait for the BT controller to be ready before scanning. */
+	while (!bt_is_ready()) {
+		k_sleep(K_SECONDS(1));
+	}
+	LOG_INF("E2E BT: controller ready");
 
 	while (true) {
 		bt_found_count = 0;

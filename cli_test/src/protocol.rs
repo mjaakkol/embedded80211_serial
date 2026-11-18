@@ -1413,8 +1413,8 @@ mod tests {
         // byte0: type in low nibble, no_ack/host/error zero for host->device
         // byte1: sequence in high nibble, reserved zero
         // bytes 2..3: length big-endian
-        let frame =
-            Frame::encode_host_frame(SerialType::WifiMgmt, 5, false, &[1, 2, 3, 4]).expect("encodes");
+        let frame = Frame::encode_host_frame(SerialType::WifiMgmt, 5, false, &[1, 2, 3, 4])
+            .expect("encodes");
 
         assert_eq!(frame.len(), 8);
         assert_eq!(frame[0], 0x00); // type 0 (WIFI_MGMT)
@@ -1480,8 +1480,8 @@ mod tests {
     fn protocol_info_payload_round_trip() {
         // [version=1, mask_lo=0x1F, mask_hi=0x00, next_seq=3]
         let payload = [1u8, 0x1F, 0x00, 3];
-        let frame =
-            Frame::encode_host_frame(SerialType::ProtocolInfo, 0, false, &payload).expect("encodes");
+        let frame = Frame::encode_host_frame(SerialType::ProtocolInfo, 0, false, &payload)
+            .expect("encodes");
         let parsed = Frame::parse(&frame).expect("frame should parse");
         let info = ProtocolInfo::try_from(&parsed).expect("info should decode");
         assert_eq!(info.version, 1);
@@ -2089,8 +2089,8 @@ mod tests {
 
     #[test]
     fn parse_accepts_max_length_payload() {
-        let frame =
-            Frame::encode_host_frame(SerialType::WifiMgmt, 0, false, &[0u8; 4096]).expect("encodes");
+        let frame = Frame::encode_host_frame(SerialType::WifiMgmt, 0, false, &[0u8; 4096])
+            .expect("encodes");
         let parsed = Frame::parse(&frame).expect("max-length frame parses");
         assert_eq!(parsed.payload.len(), 4096);
     }
@@ -2105,8 +2105,8 @@ mod tests {
 
     #[test]
     fn encode_host_frame_with_crc_round_trips() {
-        let frame =
-            Frame::encode_host_frame(SerialType::WifiMgmt, 5, true, &[1, 2, 3, 4]).expect("encodes");
+        let frame = Frame::encode_host_frame(SerialType::WifiMgmt, 5, true, &[1, 2, 3, 4])
+            .expect("encodes");
         // 4 header + 4 payload + 4 CRC trailer.
         assert_eq!(frame.len(), 12);
         // The crc bit (byte1 bit 0) is set.
@@ -2119,8 +2119,8 @@ mod tests {
 
     #[test]
     fn encode_host_frame_without_crc_is_v1_layout() {
-        let frame =
-            Frame::encode_host_frame(SerialType::WifiMgmt, 5, false, &[1, 2, 3, 4]).expect("encodes");
+        let frame = Frame::encode_host_frame(SerialType::WifiMgmt, 5, false, &[1, 2, 3, 4])
+            .expect("encodes");
         // No trailer: exactly 4 header + 4 payload.
         assert_eq!(frame.len(), 8);
         // The crc bit is clear, so the layout is byte-identical to v1.
@@ -2132,25 +2132,31 @@ mod tests {
 
     #[test]
     fn parse_rejects_corrupted_crc_trailer() {
-        let mut frame =
-            Frame::encode_host_frame(SerialType::WifiMgmt, 5, true, &[1, 2, 3, 4]).expect("encodes");
+        let mut frame = Frame::encode_host_frame(SerialType::WifiMgmt, 5, true, &[1, 2, 3, 4])
+            .expect("encodes");
         assert!(Frame::parse(&frame).is_some(), "intact frame parses");
         // Corrupt a payload byte: the trailer no longer matches.
         frame[4] ^= 0xFF;
         assert!(Frame::parse(&frame).is_none(), "corrupted payload rejected");
         // Corrupt the trailer byte itself: rejected too.
-        let mut frame2 =
-            Frame::encode_host_frame(SerialType::WifiMgmt, 5, true, &[1, 2, 3, 4]).expect("encodes");
+        let mut frame2 = Frame::encode_host_frame(SerialType::WifiMgmt, 5, true, &[1, 2, 3, 4])
+            .expect("encodes");
         frame2[11] ^= 0x01;
-        assert!(Frame::parse(&frame2).is_none(), "corrupted trailer rejected");
+        assert!(
+            Frame::parse(&frame2).is_none(),
+            "corrupted trailer rejected"
+        );
     }
 
     #[test]
     fn parse_rejects_missing_crc_trailer() {
-        let frame =
-            Frame::encode_host_frame(SerialType::WifiMgmt, 5, true, &[1, 2, 3, 4]).expect("encodes");
+        let frame = Frame::encode_host_frame(SerialType::WifiMgmt, 5, true, &[1, 2, 3, 4])
+            .expect("encodes");
         // The crc bit is set but the 4-byte trailer is absent.
-        assert!(Frame::parse(&frame[..8]).is_none(), "short crc frame rejected");
+        assert!(
+            Frame::parse(&frame[..8]).is_none(),
+            "short crc frame rejected"
+        );
     }
 
     #[test]

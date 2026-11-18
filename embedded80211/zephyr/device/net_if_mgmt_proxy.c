@@ -25,6 +25,7 @@ K_EVENT_DEFINE(net_if_mgmt_event);
 static uint8_t net_if_mgmt_rx_buffer[512];
 static uint8_t net_if_mgmt_tx_buffer[512];
 static size_t  message_length;
+static bool    msg_pending; /* previous message not yet consumed */
 
 /* -------------------------------------------------------------------------- */
 /* Enumeration helper                                                          */
@@ -278,6 +279,7 @@ static void net_if_mgmt_thread_entry(void *p1, void *p2, void *p3)
         }
 
         message_length = 0;
+        msg_pending = false;
     }
 }
 
@@ -294,6 +296,13 @@ K_THREAD_DEFINE(net_if_mgmt_thread_id,
 
 bool net_if_mgmt_acquire_buffer(uint8_t **data, size_t len)
 {
+    /* Reject a new message while the previous one is still pending: the
+     * single RX buffer cannot hold two frames. The serial layer answers
+     * with an OUT_OF_BUFFERS ACK; the host backs off and resends. */
+    if (msg_pending) {
+        return false;
+    }
+
     if (len > (sizeof(net_if_mgmt_rx_buffer) - message_length)) {
         LOG_WRN("net_if_mgmt: no buffer space for %zu bytes", len);
         return false;
@@ -310,5 +319,6 @@ void net_if_mgmt_commit_data(size_t len)
 void net_if_mgmt_message_complete(size_t len)
 {
     ARG_UNUSED(len);
+    msg_pending = true;
     k_event_set(&net_if_mgmt_event, DATA_COMPLETE_EVENT);
 }

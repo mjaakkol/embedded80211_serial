@@ -25,7 +25,7 @@
 LOG_MODULE_REGISTER(bus, LOG_LEVEL_INF);
 
 #define BUS_TX_TIMEOUT_MS 500
-#define BUS_SYNC_RETRIES 4
+#define BUS_SYNC_RETRIES 30
 #define BUS_SYNC_TIMEOUT_MS 500
 
 #if DT_NODE_EXISTS(DT_CHOSEN(embedded80211_bus))
@@ -157,11 +157,17 @@ static void bus_send_ack(enum SerialType type, uint8_t seq, enum ErrorType error
 static void bus_rx_isr(const struct device *dev, void *user_data)
 {
 	ARG_UNUSED(user_data);
+	static int debug_rx_count;
 	uint8_t b;
 
 	while (bus.state != PARSING_STATE_DATA) {
 		if (uart_fifo_read(dev, &b, 1) != 1) {
 			break;
+		}
+		debug_rx_count++;
+		if (debug_rx_count <= 8 || (debug_rx_count % 200) == 0) {
+			LOG_INF("RX byte #%d: state=%d b=0x%02x",
+				debug_rx_count, (int)bus.state, b);
 		}
 
 		switch (bus.state) {
@@ -239,6 +245,9 @@ static void bus_rx_isr(const struct device *dev, void *user_data)
 		n = uart_fifo_read(dev, dst, remaining);
 		if (n <= 0) {
 			/* FIFO empty: frame continues on the next RX event. */
+			LOG_INF("RX FIFO empty mid-frame: %u/%u",
+				(unsigned)(bus.bytes_read + bus.trailer_read),
+				(unsigned)total);
 			break;
 		}
 		if (bus.bytes_read < bus.hdr.length) {
@@ -327,9 +336,8 @@ static void bus_rx_work(struct k_work *work)
 		}
 	}
 
+
 	bus.state = PARSING_STATE_TYPE;
-	bus.bytes_read = 0;
-	bus.trailer_read = 0;
 }
 
 static int bus_sync(void)
@@ -480,9 +488,12 @@ int bus_request(int type, const uint8_t *req, size_t req_len,
 		return -EINVAL;
 	}
 
-	bool retried = false;
+	bool resynced = false;
+	int buf_retries = 0;
 
-	for (int attempt = 0; attempt < 2 && !retried; attempt++) {
+	/* Outer: resend after a resync (at most once) and after each
+	 * OUT_OF_BUFFERS drop (bounded by buf_retries). */
+	while (true) {
 		struct bus_header hdr = {
 			.type = (enum SerialType)type,
 			.no_ack = false,
@@ -509,13 +520,28 @@ int bus_request(int type, const uint8_t *req, size_t req_len,
 				/* ACK. */
 				if ((last.error == ERROR_TYPE_INCORRECT_SEQUENCE_NUMBER ||
 				     last.error == ERROR_TYPE_LENGTH_TOO_LONG) &&
-				    !retried) {
-					/* Resync and retry exactly once. */
+				    !resynced) {
+					/* Resync and resend exactly once. */
 					bus.request_pending = false;
 					if (bus_sync() != 0) {
 						return -ETIMEDOUT;
 					}
-					retried = true;
+					resynced = true;
+					break;
+				}
+				if (last.error == ERROR_TYPE_OUT_OF_BUFFERS) {
+					/* The device dropped the frame: its client
+					 * buffer was busy. It did not consume the
+					 * sequence number, so back off and resend
+					 * with the same seq. */
+					if (buf_retries >= 5) {
+						bus.request_pending = false;
+						return -EBUSY;
+					}
+					buf_retries++;
+					bus.tx_seq = bus_seq_prev(bus.tx_seq);
+					bus.request_pending = false;
+					k_msleep(20);
 					break;
 				}
 				/* Success ACK: the response follows. */
@@ -544,9 +570,6 @@ int bus_request(int type, const uint8_t *req, size_t req_len,
 			}
 		}
 	}
-
-	bus.request_pending = false;
-	return -ETIMEDOUT;
 }
 
 uint16_t bus_supported_types(void)

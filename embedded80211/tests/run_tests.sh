@@ -15,7 +15,7 @@ echo "========================================"
 echo ""
 
 # Set NCS environment (sourcing /home/mikko/ncs/env.sh overrides these)
-export ZEPHYR_BASE=${ZEPHYR_BASE:-/home/mikko/ncs/v3.4.1/zephyr}
+export ZEPHYR_BASE=${ZEPHYR_BASE:-/home/mikko/ncs/v3.4.2/zephyr}
 export ZEPHYR_SDK_INSTALL_DIR=${ZEPHYR_SDK_INSTALL_DIR:-/home/mikko/ncs/toolchains/8285d8ad56/opt/zephyr-sdk}
 export ZEPHYR_TOOLCHAIN_VARIANT=${ZEPHYR_TOOLCHAIN_VARIANT:-zephyr}
 

@@ -14,7 +14,73 @@
 
 #include "wifi_data.h"
 
+#include <embedded80211/multiplexer.h>
+#include <embedded80211/serial.h>
+
+
 LOG_MODULE_REGISTER(wifi_data, LOG_LEVEL_INF);
+
+/*
+ * RX forwarding to the host: strong implementation of the nrf_wifi
+ * driver's weak RX hook (nrf_wifi_if_rx_frm in the NCS driver).
+ *
+ * The device runs without an IP stack (NET_IPV4/UDP/TCP/DHCPV4 are all
+ * disabled); every L2 frame received on the radio belongs to the host.
+ * Forward it over the bus as a WIFI_DATA frame and consume it so the
+ * local stack does not process it.
+ */
+bool nrf_wifi_if_rx_frm_hook(struct net_if *iface, struct net_pkt *pkt)
+{
+	if (!net_if_is_wifi(iface)) {
+		return false;
+	}
+
+	/*
+	 * Only forward frames once associated. When the carrier is off the
+	 * FMAC still delivers beacons and probe responses (broadcast), which
+	 * would otherwise flood the host's small RX net_buf pool. The host only
+	 * needs data-path frames, which exist only after association.
+	 */
+	if (!net_if_is_carrier_ok(iface)) {
+		return false;
+	}
+
+	const uint8_t *data = net_pkt_data(pkt);
+	size_t len = net_pkt_get_len(pkt);
+
+	if (data == NULL || len == 0) {
+		return false;
+	}
+
+	/*
+	 * Filter frames for the host:
+	 * - EAPOL (0x888E): wpa_supp needs them locally; do not forward.
+	 * - Broadcast/multicast non-ARP: beacons, DTIM, etc. — the host
+	 *   does not need them and they flood the host's small net_buf pool.
+	 *   Forward only unicast frames and broadcast ARP (0x0806).
+	 */
+	if (len >= 14) {
+		struct net_eth_hdr *eth = NET_ETH_HDR(pkt);
+		uint16_t ethertype = net_ntohs(eth->type);
+		if (ethertype == NET_ETH_PTYPE_EAPOL) {
+			return false;
+		}
+
+		if (net_eth_is_addr_broadcast(&eth->dst) &&
+		    ethertype != NET_ETH_PTYPE_ARP &&
+		    ethertype != NET_ETH_PTYPE_IP) {
+			return false;
+		}
+	}
+
+	int rc = serial_mux_send(SERIAL_TYPE_WIFI_DATA, data, len);
+
+	if (rc < 0) {
+		LOG_WRN("data rx: host forward failed: %d", rc);
+		return false; /* fall through to the local stack */
+	}
+	return true;
+}
 
 #define WIFI_MGMT_EVENTS (NET_EVENT_WIFI_CONNECT_RESULT |		\
 				NET_EVENT_WIFI_DISCONNECT_RESULT | \
@@ -22,10 +88,13 @@ LOG_MODULE_REGISTER(wifi_data, LOG_LEVEL_INF);
                 NET_EVENT_WIFI_AP_STA_CONNECTED | \
             	NET_EVENT_WIFI_CMD_DISCONNECT_COMPLETE)
 
+static struct net_if *wifi_iface;
 static struct net_if_dev* wifi_dev;
 static struct net_mgmt_event_callback wifi_mgmt_cb;
 static size_t message_length;
 static uint8_t wifi_data_tx_buffer[1600];
+static uint32_t wifi_data_tx_count;
+static int64_t wifi_data_first_tx_ts;
 
 
 static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
@@ -62,6 +131,7 @@ static void wifi_iface_enumeration_cb(struct net_if *iface, void *user_data)
         // multi-device support comes even later.
 
         if (wifi_dev == NULL) {
+            wifi_iface = iface;
             wifi_dev = iface->if_dev;
             LOG_INF("Storing Wi-Fi device: %p", wifi_dev);
 
@@ -82,6 +152,7 @@ bool wifi_data_acquire_buffer(uint8_t **data, size_t len)
         // TODO: This is severe error condition and should happen. Reseting things would be an appropriate action.
         return false;
     }
+    *data = &wifi_data_tx_buffer[message_length];
     return true; // Indicate that the buffer is available
 }
 
@@ -93,28 +164,113 @@ void wifi_data_commit_data(size_t len)
 
 void wifi_data_message_complete(size_t len)
 {
-    struct net_if *iface = net_if_lookup_by_dev(wifi_dev->dev);
+    ARG_UNUSED(len); // The length is already accumulated in message_length by commit_data.
+
+    struct net_if *iface = wifi_iface;
     if (iface == NULL) {
         LOG_ERR("Failed to get network interface for Wi-Fi device");
+        message_length = 0;
         return;
     }
 
-    struct net_pkt *pkt = net_pkt_alloc_with_buffer(iface, len, AF_UNSPEC, 0, K_FOREVER);
+    struct net_pkt *pkt = net_pkt_alloc_with_buffer(iface, message_length, AF_UNSPEC, 0, K_FOREVER);
 
     if (pkt == NULL) {
-        LOG_ERR("Failed to acquire packet & buffer of size %zu", len);
+        LOG_ERR("Failed to acquire packet & buffer of size %zu", message_length);
+        message_length = 0;
+        return;
     }
+	net_pkt_set_ll_proto_type(pkt, NET_ETH_PTYPE_IP);
 
-    message_length += len; // Update the total message length
-
-    net_pkt_write(pkt, &wifi_data_tx_buffer[4], message_length);
-
-    message_length = 0; // Reset after sending
-
-    if (net_send_data(pkt) < 0) {
-        LOG_ERR("Failed to send Wi-Fi data packet");
+    if (net_pkt_write(pkt, wifi_data_tx_buffer, message_length) < 0) {
+        LOG_ERR("Failed to write Wi-Fi data packet");
         net_pkt_unref(pkt);
+        message_length = 0;
+        return;
     }
+	/* Gate TX until 4-way handshake has time to complete (~3s after
+	 * first TX attempt). The AP drops data frames from unauthenticated
+	 * stations, so early DHCP DISCOVERs get no OFFER.
+	 */
+	wifi_data_tx_count++;
+	if (wifi_data_first_tx_ts == 0) {
+		wifi_data_first_tx_ts = k_uptime_get();
+	}
+	int64_t elapsed_ms = k_uptime_get() - wifi_data_first_tx_ts;
+	if (elapsed_ms < 3000) {
+		net_pkt_unref(pkt);
+		message_length = 0;
+		return;
+	}
+
+	/* Log raw buffer before MAC rewrite */
+	{
+		LOG_INF("RAW: len=%zu first14=%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+			message_length,
+			wifi_data_tx_buffer[0], wifi_data_tx_buffer[1], wifi_data_tx_buffer[2],
+			wifi_data_tx_buffer[3], wifi_data_tx_buffer[4], wifi_data_tx_buffer[5],
+			wifi_data_tx_buffer[6], wifi_data_tx_buffer[7], wifi_data_tx_buffer[8],
+			wifi_data_tx_buffer[9], wifi_data_tx_buffer[10], wifi_data_tx_buffer[11],
+			wifi_data_tx_buffer[12], wifi_data_tx_buffer[13]);
+	}
+	/* Debug: print DHCP header bytes to verify payload transfer */
+	{
+		if (message_length >= 24) {
+			LOG_INF("DHCP: op=%u hwtype=%u hlen=%u xid=%02x%02x%02x%02x msgtype=%u",
+				wifi_data_tx_buffer[14], wifi_data_tx_buffer[15],
+				wifi_data_tx_buffer[16],
+				wifi_data_tx_buffer[18], wifi_data_tx_buffer[19],
+				wifi_data_tx_buffer[20], wifi_data_tx_buffer[21],
+				(message_length >= 67) ? wifi_data_tx_buffer[14+53] : 0);
+		}
+	}
+
+	/*
+	 * Rewrite the source MAC to the device's MAC so the AP/DHCP server
+	 * responds to an address the radio actually accepts on RX.
+	 */
+	{
+		uint8_t *frame = net_pkt_data(pkt);
+		if (frame != NULL && message_length >= 14) {
+			memcpy(&frame[6], net_if_get_link_addr(iface), 6);
+		}
+	}
+	/* Debug: print FMAC vif state pointer for pylink inspection */
+	{
+		const struct device *wdev = net_if_get_device(iface);
+		LOG_INF("FMAC dev=%p vif_ctx=%p", (void *)wdev,
+			wdev ? (void *)wdev->data : NULL);
+	}
+
+	/* Bypass net_send_data(): the NET_IF_LOWER_UP flag is set but
+	 * net_if_send() still drops with -ENETDOWN. Call the L2 send
+	 * directly to reach nrf_wifi_if_send().
+	 */
+	size_t tx_len = message_length;
+	message_length = 0;
+
+	/* Log Ethernet header for debugging */
+	{
+		uint8_t *frame = net_pkt_data(pkt);
+		if (frame != NULL && tx_len >= 14) {
+			LOG_INF("ETH: dst=%02x:%02x:%02x:%02x:%02x:%02x src=%02x:%02x:%02x:%02x:%02x:%02x type=0x%04x",
+				frame[0], frame[1], frame[2], frame[3], frame[4], frame[5],
+				frame[6], frame[7], frame[8], frame[9], frame[10], frame[11],
+				(frame[12] << 8) | frame[13]);
+		}
+	}
+
+	const struct net_l2 *l2 = net_if_l2(iface);
+	if (l2 == NULL || l2->send == NULL) {
+		LOG_ERR("No L2 send function for WiFi iface");
+		net_pkt_unref(pkt);
+		return;
+	}
+	int l2_rc = l2->send(iface, pkt);
+	LOG_INF("wifi_data: L2 send rc=%d len=%zu count=%u", l2_rc, tx_len, (unsigned)wifi_data_tx_count);
+	if (l2_rc < 0) {
+		net_pkt_unref(pkt);
+	}
 }
 
 /*

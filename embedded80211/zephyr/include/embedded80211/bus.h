@@ -79,6 +79,13 @@ static inline uint8_t bus_seq_next(uint8_t seq)
 	return (seq >= SEQUENCE_NUMBER_MAX) ? 0U : (uint8_t)(seq + 1U);
 }
 
+/* Previous sequence number in the 0..15 space (wraps 0 -> 15). Used when
+ * a dropped frame (OUT_OF_BUFFERS) must be resent with the same seq. */
+static inline uint8_t bus_seq_prev(uint8_t seq)
+{
+	return (seq == 0U) ? SEQUENCE_NUMBER_MAX : (uint8_t)(seq - 1U);
+}
+
 /*
  * Validate a host->device (TX) frame. Returns 0 if acceptable, negative
  * errno otherwise. Length 0 is only legal for a PROTOCOL_INFO query.

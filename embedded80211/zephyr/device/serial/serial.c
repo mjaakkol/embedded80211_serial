@@ -2,6 +2,7 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/device.h>
 #include <zephyr/sys/printk.h>
+#include <string.h>
 #include <zephyr/sys/crc.h>
 #include <zephyr/logging/log.h>
 #include <errno.h>
@@ -12,6 +13,7 @@
 LOG_MODULE_REGISTER(serial, LOG_LEVEL_INF);
 
 K_MUTEX_DEFINE(serial_tx_mutex);
+static volatile uint32_t serial_tx_trace = 0;
 
 /* Bounded wait for TX FIFO space. A healthy host drains the CDC ACM ring at
  * ~128 KB/s (128 B per USB bulk transfer, 1 ms work schedule), so a full
@@ -38,6 +40,7 @@ K_MUTEX_DEFINE(serial_tx_mutex);
  */
 int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len)
 {
+    serial_tx_trace = (serial_tx_trace << 8) | (uint8_t)len;
     // Only one thread can write to the UART at a time.
     // This also means that USB and serial UART are mutually exclusive, but
     // that's OK as it is not expected that anyone would use USB and UART at
@@ -48,6 +51,7 @@ int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len)
     k_mutex_lock(&serial_tx_mutex, K_FOREVER);
     while (written < len) {
         int n = uart_fifo_fill(dev, data + written, len - written);
+        serial_tx_trace |= ((uint32_t)n & 0xF) << 24;
 
         if (n < 0) {
             k_mutex_unlock(&serial_tx_mutex);
@@ -103,9 +107,6 @@ int serial_send_frame(struct serial_config *config,
         .crc = config->crc_enabled,
         .reserved = 0,
         .sequence_number = config->tx_sequence_number,
-        /* Length is transmitted big-endian on the wire: byte2 = high,
-         * byte3 = low (the RX parser applies sys_be16_to_cpu).
-         */
         .length = sys_cpu_to_be16((uint16_t)len),
     };
 
@@ -122,7 +123,6 @@ int serial_send_frame(struct serial_config *config,
             (uint8_t)(crc >> 24), (uint8_t)(crc >> 16),
             (uint8_t)(crc >> 8),  (uint8_t)(crc),
         };
-
         serial_data_tx(config->serial_dev, trailer, sizeof(trailer));
     }
 
@@ -142,10 +142,18 @@ int serial_send_frame(struct serial_config *config,
  * @param dev The UART device structure.
  * @param user_data User data passed to the callback (not used in this simple example).
  */
+static volatile uint32_t serial_rx_trace = 0;
+static volatile uint32_t serial_rx_bytes = 0;
+static volatile uint8_t serial_raw_rx[16];
+static volatile uint8_t serial_raw_rx_count = 0;
+
 static void uart_irq_callback(const struct device *dev, void *user_data)
 {
     struct serial_config *config = (struct serial_config *)user_data;
     uint8_t b;
+    uint32_t bytes_read = 0;
+
+    serial_rx_trace = (serial_rx_trace << 1) | 1;
 
 
     /*
@@ -166,7 +174,11 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
         if (uart_fifo_read(dev, &b, 1) != 1) {
             break;
         }
+        serial_rx_bytes = (serial_rx_bytes << 8) | b;
 
+        if (serial_raw_rx_count < 16) {
+            serial_raw_rx[serial_raw_rx_count++] = b;
+        }
         switch (config->parsing_state) {
         case PARSING_STATE_TYPE:
             *(uint8_t *)&config->serial_header = b;
@@ -195,8 +207,13 @@ static void uart_irq_callback(const struct device *dev, void *user_data)
             config->rx_crc = crc32_c(0U, config->hdr_wire, 4U, true, false);
             config->trailer_read = 0;
             if (config->serial_header.length == 0) {
-                if (config->serial_header.type == SERIAL_TYPE_PROTOCOL_INFO) {
+                if (config->serial_header.no_ack &&
+                    config->serial_header.type == SERIAL_TYPE_PROTOCOL_INFO) {
+                    /* Protocol info query: respond with an info frame. */
                     config->parsing_state = PARSING_STATE_DATA;
+                } else if (!config->serial_header.no_ack) {
+                    /* ACK from the peer: no payload, nothing to do. */
+                    config->parsing_state = PARSING_STATE_TYPE;
                 } else {
                     LOG_ERR("Invalid Serial Length: 0");
                     config->parsing_state = PARSING_STATE_TYPE;
@@ -308,10 +325,17 @@ static void handle_protocol_info(struct serial_config *config, uint8_t sequence_
     ARG_UNUSED(sequence_number);
 }
 
+static volatile uint32_t serial_work_trace = 0;
+
 static void serial_work_handler(struct k_work *work_item_ptr)
 {
     struct serial_config *config =
         CONTAINER_OF(work_item_ptr, struct serial_config, work_item);
+
+    serial_work_trace = (serial_work_trace << 1) | 1;
+    static volatile uint32_t work_hdr_trace = 0;
+    work_hdr_trace = ((uint32_t)config->serial_header.type & 0xF) |
+                     ((uint32_t)config->serial_header.length & 0xFFFF) << 4;
 
     const struct device *dev = config->serial_dev;
     uint8_t *data_buffer = NULL;
@@ -380,13 +404,25 @@ static void serial_work_handler(struct k_work *work_item_ptr)
                 LOG_ERR("Buffer acquisition failed for type %d", frame_type);
                 send_ack(config, frame_type, config->serial_header.sequence_number,
                          ERROR_TYPE_OUT_OF_BUFFERS);
+                /* Drain remaining bytes so the CDC-ACM RX ring buffer cannot
+                 * fill up and throttle the OUT-endpoint re-arm (rx_fifo_work).
+                 * Without this, the residual payload wedges the ring, the
+                 * bulk-OUT endpoint is never re-armed, and all subsequent RX
+                 * dies until a USB re-enumeration. */
+                uint8_t drain[64];
+                while (uart_fifo_read(dev, drain, sizeof(drain)) > 0) {
+                    /* discard */
+                }
                 config->parsing_state = PARSING_STATE_TYPE;
                 config->bytes_read = 0;
                 config->trailer_read = 0;
                 break;
             }
 
-            int n = uart_fifo_read(dev, data_buffer + config->bytes_read, buffer_size);
+            /* `data_buffer` already points at &buf[bytes_read]: the client
+             * offsets by its cumulative committed length, which equals
+             * bytes_read for the in-flight frame. No extra offset here. */
+            int n = uart_fifo_read(dev, data_buffer, buffer_size);
             if (n < 0) {
                 LOG_ERR("UART FIFO read error: %d", n);
                 break;
@@ -394,16 +430,20 @@ static void serial_work_handler(struct k_work *work_item_ptr)
                 LOG_DBG("No more data available, waiting for next interrupt");
                 break;
             }
-            config->rx_crc = crc32_c(config->rx_crc, data_buffer + config->bytes_read,
+            config->rx_crc = crc32_c(config->rx_crc, data_buffer,
                                      (size_t)n, false, false);
             config->bytes_read += (size_t)n;
 
-            if (config->bytes_read < length) {
-                LOG_DBG("Read %d bytes, total: %zu/%u", n, config->bytes_read,
-                        (unsigned int)length);
-                callbacks->commit_data((size_t)n);
-            }
-            /* Final payload chunk: commit_data(length) is called at completion. */
+            LOG_INF("Read %d bytes, total: %zu/%u", n, config->bytes_read,
+                    (unsigned int)length);
+            /* Debug: dump first bytes from FIFO to verify data integrity */
+            LOG_INF("FIFO[%zu]: %02x %02x %02x %02x %02x %02x %02x %02x",
+                    (unsigned int)config->bytes_read,
+                    n > 0 ? data_buffer[0] : 0, n > 1 ? data_buffer[1] : 0,
+                    n > 2 ? data_buffer[2] : 0, n > 3 ? data_buffer[3] : 0,
+                    n > 4 ? data_buffer[4] : 0, n > 5 ? data_buffer[5] : 0,
+                    n > 6 ? data_buffer[6] : 0, n > 7 ? data_buffer[7] : 0);
+            callbacks->commit_data((size_t)n);
         } else {
             /* Trailer phase (crc bit set). */
             size_t to_read = SERIAL_CRC_LEN - config->trailer_read;
@@ -484,8 +524,8 @@ static void serial_work_handler(struct k_work *work_item_ptr)
         /* Reset expected sequence to 0 per AGENTS spec. */
         config->rx_sequence_number = 0;
     } else {
-        /* Sequence OK — commit data and notify client. */
-        callbacks->commit_data(length);
+        /* Sequence OK — notify client. The payload chunks were already
+         * committed by commit_data() in the read loop above. */
         callbacks->message_complete(length);
 
         /* Advance and wrap rx sequence number. */

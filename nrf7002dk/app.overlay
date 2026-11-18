@@ -20,25 +20,10 @@
     current-speed = <115200>;
 };
 
-zephyr_udc0: &usbd {
-    status = "okay";
-    cdc_serial_uart: cdc_acm_uart1 { // This creates an instance named "CDC_ACM_0"
+&usbd {
+    cdc_serial_uart: cdc_acm_uart1 {
         compatible = "zephyr,cdc-acm-uart";
-		current-speed = <115200>;
         label = "CDC_ACM_0";
-        /* Must hold a full protocol frame (4 B header + 4096 B payload =
-         * 4100 B; next power of two is 8192). The CDC ACM driver's
-         * poll_out silently discards bytes when this ring is full, so any
-         * smaller value truncates large frames (e.g. SCAN_DONE
-         * notifications) whenever the host drains the USB endpoint slower
-         * than the ring fills.
-         */
-        tx-fifo-size = <8192>;
-        rx-fifo-size = <8192>;
-        status = "okay";
-    };
-    cdc_serial_uart2: cdc_acm_uart2 { // This creates an instance named "CDC_ACM_1"
-        compatible = "zephyr,cdc-acm-uart";
     };
 };
 /* Forward the nRF7002 Wi-Fi PTA (coexistence) pins to the network core.
