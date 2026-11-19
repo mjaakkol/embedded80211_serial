@@ -17,6 +17,7 @@ It is intended for quick manual validation of host-to-device requests such as Wi
 - Get/set the Wi-Fi power save configuration
 - Query the Wi-Fi interface status (state, SSID, BSSID, RSSI, ...)
 - Run a Wi-Fi scan interleaved with a Bluetooth HCI command (coexistence demo)
+- Validate the Wi-Fi data path end-to-end (TX to AP, RX from air interface)
 
 
 ## Build
@@ -189,6 +190,28 @@ cargo run -- --port /dev/ttyACM0 raw-tx --file frame.bin
 # Frame from stdin
 cat frame.bin | cargo run -- --port /dev/ttyACM0 raw-tx
 ```
+
+### 10. Wi-Fi data path validation (broadcast-echo)
+
+Sends a valid Ethernet II unicast frame to the AP BSSID via the `WIFI_DATA`
+traffic type and validates the RX path by waiting for a frame forwarded back
+by the device's `nrf_wifi_if_rx_frm_hook`. The hook intercepts every unicast
+frame received on the air interface and forwards it to the host as a
+`WIFI_DATA` serial frame.
+
+The command queries the BSSID, builds a 44-byte Ethernet II frame
+(dst=BSSID, src=device MAC, EtherType=0x88B5, payload=marker), transmits it,
+then waits up to 10 s for any `WIFI_DATA` frame from the device. The received
+frame is validated for a correct Ethernet header (≥14 bytes, non-zero MACs,
+non-zero EtherType).
+
+```bash
+cargo run -- --port /dev/ttyACM2 broadcast-echo
+cargo run -- --port /dev/ttyACM2 broadcast-echo --iface-index 1
+```
+
+Requires the device to be associated with an AP (station mode). The AP must
+be a known peer in the driver's FMAC peer table (the BSSID satisfies this).
 
 ## Integration Test
 

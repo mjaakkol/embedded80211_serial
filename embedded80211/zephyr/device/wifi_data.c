@@ -99,7 +99,6 @@ static struct net_mgmt_event_callback wifi_mgmt_cb;
 static size_t message_length;
 static uint8_t wifi_data_tx_buffer[1600];
 static uint32_t wifi_data_tx_count;
-static int64_t wifi_data_first_tx_ts;
 
 
 static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
@@ -193,20 +192,6 @@ void wifi_data_message_complete(size_t len)
         message_length = 0;
         return;
     }
-	/* Gate TX until 4-way handshake has time to complete (~3s after
-	 * first TX attempt). The AP drops data frames from unauthenticated
-	 * stations, so early DHCP DISCOVERs get no OFFER.
-	 */
-	wifi_data_tx_count++;
-	if (wifi_data_first_tx_ts == 0) {
-		wifi_data_first_tx_ts = k_uptime_get();
-	}
-	int64_t elapsed_ms = k_uptime_get() - wifi_data_first_tx_ts;
-	if (elapsed_ms < 3000) {
-		net_pkt_unref(pkt);
-		message_length = 0;
-		return;
-	}
 
 	/* Log raw buffer before MAC rewrite */
 	{
@@ -444,17 +429,15 @@ int wifi_data_raw_frame_tx(struct net_if *iface, const uint8_t *frame, size_t le
 	return 0;
 }
 
+#ifdef CONFIG_WIFI_RAW_RX
 /*
- * Raw 802.11 frame reception (promiscuous sniffer), for data connectivity
- * loopback testing. With the firmware packet filter set to
- * WIFI_PACKET_FILTER_ALL, the driver delivers every frame on the air
- * interface (including one it just transmitted) to the network stack as a raw
- * packet, readable on an AF_PACKET socket. Each received frame is forwarded to
- * the registered callback, which reports it to the host over the serial link.
- * Reference usage: nrf/tests/drivers/nrf_wifi/raw_tx_rx/src/main.c.
+ * Raw frame reception (AF_PACKET sniffer), for data connectivity
+ * loopback testing (engineering feature, off by default). In station
+ * mode the driver delivers broadcast frames to the network stack; the
+ * AF_PACKET socket captures them and the registered callback reports
+ * each frame to the host over the serial link.
  */
 #define RAW_RX_BUFFER_SIZE (RAW_FRAME_MAX_LEN + 64)
-#define RAW_RX_FILTER_BUFFER_SIZE 1550
 #define RAW_RX_THREAD_STACK_SIZE 2048
 
 static int raw_rx_sockfd = -1;
@@ -513,10 +496,8 @@ void wifi_data_set_raw_rx_cb(wifi_data_raw_rx_cb cb)
 
 int wifi_data_raw_frame_rx_enable(struct net_if *iface, uint32_t channel)
 {
-	struct wifi_mode_info mode_info;
-	struct wifi_channel_info channel_info;
-	struct wifi_filter_info filter_info;
-	int ret;
+
+	ARG_UNUSED(channel);
 
 	if (iface == NULL) {
 		return -EINVAL;
@@ -529,91 +510,14 @@ int wifi_data_raw_frame_rx_enable(struct net_if *iface, uint32_t channel)
 		return 0; /* already enabled */
 	}
 
-	/* If the interface is already UP (from NRF_WIFI_IF_AUTO_START at
-	 * boot), skip net_if_up() — calling it again returns -EALREADY.
-	 * If it's not UP, try to bring it up so the driver's
-	 * nrf_wifi_if_start_zep() completes the VIF setup and the UMAC
-	 * emits CARRIER_ON. Without this, if_carr_state stays OFF and
-	 * all raw TX frames are dropped.
+	/* The interface must be UP and associated (station mode).
+	 * The driver's MAC filter already passes broadcast frames
+	 * (DA=FF:FF:FF:FF:FF:FF) to the network stack in station mode;
+	 * no packet-filter change is needed.
 	 */
 	if (!net_if_flag_is_set(iface, NET_IF_UP)) {
-		int up_ret = -EIO;
-
-		for (int attempt = 0; attempt < 5; attempt++) {
-			up_ret = net_if_up(iface);
-			if (up_ret == 0) {
-				break;
-			}
-			k_sleep(K_MSEC(500));
-		}
-		if (up_ret) {
-			return -2000 - up_ret;
-		}
-	}
-
-	/* Switch the radio to monitor mode so it captures every frame on the
-	 * air, including the ones it transmits (STA mode cannot receive while
-	 * transmitting).
-	 */
-	memset(&mode_info, 0, sizeof(mode_info));
-	mode_info.oper = WIFI_MGMT_SET;
-	mode_info.if_index = net_if_get_by_iface(iface);
-	mode_info.mode = BIT(1); /* MONITOR */
-	ret = net_mgmt(NET_REQUEST_WIFI_MODE, iface, &mode_info,
-		       sizeof(mode_info));
-	if (ret) {
-		LOG_ERR("raw_rx: set monitor mode failed: %d", ret);
-		return ret;
-	}
-	/* Read back the mode to verify it took effect. */
-	memset(&mode_info, 0, sizeof(mode_info));
-	mode_info.oper = WIFI_MGMT_GET;
-	mode_info.if_index = net_if_get_by_iface(iface);
-	if (net_mgmt(NET_REQUEST_WIFI_MODE, iface, &mode_info,
-		     sizeof(mode_info)) == 0) {
-		raw_rx_mode_readback = mode_info.mode;
-	}
-
-	/* Give the firmware time to process the mode change and set the
-	 * carrier state to ON. The nRF7002 driver drops raw TX frames when
-	 * if_carr_state != ON.
-	 */
-	k_sleep(K_MSEC(500));
-
-	/* Enable the driver's TX-injection mode (idempotent). */
-	ret = net_eth_txinjection_mode(iface, true);
-	if (ret) {
-		LOG_ERR("raw_rx: enabling TX injection failed: %d", ret);
-		return ret;
-	}
-
-	/* Tune the radio to the listen channel. */
-	if (channel != 0) {
-		memset(&channel_info, 0, sizeof(channel_info));
-		channel_info.oper = WIFI_MGMT_SET;
-		channel_info.if_index = net_if_get_by_iface(iface);
-		channel_info.band = WIFI_FREQ_BAND_2_4_GHZ;
-		channel_info.channel = channel;
-		ret = net_mgmt(NET_REQUEST_WIFI_CHANNEL, iface, &channel_info,
-			       sizeof(channel_info));
-		if (ret) {
-			LOG_ERR("raw_rx: set channel %u failed: %d", channel,
-				ret);
-			return -1003; /* channel set failed */
-		}
-	}
-
-	/* Configure the firmware packet filter to pass all frames. */
-	memset(&filter_info, 0, sizeof(filter_info));
-	filter_info.oper = WIFI_MGMT_SET;
-	filter_info.if_index = net_if_get_by_iface(iface);
-	filter_info.filter = WIFI_PACKET_FILTER_ALL;
-	filter_info.buffer_size = RAW_RX_FILTER_BUFFER_SIZE;
-	ret = net_mgmt(NET_REQUEST_WIFI_PACKET_FILTER, iface, &filter_info,
-		       sizeof(filter_info));
-	if (ret) {
-		LOG_ERR("raw_rx: packet filter set failed: %d", ret);
-		return -1004; /* packet filter set failed */
+		LOG_ERR("raw_rx: interface is not UP (associate first)");
+		return -ENOTCONN;
 	}
 
 	raw_rx_sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
@@ -641,7 +545,8 @@ int wifi_data_raw_frame_rx_enable(struct net_if *iface, uint32_t channel)
 			NULL, NULL, NULL, K_PRIO_PREEMPT(7), 0, K_NO_WAIT);
 	k_thread_start(&raw_rx_thread);
 
-	LOG_INF("raw_rx: enabled on iface %d", raw_rx_addr.sll_ifindex);
+	LOG_INF("raw_rx: enabled (station mode) on iface %d",
+		raw_rx_addr.sll_ifindex);
 	return 0;
 }
 
@@ -686,6 +591,7 @@ void wifi_data_raw_rx_diag(struct wifi_data_raw_rx_diag *out)
 	out->tx_last_len = raw_tx_last_frame_len;
 	out->tx_last_wifi = raw_tx_last_iface_wifi;
 }
+#endif /* CONFIG_WIFI_RAW_RX */
 
 static int init_wifi_data(void)
 {

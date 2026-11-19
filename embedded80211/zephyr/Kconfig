@@ -136,6 +136,15 @@ config SERIAL_PROXY_BT
 config SERIAL_PROXY_OT
 	bool "Enable OpenThread/Spinel proxy"
 	default y
+config WIFI_RAW_RX
+	bool "Enable raw 802.11 RX capture (engineering)"
+	default n
+	depends on SERIAL_PROXY_WIFI_DATA
+	help
+	  Enable the raw 802.11 RX capture path (AF_PACKET socket sniffer).
+	  This is an engineering/debugging feature used for data connectivity
+	  loopback testing (broadcast-echo validation). It is not needed in
+	  the product configuration.
 
 config SERIAL_PROXY_VSERIAL
 	bool "Enable virtual serial proxy"

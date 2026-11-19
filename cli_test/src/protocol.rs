@@ -662,6 +662,15 @@ impl Session {
             }
         }
     }
+    /// Sends a Wi-Fi data frame (Ethernet payload) without waiting for a
+    /// response. The device transmits the frame on the air interface;
+    /// there is no ACK or reply on this path.
+    pub fn send_wifi_data(&mut self, payload: &[u8]) -> Result<(), SessionError> {
+        let seq = self.tx_seq;
+        self.tx_seq = (self.tx_seq + 1) & 0x0F;
+        let frame = Frame::encode_host_frame(SerialType::WifiData, seq, self.crc_enabled, payload)?;
+        self.send(&frame)
+    }
 
     /// Handshakes with the device and returns the next expected sequence
     /// number. Must be called before any command frame.
@@ -1397,6 +1406,38 @@ pub fn format_scan_results(status: i32, results: &[wifi_mgmt::WifiScanResult]) -
         ));
     }
     lines.join("\n")
+}
+/// Builds an Ethernet II frame.
+///
+/// Layout:
+/// - Bytes  0..6:  destination MAC
+/// - Bytes  6..12: source MAC
+/// - Bytes 12..14: EtherType (big-endian)
+/// - Bytes 14..N:  payload
+pub fn build_ethernet_frame(
+    dst_mac: &[u8; 6],
+    src_mac: &[u8; 6],
+    ethertype: u16,
+    payload: &[u8],
+) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(14 + payload.len());
+    frame.extend_from_slice(dst_mac);
+    frame.extend_from_slice(src_mac);
+    frame.extend_from_slice(&ethertype.to_be_bytes());
+    frame.extend_from_slice(payload);
+    frame
+}
+
+/// Checks whether a received frame carries Wi-Fi data (an Ethernet frame
+/// forwarded by the device's RX hook from the air interface).
+pub fn is_wifi_data_frame(frame: &Frame) -> bool {
+    frame.traffic_type == SerialType::WifiData && !frame.payload.is_empty()
+}
+
+/// Checks whether a received frame is a `RawFrameRxEvent` notification
+/// carrying the echoed Ethernet frame.
+pub fn is_raw_frame_rx_notification(frame: &Frame) -> bool {
+    frame.traffic_type == SerialType::WifiMgmt && !frame.payload.is_empty()
 }
 
 #[cfg(test)]

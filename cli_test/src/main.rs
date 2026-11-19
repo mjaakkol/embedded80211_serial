@@ -8,14 +8,16 @@ use cli_test::protocol::{
     Frame, HCI_OP_READ_BD_ADDR, HCI_OP_READ_LOCAL_SUPPORTED_COMMANDS,
     HCI_OP_READ_LOCAL_SUPPORTED_FEATURES, HCI_OP_READ_LOCAL_VERSION, HCI_OP_RESET,
     HciCommandComplete, SerialType, Session, ap_disable_request_payload, ap_enable_request_payload,
-    connect_request_payload, decode_ap_result_notification, decode_scan_done_notification,
-    decode_wifi_mgmt_response, decode_wifi_status_response, disconnect_request_payload,
-    format_hci_command_complete, format_iface_status_response, format_interfaces_response,
-    format_ps_response, format_reg_domain_response, format_scan_results, format_status_response,
+    build_ethernet_frame, connect_request_payload, decode_ap_result_notification,
+    decode_iface_status_response, decode_scan_done_notification, decode_wifi_mgmt_response,
+    decode_wifi_status_response, disconnect_request_payload, format_hci_command_complete,
+    format_iface_status_response, format_interfaces_response, format_ps_response,
+    format_reg_domain_response, format_scan_results, format_status_response,
     format_version_response, get_ps_request_payload, get_reg_domain_request_payload,
     hci_command_complete, hci_command_packet, iface_status_request_payload,
-    interfaces_request_payload, scan_request_payload, send_raw_frame_request_payload,
-    set_ps_request_payload, set_reg_domain_request_payload, version_request_payload,
+    interfaces_request_payload, is_wifi_data_frame, scan_request_payload,
+    send_raw_frame_request_payload, set_ps_request_payload, set_reg_domain_request_payload,
+    version_request_payload,
 };
 
 /// How long to wait for a normal request/response round trip.
@@ -120,6 +122,13 @@ enum Commands {
     /// multiprotocol coexistence over the shared serial link.
     Coexist {
         #[arg(short, long, default_value_t = 0)]
+        iface_index: u32,
+    },
+    /// Broadcast-echo test: send an Ethernet II broadcast frame via the Wi-Fi
+    /// data path, the AP re-broadcasts it, and the device captures it back via
+    /// the raw-RX sniffer. Validates the full host-to-controller data path.
+    BroadcastEcho {
+        #[arg(short = 'i', long, default_value_t = 0)]
         iface_index: u32,
     },
 }
@@ -409,6 +418,54 @@ fn hci_request(
         None => die(&"malformed HCI command complete event"),
     }
 }
+/// Validates that a received frame is a well-formed Ethernet II frame.
+/// Checks header size, non-zero MACs, and a sane EtherType.
+fn verify_ethernet_rx(echoed: &[u8]) -> bool {
+    if echoed.len() < 14 {
+        eprintln!(
+            "  FAIL: frame too short ({} bytes, need >= 14)",
+            echoed.len()
+        );
+        return false;
+    }
+    let dst = &echoed[0..6];
+    let src = &echoed[6..12];
+    let ethertype = u16::from_be_bytes([echoed[12], echoed[13]]);
+
+    if dst == [0u8; 6] {
+        eprintln!("  FAIL: destination MAC is all zeros");
+        return false;
+    }
+    if src == [0u8; 6] {
+        eprintln!("  FAIL: source MAC is all zeros");
+        return false;
+    }
+    if ethertype == 0x0000 {
+        eprintln!("  FAIL: EtherType is 0x0000");
+        return false;
+    }
+
+    eprintln!(
+        "  OK: dst={:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} \
+         src={:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} \
+         type=0x{:04x} len={}",
+        dst[0],
+        dst[1],
+        dst[2],
+        dst[3],
+        dst[4],
+        dst[5],
+        src[0],
+        src[1],
+        src[2],
+        src[3],
+        src[4],
+        src[5],
+        ethertype,
+        echoed.len()
+    );
+    true
+}
 
 fn main() {
     let cli = Cli::parse();
@@ -445,7 +502,8 @@ fn main() {
             | Commands::Ap { .. }
             | Commands::RawTx { .. }
             | Commands::Hci { .. }
-            | Commands::Coexist { .. } => unreachable!("filtered by the guard above"),
+            | Commands::Coexist { .. }
+            | Commands::BroadcastEcho { .. } => unreachable!("filtered by the guard above"),
         }
         return;
     }
@@ -896,6 +954,84 @@ fn main() {
             };
             println!("{}", format_scan_results(scan_status, &results));
             eprintln!("Coexistence OK: Wi-Fi scan and HCI command completed on one link session.");
+        }
+        Commands::BroadcastEcho { iface_index } => {
+            // The device MAC is fixed in prj.conf (00:00:00:00:00:00:01).
+            let mac: [u8; 6] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x01];
+            eprintln!("Using device MAC: 00:00:00:00:00:01");
+
+            // 0. Query the BSSID so we can send a unicast frame the driver will accept.
+            //    The nRF WiFi driver drops frames whose DA is not a known peer;
+            //    in station mode only the AP BSSID is a peer.
+            let status_frame = match session.request(
+                SerialType::WifiMgmt,
+                &iface_status_request_payload(iface_index),
+                deadline,
+                &is_wifi_mgmt_response,
+            ) {
+                Ok(frame) => frame,
+                Err(e) => die(&e),
+            };
+            let status = match decode_iface_status_response(&status_frame) {
+                Ok(s) => s,
+                Err(e) => die(&format!("Failed to decode interface status: {e}")),
+            };
+            if status.bssid.len() != 6 {
+                die(&format!(
+                    "BSSID has {} bytes, expected 6",
+                    status.bssid.len()
+                ));
+            }
+            let bssid: [u8; 6] = status.bssid[..6].try_into().unwrap();
+            eprintln!(
+                "AP BSSID: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]
+            );
+
+            // 1. Build an Ethernet II unicast frame to the AP BSSID.
+            let marker = b"WIFI-DATA-PATH-TEST-1234567890";
+            let eth_frame = build_ethernet_frame(&bssid, &mac, 0x88B5, marker);
+            eprintln!(
+                "Sending {} byte Ethernet II unicast frame to BSSID (EtherType 0x88B5)",
+                eth_frame.len()
+            );
+
+            // 2. Send the frame via the Wi-Fi data path (TX validation).
+            //    The device's wifi_data_message_complete() transmits it on
+            //    the air interface via the nRF WiFi driver.
+            if let Err(e) = session.send_wifi_data(&eth_frame) {
+                die(&format!("Failed to send WiFi data frame: {e}"));
+            }
+            eprintln!("TX: frame sent to device, transmitted to AP");
+
+            // 3. Wait for a WIFI_DATA frame from the device (RX validation).
+            //    The device's nrf_wifi_if_rx_frm_hook forwards any unicast
+            //    frame received from the air interface to the host as a
+            //    WIFI_DATA serial frame. This validates the RX path.
+            eprintln!("Waiting for RX frame from device (up to 10 s)...");
+            let rx_frame = match session.wait_for(
+                Instant::now() + Duration::from_secs(10),
+                &is_wifi_data_frame,
+            ) {
+                Ok(frame) => frame,
+                Err(e) => die(&format!("Timed out waiting for RX frame: {e}")),
+            };
+
+            // 4. Validate the received Ethernet frame.
+            let rx_bytes = &rx_frame.payload;
+            eprintln!(
+                "RX: received {} byte Ethernet frame from device",
+                rx_bytes.len()
+            );
+
+            let pass = verify_ethernet_rx(rx_bytes);
+
+            if pass {
+                eprintln!("PASS: wifi data path verified (TX transmitted, RX frame received)");
+            } else {
+                eprintln!("FAIL: wifi data path validation failed");
+                std::process::exit(1);
+            }
         }
         Commands::Test { .. } | Commands::List => unreachable!(),
     }

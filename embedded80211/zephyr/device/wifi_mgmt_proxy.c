@@ -658,8 +658,10 @@ static void handle_set_reg_domain_request(const embedded_wifi_mgmt_SetRegulatory
 static void handle_get_reg_domain_request(const embedded_wifi_mgmt_GetRegulatoryDomainRequest *req, embedded_wifi_mgmt_GetRegulatoryDomainResponse *data_resp, embedded_wifi_mgmt_WifiStatusResponse *err_resp);
 static void handle_get_iface_status_request(const embedded_wifi_mgmt_GetInterfaceStatusRequest *req, embedded_wifi_mgmt_GetInterfaceStatusResponse *data_resp, embedded_wifi_mgmt_WifiStatusResponse *err_resp);
 static void handle_send_raw_frame_request(const embedded_wifi_mgmt_SendRawFrameRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
+#ifdef CONFIG_WIFI_RAW_RX
 static void handle_enable_raw_rx_request(const embedded_wifi_mgmt_EnableRawRxRequest *req, embedded_wifi_mgmt_EnableRawRxResponse *resp);
 static void handle_disable_raw_rx_request(const embedded_wifi_mgmt_DisableRawRxRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
+#endif /* CONFIG_WIFI_RAW_RX */
 // Add other handlers as needed, e.g., for TWT, AP STA disconnect, etc.
 // static void handle_set_twt_request(const embedded_wifi_mgmt_SetTwtRequest *req, embedded_wifi_mgmt_WifiStatusResponse *resp);
 
@@ -812,6 +814,7 @@ static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint
                 handle_send_raw_frame_request(&request.payload.send_raw_frame_req, &response.payload.status_resp);
             } else { payload_type_mismatch = true; }
             break;
+#ifdef CONFIG_WIFI_RAW_RX
         case embedded_wifi_mgmt_RequestType_REQUEST_TYPE_ENABLE_RAW_RX:
             if (request.which_payload == embedded_wifi_mgmt_WifiMgmtRequest_enable_raw_rx_req_tag) {
                 response.which_payload = embedded_wifi_mgmt_WifiMgmtResponse_enable_raw_rx_resp_tag;
@@ -824,6 +827,7 @@ static void process_wifi_mgmt_request(const uint8_t *buffer, size_t length, uint
                 handle_disable_raw_rx_request(&request.payload.disable_raw_rx_req, &response.payload.status_resp);
             } else { payload_type_mismatch = true; }
             break;
+#endif /* CONFIG_WIFI_RAW_RX */
         // Add cases for other RequestTypes defined in your wifi.proto
         // Example:
         // case embedded_wifi_mgmt_RequestType_REQUEST_TYPE_SET_TWT:
@@ -1688,6 +1692,7 @@ static void handle_send_raw_frame_request(const embedded_wifi_mgmt_SendRawFrameR
     }
 }
 
+#ifdef CONFIG_WIFI_RAW_RX
 static void handle_enable_raw_rx_request(const embedded_wifi_mgmt_EnableRawRxRequest *req,
                                          embedded_wifi_mgmt_EnableRawRxResponse *resp) {
     resp->status = -EIO;
@@ -1801,13 +1806,15 @@ static void raw_rx_notify_cb(struct net_if *iface, const uint8_t *frame, size_t 
         LOG_ERR("Failed to encode raw RX notification: %s", ostream.errmsg);
     }
 }
+#endif /* CONFIG_WIFI_RAW_RX */
 
 int init_proxy(void) {
     LOG_INF("Initializing Wi-Fi Management Proxy");
 
-    /* Route received raw 802.11 frames to the host as RawFrameRxEvent
-     * notifications (data connectivity loopback testing). */
+#ifdef CONFIG_WIFI_RAW_RX
+    /* Route received frames to the host as RawFrameRxEvent notifications. */
     wifi_data_set_raw_rx_cb(raw_rx_notify_cb);
+#endif /* CONFIG_WIFI_RAW_RX */
 
 
 
