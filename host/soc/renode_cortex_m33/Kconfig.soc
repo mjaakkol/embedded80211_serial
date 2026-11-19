@@ -1,0 +1,9 @@
+# Renode virtual Cortex-M33 SoC (host application).
+
+config SOC_RENODE_CORTEX_M33
+	bool
+	help
+	  Renode virtual Cortex-M33
+
+config SOC
+	default "renode_cortex_m33" if SOC_RENODE_CORTEX_M33

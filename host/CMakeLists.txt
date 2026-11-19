@@ -1,7 +1,7 @@
 #
 # Host application for the embedded80211 link protocol (Renode board profile).
 #
-# Runs on the app-local renode_cortex_m3 board (see boards/renode_cortex_m3/).
+# Runs on the app-local renode_cortex_m33 board (see boards/renode_cortex_m33/).
 # uart1 is the bus port bridged to the device; uart0 is the console. The
 # virtual Wi-Fi and BT HCI drivers are registered in app.overlay.
 #

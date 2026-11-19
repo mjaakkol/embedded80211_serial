@@ -4,7 +4,7 @@
 
 These rules apply to the Renode host application in this directory and
 supplement [../AGENTS.md](../AGENTS.md). The host app is a Zephyr application
-for the app-local board `renode_cortex_m3` (an app-local board + SoC pair
+for the app-local board `renode_cortex_m33` (an app-local board + SoC pair
 under `host/boards/` and `host/soc/`, since NCS v3.4.1 ships no Renode board)
 that instantiates the host-side drivers from the `embedded80211` module
 (virtual Wi-Fi, virtual Bluetooth HCI, and the link protocol bus client) over
@@ -22,10 +22,10 @@ a UART, and optionally runs the end-to-end test.
 - `src/main.c` — application entry point.
 - `src/e2e_test.{c,h}` — end-to-end test, enabled only with
   `CONFIG_HOST_TEST_ENABLED=y`.
-- `boards/renode_cortex_m3/` — app-local board: `board.yml`, `board.cmake`,
-  `Kconfig.renode_cortex_m3`, `renode_cortex_m3.dts`, `renode_cortex_m3_defconfig`,
-  and `support/renode_cortex_m3.{repl,resc}` (the Renode machine + runner).
-- `soc/renode_cortex_m3/` — app-local SoC (Cortex-M3, 100 MHz, 256 KiB ROM,
+- `boards/renode_cortex_m33/` — app-local board: `board.yml`, `board.cmake`,
+  `Kconfig.renode_cortex_m33`, `renode_cortex_m33.dts`, `renode_cortex_m33_defconfig`,
+  and `support/renode_cortex_m33.{repl,resc}` (the Renode machine + runner).
+- `soc/renode_cortex_m33/` — app-local SoC (Cortex-M33, 100 MHz, 256 KiB ROM,
   32 MiB RAM) wired into the app via `BOARD_ROOT`/`SOC_ROOT` in `CMakeLists.txt`.
 - `run_renode.sh` — resolves Renode, launches the machine with the bus UART
   on a socket terminal, and bridges it to the device port with
@@ -39,7 +39,7 @@ The app is a Zephyr module consumer, so it must be built with `--no-sysbuild`
 
 ```
 source /path/to/ncs/env.sh
-west build -d build/host -s host -b renode_cortex_m3 --no-sysbuild
+west build -d build/host -s host -b renode_cortex_m33 --no-sysbuild
 ```
 
 ## Rules

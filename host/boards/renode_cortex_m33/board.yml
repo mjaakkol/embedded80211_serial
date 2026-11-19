@@ -1,0 +1,6 @@
+board:
+  name: renode_cortex_m33
+  full_name: Renode Emulation for ARM Cortex-M33
+  vendor: renode
+  socs:
+  - name: renode_cortex_m33

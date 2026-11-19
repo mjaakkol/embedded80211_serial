@@ -65,7 +65,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cd "$SCRIPT_DIR"
 
-west build -d ../build/host -s . -b renode_cortex_m3 --no-sysbuild -- \
+west build -d ../build/host -s . -b renode_cortex_m33 --no-sysbuild -- \
 	-DCONFIG_HOST_TEST_ENABLED=y \
 	-DCONFIG_HOST_TEST_WIFI_SSID="\"$SSID\"" \
 	-DCONFIG_HOST_TEST_WIFI_PSK="\"$PSK\"" || { echo "BUILD FAIL"; exit 1; }

@@ -1,4 +1,4 @@
-# Renode virtual Cortex-M3 SoC (host application).
+# Renode virtual Cortex-M33 SoC (host application).
 
 zephyr_library()
 

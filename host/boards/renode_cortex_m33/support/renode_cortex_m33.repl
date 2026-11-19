@@ -1,10 +1,10 @@
 //
-// Renode virtual machine for the host app (board: renode_cortex_m3).
+// Renode virtual machine for the host app (board: renode_cortex_m33).
 //
-// Keep in sync with host/boards/renode_cortex_m3/renode_cortex_m3.dts:
+// Keep in sync with host/boards/renode_cortex_m33/renode_cortex_m33.dts:
 //   ROM   256 KiB @ 0x0
 //   RAM   32 MiB @ 0x20000000
-//   CPU   Cortex-M3 @ 100 MHz (systick)
+//   CPU   Cortex-M33 @ 100 MHz (systick)
 //   uart0 console  arm,pl011 @ 0x40000000  IRQ 0
 //   uart1 bus      arm,pl011 @ 0x40040000  IRQ 1
 //
@@ -16,7 +16,7 @@ ram: Memory.MappedMemory @ sysbus 0x20000000
     size: 0x2000000
 
 cpu: CPU.CortexM @ sysbus
-    cpuType: "cortex-m3"
+    cpuType: "cortex-m33"
     nvic: nvic0
     PerformanceInMips: 100
 

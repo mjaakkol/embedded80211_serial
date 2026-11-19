@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch Renode (board renode_cortex_m3) for the host app, bridging the bus
+# Launch Renode (board renode_cortex_m33) for the host app, bridging the bus
 # UART to the board's common link protocol port.
 #
 # uart0 (PL011 @ 0x40000000) is the console, written to a log file via
@@ -30,7 +30,7 @@ MONITOR_PORT=25997
 CONSOLE_LOG=/tmp/e80211-host-console.log
 BUS_TX_LOG=/tmp/e80211-bus-tx.log
 ELF="$SCRIPT_DIR/../build/host/zephyr/zephyr.elf"
-REPL="$SCRIPT_DIR/boards/renode_cortex_m3/support/renode_cortex_m3.repl"
+REPL="$SCRIPT_DIR/boards/renode_cortex_m33/support/renode_cortex_m33.repl"
 
 if [ ! -f "$ELF" ]; then
 	echo "ERROR: $ELF not found; build the host app first." >&2

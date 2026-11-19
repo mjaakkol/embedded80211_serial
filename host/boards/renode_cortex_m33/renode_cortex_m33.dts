@@ -1,11 +1,11 @@
 /*
- * Renode virtual Cortex-M3 board for the host application.
+ * Renode virtual Cortex-M33 board for the host application.
  *
  * The peripheral map must stay in sync with the Renode machine definition
- * in support/renode_cortex_m3.repl:
+ * in support/renode_cortex_m33.repl:
  *   ROM   256 KiB @ 0x0
  *   RAM   32 MiB @ 0x20000000
- *   CPU   Cortex-M3 @ 100 MHz (systick)
+ *   CPU   Cortex-M33 @ 100 MHz (systick)
  *   uart0 console  arm,pl011 @ 0x40000000  IRQ 0
  *   uart1 bus      arm,pl011 @ 0x40040000  IRQ 1
  *
@@ -15,20 +15,20 @@
 
 /dts-v1/;
 
-#include <arm/armv7-m.dtsi>
+#include <arm/armv8-m.dtsi>
 
 / {
 	#address-cells = <1>;
 	#size-cells = <1>;
-	compatible = "renode,cortex-m3";
-	model = "Renode Cortex-M3 virtual board";
+	compatible = "renode,cortex-m33";
+	model = "Renode Cortex-M33 virtual board";
 
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
 		cpu@0 {
 			device_type = "cpu";
-			compatible = "arm,cortex-m3";
+			compatible = "arm,cortex-m33";
 			reg = <0>;
 		};
 	};
@@ -40,7 +40,7 @@
 	};
 
 	/* Code segment: Renode maps a writable 256 KiB region at 0x0
-	 * (rom in support/renode_cortex_m3.repl); `loadelf` populates it. */
+	 * (rom in support/renode_cortex_m33.repl); `loadelf` populates it. */
 	flash0: flash@0 {
 		reg = <0x0 0x40000>;
 	};
