@@ -31,19 +31,35 @@ fi
 
 # Reset the board via J-Link SWD (optional; skips silently if JLinkExe
 # is not on PATH).  A stale board state (leftover bus sequence, stuck
-# WiFi state) makes the PI handshake time out.
+# WiFi state) makes the PI handshake time out.  The host USB port can
+# also stay stuck after a reset (the port node vanishes and does not
+# reappear on its own); a fresh reset cycle recovers it, so retry
+# until the port is back.
 if command -v JLinkExe &>/dev/null; then
 	cat > /tmp/e80211-reset.jlink <<'JL'
 si SWD
-speed 4000
+speed 1000
 connect
 r
 g
 exit
 JL
-	JLinkExe -device nRF5340 -CommandFile /tmp/e80211-reset.jlink \
-		>/dev/null 2>&1 || true
-	sleep 1
+	for attempt in 1 2 3; do
+		# Probe SN is required: JLinkExe without -SelectEmuBySN hangs on
+		# "Connecting to J-Link ..." in this environment. Use the external
+		# probe, not the onboard Segger debugger.
+		timeout 30 JLinkExe -device nRF5340 -SelectEmuBySN 852000646 \
+			-CommandFile /tmp/e80211-reset.jlink >/dev/null 2>&1 || true
+		# Wait for the USB bus port to reappear after re-enumeration.
+		for _ in $(seq 1 9); do
+			[ -e "$BOARD_PORT" ] && break
+			sleep 5
+		done
+		[ -e "$BOARD_PORT" ] && break
+		echo "board port $BOARD_PORT not back after reset attempt $attempt"
+	done
+	[ -e "$BOARD_PORT" ] || \
+		echo "WARNING: board port $BOARD_PORT missing; E2E will likely fail"
 fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -59,7 +75,7 @@ rm -f /tmp/e80211-host-console.log
 # this script's stdout, or a pipe (run_e2e.sh | tail) never sees EOF.
 ./run_renode.sh "$BOARD_PORT" > /dev/null 2>&1 &
 HARNESS_PID=$!
-sleep 120   # bound: WiFi E2E + one 30 s BT scan window
+sleep 150   # bound: port re-enumeration + WiFi E2E + one 30 s BT scan window
 kill "$HARNESS_PID" 2>/dev/null || true
 
 LOG=/tmp/e80211-host-console.log

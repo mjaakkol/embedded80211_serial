@@ -101,10 +101,18 @@ class Monitor:
 
 
 def open_board_port(port: str) -> int:
-    try:
-        fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
-    except OSError as e:
-        raise SystemExit(f"Cannot open board port {port}: {e}")
+    # The port may have just been recreated by a reset; USB re-enumeration
+    # can take tens of seconds, and udev applies the dialout group a moment
+    # after node creation. Retry for a full minute.
+    deadline = time.monotonic() + 60.0
+    while True:
+        try:
+            fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+            break
+        except OSError as e:
+            if time.monotonic() >= deadline:
+                raise SystemExit(f"Cannot open board port {port}: {e}")
+            time.sleep(0.5)
     tty.setraw(fd)
     attrs = termios.tcgetattr(fd)
     attrs[3] &= ~0x100  # HUPCL: closing must not toggle DTR
@@ -142,6 +150,7 @@ def pump_tx(tx_log: str, board_fd: int, stop: threading.Event) -> None:
                 tx_debug.write(data)
                 tx_debug.flush()
                 burst = 0
+                off = 0
                 while off < len(data):
                     chunk_end = min(off + 64, len(data))
                     written = os.write(board_fd, data[off:chunk_end])

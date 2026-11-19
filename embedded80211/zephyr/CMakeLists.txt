@@ -74,6 +74,7 @@ zephyr_library_sources_ifdef(CONFIG_SERIAL_PROXY_VSERIAL device/vserial.c)
 # Serial transport layer
 zephyr_library_sources_ifdef(CONFIG_SERIAL device/serial/serial.c)
 zephyr_library_sources_ifdef(CONFIG_SERIAL device/serial/uart.c)
+zephyr_library_sources_ifdef(CONFIG_USBD_CDC_ACM_CLASS device/serial/usbd_init.c)
 zephyr_library_sources_ifdef(CONFIG_USBD_CDC_ACM_CLASS device/serial/serial_usb.c)
 
 endif() # CONFIG_SERIAL_DEVICE_ROLE

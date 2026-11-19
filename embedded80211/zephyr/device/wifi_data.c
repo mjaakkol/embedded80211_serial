@@ -19,6 +19,11 @@
 
 
 LOG_MODULE_REGISTER(wifi_data, LOG_LEVEL_INF);
+/* Temporary TX MAC diagnostics (embedded80211) */
+static volatile uint8_t tx_macdbg_linkaddr[6];
+static volatile uint8_t tx_macdbg_frame_src[6];
+static volatile uint32_t tx_macdbg_count;
+static volatile uint8_t tx_macdbg_raw_src[6];
 
 /*
  * RX forwarding to the host: strong implementation of the nrf_wifi
@@ -212,6 +217,12 @@ void wifi_data_message_complete(size_t len)
 			wifi_data_tx_buffer[6], wifi_data_tx_buffer[7], wifi_data_tx_buffer[8],
 			wifi_data_tx_buffer[9], wifi_data_tx_buffer[10], wifi_data_tx_buffer[11],
 			wifi_data_tx_buffer[12], wifi_data_tx_buffer[13]);
+		tx_macdbg_raw_src[0] = wifi_data_tx_buffer[6];
+		tx_macdbg_raw_src[1] = wifi_data_tx_buffer[7];
+		tx_macdbg_raw_src[2] = wifi_data_tx_buffer[8];
+		tx_macdbg_raw_src[3] = wifi_data_tx_buffer[9];
+		tx_macdbg_raw_src[4] = wifi_data_tx_buffer[10];
+		tx_macdbg_raw_src[5] = wifi_data_tx_buffer[11];
 	}
 	/* Debug: print DHCP header bytes to verify payload transfer */
 	{
@@ -224,6 +235,14 @@ void wifi_data_message_complete(size_t len)
 				(message_length >= 67) ? wifi_data_tx_buffer[14+53] : 0);
 		}
 	}
+	/* Debug: print actual DHCP header at correct offset (14+20+8=42) */
+	{
+		if (message_length >= 46) {
+			LOG_INF("DHCP42: op=%u hwtype=%u hlen=%u hops=%u",
+				wifi_data_tx_buffer[42], wifi_data_tx_buffer[43],
+				wifi_data_tx_buffer[44], wifi_data_tx_buffer[45]);
+		}
+	}
 
 	/*
 	 * Rewrite the source MAC to the device's MAC so the AP/DHCP server
@@ -231,8 +250,23 @@ void wifi_data_message_complete(size_t len)
 	 */
 	{
 		uint8_t *frame = net_pkt_data(pkt);
+		const uint8_t *la = net_if_get_link_addr(iface)->addr;
 		if (frame != NULL && message_length >= 14) {
-			memcpy(&frame[6], net_if_get_link_addr(iface), 6);
+			memcpy(&frame[6], la, 6);
+			/* Capture for pylink inspection */
+			tx_macdbg_linkaddr[0] = la[0];
+			tx_macdbg_linkaddr[1] = la[1];
+			tx_macdbg_linkaddr[2] = la[2];
+			tx_macdbg_linkaddr[3] = la[3];
+			tx_macdbg_linkaddr[4] = la[4];
+			tx_macdbg_linkaddr[5] = la[5];
+			tx_macdbg_frame_src[0] = frame[6];
+			tx_macdbg_frame_src[1] = frame[7];
+			tx_macdbg_frame_src[2] = frame[8];
+			tx_macdbg_frame_src[3] = frame[9];
+			tx_macdbg_frame_src[4] = frame[10];
+			tx_macdbg_frame_src[5] = frame[11];
+			tx_macdbg_count++;
 		}
 	}
 	/* Debug: print FMAC vif state pointer for pylink inspection */

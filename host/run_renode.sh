@@ -71,8 +71,10 @@ python3 "$SCRIPT_DIR/tests/tunnel_bus.py" \
 TUNNEL_PID=$!
 
 # Wait for the console log file to be created by the tunnel bridge's
-# CreateFileBackend command, then stream it.
-for _ in $(seq 1 30); do
+# CreateFileBackend command, then stream it. The bridge first opens the
+# board port, which can take up to a minute after a board reset (USB
+# re-enumeration), so give it room.
+for _ in $(seq 1 180); do
 	if [ -f "$CONSOLE_LOG" ]; then
 		break
 	fi
