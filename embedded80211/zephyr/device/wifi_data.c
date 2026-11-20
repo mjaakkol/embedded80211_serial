@@ -37,6 +37,7 @@ static volatile uint8_t tx_macdbg_raw_src[6];
 bool nrf_wifi_if_rx_frm_hook(struct net_if *iface, struct net_pkt *pkt)
 {
 	if (!net_if_is_wifi(iface)) {
+		LOG_ERR("RX: iface %p is not a Wi-Fi interface", iface);
 		return false;
 	}
 
@@ -47,6 +48,7 @@ bool nrf_wifi_if_rx_frm_hook(struct net_if *iface, struct net_pkt *pkt)
 	 * needs data-path frames, which exist only after association.
 	 */
 	if (!net_if_is_carrier_ok(iface)) {
+		LOG_WRN("RX: iface %p carrier not OK, dropping frame", iface);
 		return false;
 	}
 
@@ -54,6 +56,7 @@ bool nrf_wifi_if_rx_frm_hook(struct net_if *iface, struct net_pkt *pkt)
 	size_t len = net_pkt_get_len(pkt);
 
 	if (data == NULL || len == 0) {
+		LOG_WRN("RX: iface %p got empty frame", iface);
 		return false;
 	}
 
@@ -68,12 +71,14 @@ bool nrf_wifi_if_rx_frm_hook(struct net_if *iface, struct net_pkt *pkt)
 		struct net_eth_hdr *eth = NET_ETH_HDR(pkt);
 		uint16_t ethertype = net_ntohs(eth->type);
 		if (ethertype == NET_ETH_PTYPE_EAPOL) {
+			LOG_WRN("RX: iface %p got EAPOL frame, dropping", iface);
 			return false;
 		}
 
 		if (net_eth_is_addr_broadcast(&eth->dst) &&
 		    ethertype != NET_ETH_PTYPE_ARP &&
 		    ethertype != NET_ETH_PTYPE_IP) {
+			LOG_WRN("RX: iface %p got broadcast frame, dropping", iface);
 			return false;
 		}
 	}
@@ -229,31 +234,6 @@ void wifi_data_message_complete(size_t len)
 		}
 	}
 
-	/*
-	 * Rewrite the source MAC to the device's MAC so the AP/DHCP server
-	 * responds to an address the radio actually accepts on RX.
-	 */
-	{
-		uint8_t *frame = net_pkt_data(pkt);
-		const uint8_t *la = net_if_get_link_addr(iface)->addr;
-		if (frame != NULL && message_length >= 14) {
-			memcpy(&frame[6], la, 6);
-			/* Capture for pylink inspection */
-			tx_macdbg_linkaddr[0] = la[0];
-			tx_macdbg_linkaddr[1] = la[1];
-			tx_macdbg_linkaddr[2] = la[2];
-			tx_macdbg_linkaddr[3] = la[3];
-			tx_macdbg_linkaddr[4] = la[4];
-			tx_macdbg_linkaddr[5] = la[5];
-			tx_macdbg_frame_src[0] = frame[6];
-			tx_macdbg_frame_src[1] = frame[7];
-			tx_macdbg_frame_src[2] = frame[8];
-			tx_macdbg_frame_src[3] = frame[9];
-			tx_macdbg_frame_src[4] = frame[10];
-			tx_macdbg_frame_src[5] = frame[11];
-			tx_macdbg_count++;
-		}
-	}
 	/* Debug: print FMAC vif state pointer for pylink inspection */
 	{
 		const struct device *wdev = net_if_get_device(iface);
@@ -288,6 +268,7 @@ void wifi_data_message_complete(size_t len)
 	int l2_rc = l2->send(iface, pkt);
 	LOG_INF("wifi_data: L2 send rc=%d len=%zu count=%u", l2_rc, tx_len, (unsigned)wifi_data_tx_count);
 	if (l2_rc < 0) {
+		LOG_ERR("wifi_data: L2 send failed: %d", l2_rc);
 		net_pkt_unref(pkt);
 	}
 }
