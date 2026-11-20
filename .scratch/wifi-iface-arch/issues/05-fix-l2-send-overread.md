@@ -1,6 +1,6 @@
 # 05 — Fix latent stack over‑read in `virt_wifi_l2_send`
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Severity: High
 
@@ -62,3 +62,17 @@ int rc = bus_send(SERIAL_TYPE_WIFI_DATA, tx_buf, off);   /* off == total_len her
 - Verify the bus layer's max payload (`SERIAL_TYPE_WIFI_DATA`) is ≥ 1536 so the
   buffer size matches the protocol limit; if the protocol limit is smaller, size
   `tx_buf` to that and reject accordingly.
+
+## Comments
+
+- 2026-11-20: Implemented with one deliberate deviation on buffer size. The
+  linearization clamp is gone and `bus_send()` now receives `off` (bytes copied),
+  so the over-read is closed. Frames larger than the buffer are explicitly
+  rejected with `-EMSGSIZE` (no silent truncation).
+
+  Buffer size: `tx_buf` is now `CONFIG_VIRT_WIFI_MTU + sizeof(struct net_eth_hdr)`
+  (1536 + 14 = 1550), not a fixed 1536. Rationale: the L2 send hook receives the
+  full Ethernet frame (14-byte header + payload up to MTU; FCS is added by the
+  radio, verified in NCS v3.4.2 `ethernet_send()`), so a full-size frame is
+  1550 bytes. Rejecting at >1536 would have broken full-size frames. The bus
+  protocol max payload is `SERIAL_MAX_PAYLOAD_LEN` = 4096, so 1550 fits.

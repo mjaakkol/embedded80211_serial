@@ -44,7 +44,11 @@ static void hci_rx(const uint8_t *payload, size_t len, void *user)
 		return;
 	}
 
-	net_buf_add_mem(buf, payload, len);
+	/* bt_buf_get_rx() already appended the H:4 type byte to the buffer.
+	 * Append only the payload following that byte; re-adding payload[0]
+	 * would duplicate the type byte and desync every HCI event.
+	 */
+	net_buf_add_mem(buf, payload + 1, len - 1);
 	bt_recv(dev, buf);
 }
 

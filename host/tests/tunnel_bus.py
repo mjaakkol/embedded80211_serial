@@ -125,9 +125,6 @@ def setup_renode(mon: Monitor, console_log: str, bus_tx_log: str,
     """Send the one-time setup commands to Renode."""
     mon.cmd('mach add "host"')
     mon.cmd(f"machine LoadPlatformDescription @{repl}")
-    # Widen the PL011 RX FIFO so batched WriteChar commands do not
-    # overflow the 1-byte default.
-    mon.cmd("sysbus.uart1 hardwareFifoSize = 16")
     mon.cmd(f"sysbus.uart0 CreateFileBackend @{console_log} true")
     mon.cmd(f"sysbus.uart1 CreateFileBackend @{bus_tx_log} true")
     mon.cmd(f"sysbus LoadELF @{elf}", timeout=30.0)
@@ -186,16 +183,22 @@ def pump_rx(board_fd: int, mon: Monitor, stop: threading.Event) -> None:
         total_rx += len(data)
         rx_debug.write(data)
         rx_debug.flush()
-        # Halt CPU, batch 16 WriteChars (FIFO size), resume.
-        # While halted the emulator processes commands without the
-        # Zephyr scheduler starving the monitor thread.
-        for i in range(0, len(data), 16):
-            chunk = data[i:i + 16]
-            mon.cmd("h", timeout=5.0)
-            cmds = [f"sysbus.uart1 WriteChar {b}" for b in chunk]
-            mon.cmd_batch(cmds, timeout=5.0)
-            mon.cmd("c", timeout=5.0)
-            time.sleep(0.05)
+        # Inject one byte at a time, with the CPU RUNNING. The PL011 RX
+        # FIFO in Renode 1.17.0 is small (~6 bytes) and non-configurable
+        # (no hardwareFifoSize property). Injecting a batch of WriteChars
+        # faster than the guest's UART ISR can drain it overflows the FIFO
+        # and drops mid-frame bytes — the Wi-Fi scan only survived because
+        # its bytes were spread across batches with a drain between them,
+        # while a small frame spanning one batch lost bytes. One byte at a
+        # time keeps the FIFO at most one byte deep, so it can never
+        # overflow. The monitor thread is not starved by the emulated CPU
+        # (verified: 60 WriteChars complete in <1s while the CPU runs).
+        for b in data:
+            mon.cmd(f"sysbus.uart1 WriteChar {b}", timeout=5.0)
+            # Give the guest's UART ISR time to drain the PL011 RX FIFO
+            # before the next byte, so the FIFO never accumulates more
+            # than one byte and cannot overflow.
+            time.sleep(0.001)
     rx_debug.close()
     print(f"[tunnel] RX total: {total_rx} bytes", file=sys.stderr)
     stop.set()

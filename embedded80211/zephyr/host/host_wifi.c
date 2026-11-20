@@ -34,8 +34,10 @@ LOG_MODULE_REGISTER(virt_wifi, LOG_LEVEL_INF);
 
 #define MGMT_TIMEOUT_MS 5000U
 
-/* The virtual Wi-Fi is always interface index 1 (loopback is 0). */
-#define VIRT_WIFI_IFACE_INDEX 1
+/* Device-side VIF id for the wire protocol. The device resolves index 0 as
+ * "unspecified" to its single virtual Wi-Fi interface, so this is stable
+ * regardless of the host's local net_if allocation order. */
+#define WIFI_PROTO_IFACE_INDEX 0
 
 #define DT_DRV_COMPAT embedded80211_virt_wifi
 
@@ -167,13 +169,24 @@ static uint8_t notify_buf[sizeof(embedded_wifi_mgmt_WifiMgmtNotification)];
 
 static scan_result_cb_t scan_cb;
 
-/* The virtual Wi-Fi is the only non-loopback interface in the host app, so
- * index 1 resolves to it. Fall back to the default interface if that fails. */
+/* Resolve the virtual Wi-Fi interface by type, not by index: an interface
+ * index is an allocation order and is only stable when virt_wifi is the
+ * sole non-loopback interface. */
+static void find_wifi_iface_cb(struct net_if *iface, void *user)
+{
+	struct net_if **found = user;
+
+	if (*found == NULL && net_if_is_wifi(iface)) {
+		*found = iface;
+	}
+}
+
 static struct net_if *virt_wifi_netif(void)
 {
-	struct net_if *iface = net_if_get_by_index(1);
+	struct net_if *found = NULL;
 
-	return (iface != NULL) ? iface : net_if_get_default();
+	net_if_foreach(find_wifi_iface_cb, &found);
+	return found;
 }
 
 /* ---------------------------------------------------------------------------
@@ -183,25 +196,33 @@ static struct net_if *virt_wifi_netif(void)
 static int virt_wifi_l2_send(const struct device *dev, struct net_pkt *pkt)
 {
 	size_t total_len = net_buf_frags_len(pkt->frags);
-	uint8_t tx_buf[1536];
+	/* The L2 send receives the full Ethernet frame: 14-byte header plus
+	 * payload up to the MTU (the FCS is added by the radio). */
+	uint8_t tx_buf[CONFIG_VIRT_WIFI_MTU + sizeof(struct net_eth_hdr)];
 	size_t off = 0;
 	struct net_buf *frag;
+
+	if (total_len > sizeof(tx_buf)) {
+		net_pkt_unref(pkt);
+		LOG_ERR("virt_wifi: dropping %zu-byte frame (max %zu)",
+			total_len, sizeof(tx_buf));
+		return -EMSGSIZE;
+	}
 
 	/* Linearize all fragments into a contiguous buffer. The bus
 	 * protocol requires a single contiguous payload; sending only
 	 * pkt->frags->data drops any subsequent fragments. */
 	frag = pkt->frags;
 	while (frag != NULL && off < total_len) {
-		size_t flen = frag->len;
-		if (off + flen > sizeof(tx_buf)) {
-			flen = sizeof(tx_buf) - off;
-		}
-		memcpy(tx_buf + off, frag->data, flen);
-		off += flen;
+		memcpy(tx_buf + off, frag->data, frag->len);
+		off += frag->len;
 		frag = frag->frags;
 	}
 
-	int rc = bus_send(SERIAL_TYPE_WIFI_DATA, tx_buf, total_len);
+	int rc = bus_send(SERIAL_TYPE_WIFI_DATA, tx_buf, off);
+	LOG_INF("virt_wifi TX: len=%zu rc=%d dst=%02x:%02x:%02x:%02x:%02x:%02x",
+		off, rc, tx_buf[0], tx_buf[1], tx_buf[2],
+		tx_buf[3], tx_buf[4], tx_buf[5]);
 
 	net_pkt_unref(pkt);
 	return rc;
@@ -216,7 +237,7 @@ static void wifi_data_rx(const uint8_t *payload, size_t len, void *user)
 		return;
 	}
 
-	pkt = net_pkt_alloc_with_buffer(iface, len, AF_UNSPEC, 0, K_NO_WAIT);
+	pkt = net_pkt_rx_alloc_with_buffer(iface, len, AF_UNSPEC, 0, K_NO_WAIT);
 	if (pkt == NULL) {
 		LOG_WRN("WiFi data RX: no buffer (%u bytes)", (unsigned int)len);
 		return;
@@ -281,6 +302,11 @@ static void wifi_mgmt_notify(const uint8_t *payload, size_t len, void *user)
 	}
 
 	struct net_if *iface = virt_wifi_netif();
+
+	if (iface == NULL) {
+		LOG_ERR("WiFi notify: no Wi-Fi interface found");
+		return;
+	}
 
 	switch (notif.event.which_event_data) {
 	case embedded_wifi_mgmt_WifiEvent_scan_done_event_tag:
@@ -423,7 +449,7 @@ static int virt_wifi_scan(const struct device *dev,
 
 	req.request_id = embedded_wifi_mgmt_RequestType_REQUEST_TYPE_SCAN;
 	req.which_payload = embedded_wifi_mgmt_WifiMgmtRequest_scan_req_tag;
-	req.payload.scan_req.iface_index = VIRT_WIFI_IFACE_INDEX;
+	req.payload.scan_req.iface_index = WIFI_PROTO_IFACE_INDEX;
 	req.payload.scan_req.has_params = true;
 	req.payload.scan_req.params.scan_type = zephyr_to_proto_scan_type(
 		params->scan_type);
@@ -455,7 +481,7 @@ static int virt_wifi_connect(const struct device *dev,
 
 	req.request_id = embedded_wifi_mgmt_RequestType_REQUEST_TYPE_CONNECT;
 	req.which_payload = embedded_wifi_mgmt_WifiMgmtRequest_connect_req_tag;
-	req.payload.connect_req.iface_index = VIRT_WIFI_IFACE_INDEX;
+	req.payload.connect_req.iface_index = WIFI_PROTO_IFACE_INDEX;
 	if (params->ssid != NULL && params->ssid_length <= 32) {
 		memcpy(req.payload.connect_req.ssid.bytes,
 			params->ssid, params->ssid_length);
@@ -491,7 +517,7 @@ static int virt_wifi_disconnect(const struct device *dev)
 	req.request_id = embedded_wifi_mgmt_RequestType_REQUEST_TYPE_DISCONNECT;
 	req.which_payload =
 		embedded_wifi_mgmt_WifiMgmtRequest_disconnect_req_tag;
-	req.payload.disconnect_req.iface_index = VIRT_WIFI_IFACE_INDEX;
+	req.payload.disconnect_req.iface_index = WIFI_PROTO_IFACE_INDEX;
 
 	int rc = mgmt_roundtrip(&req, &resp);
 
@@ -514,7 +540,7 @@ static int virt_wifi_ap_enable(const struct device *dev,
 	req.request_id = embedded_wifi_mgmt_RequestType_REQUEST_TYPE_AP_ENABLE;
 	req.which_payload =
 		embedded_wifi_mgmt_WifiMgmtRequest_ap_enable_req_tag;
-	req.payload.ap_enable_req.iface_index = VIRT_WIFI_IFACE_INDEX;
+	req.payload.ap_enable_req.iface_index = WIFI_PROTO_IFACE_INDEX;
 	req.payload.ap_enable_req.has_params = true;
 	if (params->ssid != NULL && params->ssid_length <= 32) {
 		memcpy(req.payload.ap_enable_req.params.ssid.bytes,
@@ -551,7 +577,7 @@ static int virt_wifi_ap_disable(const struct device *dev)
 	req.request_id = embedded_wifi_mgmt_RequestType_REQUEST_TYPE_AP_DISABLE;
 	req.which_payload =
 		embedded_wifi_mgmt_WifiMgmtRequest_ap_disable_req_tag;
-	req.payload.ap_disable_req.iface_index = VIRT_WIFI_IFACE_INDEX;
+	req.payload.ap_disable_req.iface_index = WIFI_PROTO_IFACE_INDEX;
 
 	int rc = mgmt_roundtrip(&req, &resp);
 
@@ -576,7 +602,7 @@ static int virt_wifi_iface_status(const struct device *dev,
 	req.which_payload =
 		embedded_wifi_mgmt_WifiMgmtRequest_get_iface_status_req_tag;
 	req.payload.get_iface_status_req.iface_index =
-		VIRT_WIFI_IFACE_INDEX;
+		WIFI_PROTO_IFACE_INDEX;
 
 	int rc = mgmt_roundtrip(&req, &resp);
 
@@ -666,7 +692,7 @@ static int virt_wifi_get_ps_config(const struct device *dev,
 	req.which_payload =
 		embedded_wifi_mgmt_WifiMgmtRequest_get_ps_config_req_tag;
 	req.payload.get_ps_config_req.iface_index =
-		VIRT_WIFI_IFACE_INDEX;
+		WIFI_PROTO_IFACE_INDEX;
 
 	int rc = mgmt_roundtrip(&req, &resp);
 
@@ -709,7 +735,7 @@ static int virt_wifi_reg_domain(const struct device *dev,
 
 	if (is_get) {
 		req.payload.get_reg_domain_req.iface_index =
-			VIRT_WIFI_IFACE_INDEX;
+			WIFI_PROTO_IFACE_INDEX;
 	} else {
 		req.payload.set_reg_domain_req.has_reg_domain = true;
 		req.payload.set_reg_domain_req.reg_domain.country_code[0] =
@@ -763,6 +789,22 @@ static void virt_wifi_if_init(struct net_if *iface)
 	};
 
 	net_if_set_link_addr(iface, mac, NET_ETH_ADDR_LEN, NET_LINK_ETHERNET);
+
+	/* Canonical Wi-Fi offload init contract: initialize the Ethernet L2
+	 * stack (ARP cache, multicast, carrier work), then assert the
+	 * disconnected state until a successful connect event. */
+	ethernet_init(iface);
+	net_if_carrier_off(iface);
+	net_if_dormant_on(iface);
+
+	/* Bind the bus RX handler to this interface now that it is fully
+	 * initialized. The device init (CONFIG_WIFI_INIT_PRIORITY) runs before
+	 * net_if_init() (CONFIG_NET_INIT_PRIO), so the interface does not exist
+	 * yet there; frames arriving in that window are dropped by
+	 * wifi_data_rx() with a NULL user. */
+	bus_set_handler_user(SERIAL_TYPE_WIFI_DATA, iface);
+
+	LOG_INF("virt_wifi: iface index %d", net_if_get_by_iface(iface));
 }
 
 static const struct net_wifi_mgmt_offload virt_wifi_offload = {
@@ -777,14 +819,13 @@ static int virt_wifi_init(const struct device *dev)
 {
 	ARG_UNUSED(dev);
 
-	struct net_if *iface = virt_wifi_netif();
-
+	/* Register the handler functions only; the Wi-Fi net_if does not
+	 * exist until net_if_init() (CONFIG_NET_INIT_PRIO, after this
+	 * priority), so virt_wifi_if_init() binds the RX handler user. */
 	bus_register_handler(SERIAL_TYPE_WIFI_DATA, wifi_data_rx);
-	bus_set_handler_user(SERIAL_TYPE_WIFI_DATA, iface);
 	bus_register_handler(SERIAL_TYPE_WIFI_MGMT, wifi_mgmt_notify);
 
-	LOG_INF("virt_wifi: registered (iface index %d)",
-		VIRT_WIFI_IFACE_INDEX);
+	LOG_INF("virt_wifi: registered");
 	return 0;
 }
 

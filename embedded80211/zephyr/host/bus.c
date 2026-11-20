@@ -245,7 +245,7 @@ static void bus_rx_isr(const struct device *dev, void *user_data)
 		n = uart_fifo_read(dev, dst, remaining);
 		if (n <= 0) {
 			/* FIFO empty: frame continues on the next RX event. */
-			LOG_INF("RX FIFO empty mid-frame: %u/%u",
+			LOG_DBG("RX FIFO empty mid-frame: %u/%u",
 				(unsigned)(bus.bytes_read + bus.trailer_read),
 				(unsigned)total);
 			break;

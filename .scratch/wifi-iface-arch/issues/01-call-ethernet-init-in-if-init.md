@@ -1,6 +1,6 @@
 # 01 — Call `ethernet_init(iface)` in `virt_wifi_if_init`
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Severity: High
 
@@ -65,3 +65,11 @@ existing includes; add if not).
   being present to initialize ARP.
 - Do not also add `carrier_on` here (see issue 02 for the correct not‑connected
   state).
+
+## Comments
+
+- 2026-11-20: Implemented. `ethernet_init(iface)` added in `virt_wifi_if_init()`
+  (`embedded80211/zephyr/host/host_wifi.c`) after the link address, per the
+  canonical offload contract. `<zephyr/net/ethernet.h>` was already included.
+  Verified: `nm build/host/zephyr/zephyr.elf` now contains `ethernet_init` and
+  `net_arp_init` (previously link-eliminated).

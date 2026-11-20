@@ -1,6 +1,6 @@
 # 04 — Decouple the wire `iface_index` from the host local `net_if` index
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Severity: Medium
 
@@ -49,3 +49,15 @@ and use it for every `*_req.iface_index` field. Keep the host‑local index reso
 - This is a wire‑protocol clarification, not a breaking change, provided the device
   already treats the single VIF as id `0` (verify against the device parser before
   changing the value).
+
+## Comments
+
+- 2026-11-20: Implemented. `WIFI_PROTO_IFACE_INDEX 0` is now the wire constant for
+  every `*_req.iface_index` field in `host_wifi.c` (scan, connect, disconnect,
+  ap_enable, ap_disable, get_iface_status, get_ps_config, get_reg_domain — eight
+  sites, one more than the original list: `get_reg_domain_req`). Verified against
+  the device parser: `resolve_wifi_iface()` in
+  `embedded80211/zephyr/device/wifi_mgmt_proxy.c` treats `ifindex == 0` as
+  "unspecified" and maps it to the first registered Wi-Fi interface, so `0` is
+  stable and no device-side change was needed. The host-local index is no longer
+  part of the wire path; `VIRT_WIFI_IFACE_INDEX` was removed.

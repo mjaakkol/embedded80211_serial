@@ -173,7 +173,11 @@ void wifi_data_commit_data(size_t len)
 
 void wifi_data_message_complete(size_t len)
 {
-    ARG_UNUSED(len); // The length is already accumulated in message_length by commit_data.
+    /* Debug: volatile counter readable via J-Link to verify frames arrive */
+    static volatile uint32_t dbg_msg_count;
+    static volatile uint32_t dbg_l2_rc;
+    dbg_msg_count++;
+    ARG_UNUSED(len);
 
     struct net_if *iface = wifi_iface;
     if (iface == NULL) {
@@ -266,6 +270,7 @@ void wifi_data_message_complete(size_t len)
 		return;
 	}
 	int l2_rc = l2->send(iface, pkt);
+	dbg_l2_rc = (uint32_t)l2_rc;
 	LOG_INF("wifi_data: L2 send rc=%d len=%zu count=%u", l2_rc, tx_len, (unsigned)wifi_data_tx_count);
 	if (l2_rc < 0) {
 		LOG_ERR("wifi_data: L2 send failed: %d", l2_rc);

@@ -1,6 +1,6 @@
 # 02 — Set `carrier_off` + `dormant_on` in the init hook
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Severity: Medium
 
@@ -49,3 +49,11 @@ net_if_dormant_on(iface);
 - Order matters: set these **after** `ethernet_init(iface)` so the L2 context is
   initialized first.
 - Do not assert `carrier_on` in init (that is the nrf_wifi FMAC‑specific outlier).
+
+## Comments
+
+- 2026-11-20: Implemented. `net_if_carrier_off(iface)` + `net_if_dormant_on(iface)`
+  added in `virt_wifi_if_init()` immediately after `ethernet_init(iface)`,
+  establishing the disconnected baseline. The existing connect/disconnect event
+  handlers (`host_wifi.c`, `wifi_mgmt_notify`) continue to flip carrier state.
+  No `carrier_on` asserted in init.

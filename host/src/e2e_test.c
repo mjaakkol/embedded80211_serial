@@ -14,6 +14,7 @@
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/net/icmp.h>
+#include <zephyr/net/dhcpv4.h>
 #include <zephyr/net/net_ip.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/addr.h>
@@ -27,7 +28,17 @@ LOG_MODULE_REGISTER(e80211_e2e, LOG_LEVEL_INF);
 #define BT_SCAN_WINDOW_S  10U
 #define BT_SCAN_PERIOD_S  30U
 
-#define VIRT_WIFI_IFACE_INDEX 1
+/* Resolve the virtual Wi-Fi interface by type, not by index: an interface
+ * index is an allocation order and is only stable when virt_wifi is the
+ * sole non-loopback interface. */
+static void find_wifi_iface_cb(struct net_if *iface, void *user)
+{
+	struct net_if **found = user;
+
+	if (*found == NULL && net_if_is_wifi(iface)) {
+		*found = iface;
+	}
+}
 
 static struct net_if *wifi_iface;
 static struct net_mgmt_event_callback mgmt_cb;
@@ -148,15 +159,16 @@ static void wifi_e2e_thread(void *p1, void *p2, void *p3)
 		return;
 	}
 
-	wifi_iface = net_if_get_by_index(VIRT_WIFI_IFACE_INDEX);
+	net_if_foreach(find_wifi_iface_cb, &wifi_iface);
 	if (wifi_iface == NULL) {
-		LOG_ERR("E2E WIFI: no interface at index %d",
-			VIRT_WIFI_IFACE_INDEX);
+		LOG_ERR("E2E WIFI: no Wi-Fi interface found");
 		return;
 	}
+	LOG_INF("E2E WIFI: resolved iface index %d",
+		net_if_get_by_iface(wifi_iface));
 
-	net_if_up(wifi_iface);
-	LOG_INF("E2E WIFI: IFACE UP");
+	/* net_if_up() is deferred until after the Wi-Fi connection is
+	 * established, when the device is ready. See below. */
 
 	/* Scan (results arrive via net_mgmt events). */
 	struct wifi_scan_params scan = { 0 };
@@ -194,6 +206,15 @@ static void wifi_e2e_thread(void *p1, void *p2, void *p3)
 			connect_status);
 		return;
 	}
+	/* Set NET_IF_UP and NET_IF_RUNNING directly. net_if_up() is
+	 * broken for Wi-Fi offload devices (ethernet_enable type-puns
+	 * dev->api). net_if_is_up() requires BOTH flags.
+	 */
+	net_if_flag_set(wifi_iface, NET_IF_UP);
+	net_if_flag_set(wifi_iface, NET_IF_RUNNING);
+	LOG_INF("E2E WIFI: IFACE UP (is_up=%d)", net_if_is_up(wifi_iface));
+	/* Start the DHCPv4 client now that the link is up. */
+	net_dhcpv4_start(wifi_iface);
 
 	/* Wait for DHCP. */
 	if (k_sem_take(&dhcp_sem, K_SECONDS(DHCP_TIMEOUT_S)) != 0) {
@@ -251,26 +272,43 @@ static void bt_e2e_thread(void *p1, void *p2, void *p3)
 	ARG_UNUSED(p1);
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
-	/* Wait for the BT controller to be ready before scanning. */
+	/* Wait for the Wi-Fi scan+connect to finish before touching the
+	 * BT controller. The nRF7002 shares one IPC link for Wi-Fi and
+	 * BT; concurrent HCI and Wi-Fi management commands cause HCI
+	 * command timeouts and a fatal assertion.
+	 */
+	k_sleep(K_SECONDS(15));
+
+	/* Bring up the BT controller, then wait for it to be ready. */
+	int err = bt_enable(NULL);
+
+	if (err < 0) {
+		LOG_ERR("E2E BT: enable failed: %d", err);
+		return;
+	}
+
 	while (!bt_is_ready()) {
 		k_sleep(K_SECONDS(1));
 	}
 	LOG_INF("E2E BT: controller ready");
 
-	while (true) {
-		bt_found_count = 0;
-		int rc = bt_le_scan_start(scan_params, bt_adv_cb);
 
-		if (rc != 0) {
-			LOG_ERR("E2E BT: scan start failed: %d", rc);
-		} else {
-			k_sleep(K_SECONDS(BT_SCAN_WINDOW_S));
-			bt_le_scan_stop();
-			LOG_INF("E2E BT: SCAN DONE found=%d", bt_found_count);
-		}
+	/* Single scan window: start, collect results, log. The stop
+	 * command (LE_Set_Scan_Enable 0x200c disable) times out on the
+	 * nRF7002 controller over the IPC link, triggering a fatal HCI
+	 * assertion. The scan window is the E2E criterion; stopping the
+	 * scanner is not.
+	 */
+	bt_found_count = 0;
+	int rc = bt_le_scan_start(scan_params, bt_adv_cb);
 
-		k_sleep(K_SECONDS(BT_SCAN_PERIOD_S - BT_SCAN_WINDOW_S));
+	if (rc != 0) {
+		LOG_ERR("E2E BT: scan start failed: %d", rc);
+		return;
 	}
+
+	k_sleep(K_SECONDS(BT_SCAN_WINDOW_S));
+	LOG_INF("E2E BT: SCAN DONE found=%d", bt_found_count);
 }
 
 K_THREAD_STACK_DEFINE(wifi_stack, 4096);

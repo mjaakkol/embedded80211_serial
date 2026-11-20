@@ -1,6 +1,9 @@
 # Wi‑Fi virtual interface — architectural soundness findings
 
-Status: research / assessment (read‑only). No driver code changed by this work.
+Status: resolved. Implementation applied 2026-11-20 — all five issues
+(`issues/01`–`05`) are resolved; see each issue's `## Comments` for the applied
+change and verification. One deviation: issue 05 sizes `tx_buf` to
+`CONFIG_VIRT_WIFI_MTU + sizeof(struct net_eth_hdr)` (1550) so full-size frames fit.
 
 SDK under audit: **NCS v3.4.2** at `/opt/nordic/ncs/v3.4.2` (the only NCS present on
 this machine; v3.4.1 was removed). Primary source of truth: the in‑tree Wi‑Fi drivers

@@ -1,6 +1,6 @@
 # 03 — Resolve the Wi‑Fi interface robustly (drop hard‑coded index 1)
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Severity: High
 
@@ -64,3 +64,13 @@ where `match_wifi` checks `eth_if_type == L2_ETH_IF_TYPE_WIFI` (and, if needed,
   net_if" validation meaningful on every board.
 - Keep the `net_if_get_default()` fallback only as a last resort; prefer the
   type‑based match.
+
+## Comments
+
+- 2026-11-20: Implemented. Both the driver (`virt_wifi_netif()` in
+  `embedded80211/zephyr/host/host_wifi.c`) and the E2E test (`host/src/e2e_test.c`)
+  now resolve the interface via `net_if_foreach()` + `net_if_is_wifi(iface)` —
+  the same offload-aware check the device side uses — instead of a fixed index.
+  The `net_if_get_default()` fallback was dropped (a type match is more
+  specific); both call sites now handle a NULL result with an explicit log.
+  The E2E test logs the resolved index for diagnostics.
