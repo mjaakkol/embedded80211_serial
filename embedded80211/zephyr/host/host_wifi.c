@@ -785,7 +785,7 @@ static void virt_wifi_if_init(struct net_if *iface)
 	}
 
 	static const uint8_t mac[NET_ETH_ADDR_LEN] = {
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x02
+		0x62, 0x34, 0x56, 0x78, 0x9a, 0xbc
 	};
 
 	net_if_set_link_addr(iface, mac, NET_ETH_ADDR_LEN, NET_LINK_ETHERNET);
