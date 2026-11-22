@@ -19,4 +19,9 @@
 
 void e2e_test_start(void);
 
+/* Block until the Wi-Fi connect phase (step 2) has finished, or
+ * timeout_ms elapses. Lets the BT thread start the controller only after
+ * the nRF7002 has finished associating, avoiding IPC-link contention. */
+void e2e_wait_wifi_phase(uint32_t timeout_ms);
+
 #endif /* E80211_HOST_E2E_TEST_H */

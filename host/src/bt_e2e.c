@@ -13,6 +13,7 @@
 #include <zephyr/bluetooth/addr.h>
 
 #include "bt_e2e.h"
+#include "e2e_test.h"
 
 LOG_MODULE_REGISTER(e80211_e2e_bt, LOG_LEVEL_INF);
 
@@ -38,12 +39,15 @@ static void bt_e2e_thread(void *p1, void *p2, void *p3)
 	ARG_UNUSED(p1);
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
-	/* Wait for the Wi-Fi scan+connect to finish before touching the
+	/* Wait for the Wi-Fi connect phase to finish before touching the
 	 * BT controller. The nRF7002 shares one IPC link for Wi-Fi and
 	 * BT; concurrent HCI and Wi-Fi management commands cause HCI
-	 * command timeouts and a fatal assertion.
+	 * command timeouts and a fatal assertion. e2e_wait_wifi_phase()
+	 * releases once step 2 (connect) has completed, success or
+	 * failure; the 40 s bound covers the 30 s connect timeout plus
+	 * margin so a wedged connect cannot stall the BT phase forever.
 	 */
-	k_sleep(K_SECONDS(15));
+	e2e_wait_wifi_phase(40000);
 
 	/* Bring up the BT controller, then wait for it to be ready. */
 	int err = bt_enable(NULL);

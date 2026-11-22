@@ -57,6 +57,10 @@ static struct net_mgmt_event_callback mgmt_cb;
 static K_SEM_DEFINE(connect_sem, 0, 1);
 static K_SEM_DEFINE(dhcp_sem, 0, 1);
 static K_SEM_DEFINE(ping_sem, 0, 1);
+/* Given once the Wi-Fi connect phase (step 2) has finished, success or
+ * failure. The BT thread waits on this before touching the controller so
+ * HCI and Wi-Fi management never contend for the nRF7002 IPC link. */
+static K_SEM_DEFINE(wifi_phase_sem, 0, 1);
 static struct net_icmp_ctx ping_ctx;
 static int connect_status = -1;
 static int64_t ping_t0;
@@ -329,7 +333,13 @@ static void e2e_thread(void *p1, void *p2, void *p3)
 		return;
 	}
 
-	if (step2_connect() != 0) {
+	int rc2 = step2_connect();
+
+	/* Release the BT thread: the connect phase is over (success or
+	 * failure), so HCI and Wi-Fi management no longer contend. */
+	k_sem_give(&wifi_phase_sem);
+
+	if (rc2 != 0) {
 		return;
 	}
 
@@ -365,4 +375,12 @@ void e2e_test_start(void)
 			e2e_thread, NULL, NULL, NULL,
 			K_PRIO_COOP(7), 0, K_NO_WAIT);
 	k_thread_name_set(&e2e_thread_obj, "wifi_e2e");
+}
+
+/* Block until the Wi-Fi connect phase has finished (or the timeout
+ * elapses). Called by the BT thread so it never starts the controller
+ * while the nRF7002 is mid-association. */
+void e2e_wait_wifi_phase(uint32_t timeout_ms)
+{
+	(void)k_sem_take(&wifi_phase_sem, K_MSEC(timeout_ms));
 }
