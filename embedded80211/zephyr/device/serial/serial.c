@@ -17,10 +17,18 @@ static volatile uint32_t serial_tx_trace = 0;
 
 /* Bounded wait for TX FIFO space. A healthy host drains the CDC ACM ring at
  * ~128 KB/s (128 B per USB bulk transfer, 1 ms work schedule), so a full
- * 4100 B frame needs well under 100 ms. The bound only guards against a
+ * 4100 B frame needs well under 100 ms. The bound guards against a
  * disconnected host, where the ring never drains.
+ *
+ * The bound must exceed the worst-case time for a connected host to drain a
+ * full frame backlog. The host bridge (tunnel) drains slower than the nRF7002
+ * Wi-Fi RX rate, so after association the data backlog can keep the ring full
+ * for well over 500 ms. A 500 ms bound truncated frames mid-payload, leaving
+ * a partial frame on the wire that desyncs the host's length-based RX parser
+ * and wedges all subsequent mgmt (Wi-Fi + BT) traffic. 5000 ms keeps the host
+ * in sync for a connected peer while still bounding a dead-host stall.
  */
-#define SERIAL_TX_TIMEOUT_MS 500
+#define SERIAL_TX_TIMEOUT_MS 5000
 
 /**
  * @brief Writes a block of data to the specified UART device, applying
