@@ -87,8 +87,10 @@ if [ -z "$SSID" ]; then
 fi
 
 if [ "$WIFI_EXPECTED" -eq 1 ]; then
+	grep -q "E2E WIFI: CONNECTED" "$LOG" || { echo "FAIL: wifi connect"; PASS=0; }
 	grep -q "E2E WIFI: DHCP BOUND" "$LOG" || { echo "FAIL: no DHCP"; PASS=0; }
-	grep -q "E2E WIFI: GATEWAY PING OK" "$LOG" || { echo "FAIL: gateway ping"; PASS=0; }
+	grep -q "E2E WIFI: PING SUMMARY" "$LOG" || { echo "FAIL: gateway ping"; PASS=0; }
+	grep -q "E2E WIFI: OK" "$LOG" || { echo "FAIL: e2e not OK"; PASS=0; }
 fi
 grep -q "E2E BT: SCAN DONE" "$LOG" || { echo "FAIL: bt scan"; PASS=0; }
 

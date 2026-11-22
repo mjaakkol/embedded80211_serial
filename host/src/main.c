@@ -12,6 +12,7 @@
 
 #if CONFIG_HOST_TEST_ENABLED
 #include "e2e_test.h"
+#include "bt_e2e.h"
 #endif
 
 LOG_MODULE_REGISTER(e80211_host, LOG_LEVEL_INF);
@@ -31,6 +32,7 @@ int main(void)
 
 #if CONFIG_HOST_TEST_ENABLED
 	e2e_test_start();
+	bt_e2e_start();
 #endif
 
 	return 0;

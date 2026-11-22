@@ -29,5 +29,5 @@ target_include_directories(app PUBLIC
 target_sources(app PRIVATE src/main.c)
 
 if(CONFIG_HOST_TEST_ENABLED)
-	target_sources(app PRIVATE src/e2e_test.c)
+	target_sources(app PRIVATE src/e2e_test.c src/bt_e2e.c)
 endif()

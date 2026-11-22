@@ -22,4 +22,4 @@ config HOST_TEST_WIFI_PSK
 
 config HOST_TEST_GATEWAY_PINGS
 	int "Gateway ping count"
-	default 3
+	default 4
