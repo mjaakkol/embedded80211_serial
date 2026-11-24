@@ -13,7 +13,13 @@
 LOG_MODULE_REGISTER(serial, LOG_LEVEL_INF);
 
 K_MUTEX_DEFINE(serial_tx_mutex);
-static volatile uint32_t serial_tx_trace = 0;
+/* Dedicated RX thread: owns all FIFO reads so there is no cross-thread race
+ * on the CDC ACM RX ring. The UART callback only signals this thread. */
+K_SEM_DEFINE(serial_rx_sem, 0, 1);
+
+#define SERIAL_RX_STACK_SIZE 3072
+static K_THREAD_STACK_DEFINE(serial_rx_stack, SERIAL_RX_STACK_SIZE);
+static struct k_thread serial_rx_thread;
 
 /* Bounded wait for TX FIFO space. A healthy host drains the CDC ACM ring at
  * ~128 KB/s (128 B per USB bulk transfer, 1 ms work schedule), so a full
@@ -48,7 +54,6 @@ static volatile uint32_t serial_tx_trace = 0;
  */
 int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len)
 {
-    serial_tx_trace = (serial_tx_trace << 8) | (uint8_t)len;
     // Only one thread can write to the UART at a time.
     // This also means that USB and serial UART are mutually exclusive, but
     // that's OK as it is not expected that anyone would use USB and UART at
@@ -59,7 +64,6 @@ int serial_data_tx(const struct device *dev, const uint8_t *data, size_t len)
     k_mutex_lock(&serial_tx_mutex, K_FOREVER);
     while (written < len) {
         int n = uart_fifo_fill(dev, data + written, len - written);
-        serial_tx_trace |= ((uint32_t)n & 0xF) << 24;
 
         if (n < 0) {
             k_mutex_unlock(&serial_tx_mutex);
@@ -150,132 +154,19 @@ int serial_send_frame(struct serial_config *config,
  * @param dev The UART device structure.
  * @param user_data User data passed to the callback (not used in this simple example).
  */
-static volatile uint32_t serial_rx_trace = 0;
-static volatile uint32_t serial_rx_bytes = 0;
-static volatile uint8_t serial_raw_rx[16];
-static volatile uint8_t serial_raw_rx_count = 0;
 
 static void uart_irq_callback(const struct device *dev, void *user_data)
 {
-    struct serial_config *config = (struct serial_config *)user_data;
-    uint8_t b;
-    uint32_t bytes_read = 0;
-
-    serial_rx_trace = (serial_rx_trace << 1) | 1;
-
-
+    ARG_UNUSED(dev);
+    ARG_UNUSED(user_data);
     /*
-     * CDC ACM (USB) driver semantics differ from a real UART: this callback
-     * is invoked from work context once per RX event, and the driver clears
-     * its internal pending/ready flags *before* calling it.  Therefore the
-     * classic
-     *   while (uart_irq_is_pending(dev) && uart_irq_rx_ready(dev))
-     * condition is never true here, the loop body would never run, and bytes
-     * would sit in the RX ring forever (the driver would also re-submit this
-     * work item while the ring stays non-empty, starving the workqueue).
-     *
-     * Instead, drain every header byte currently available: uart_fifo_read()
-     * returns 0 when the ring is empty, which ends the loop.  The driver
-     * re-invokes the callback when more data arrives.
+     * CDC ACM (USB) driver semantics: this callback is invoked from the USB
+     * work queue once per RX event, after the bulk-transfer bytes are already
+     * in the driver's RX ring. We do no FIFO reads here — a dedicated RX
+     * thread owns all reads, so there is no cross-thread race on the ring.
+     * Just wake it.
      */
-    while (config->parsing_state != PARSING_STATE_DATA) {
-        if (uart_fifo_read(dev, &b, 1) != 1) {
-            break;
-        }
-        serial_rx_bytes = (serial_rx_bytes << 8) | b;
-
-        if (serial_raw_rx_count < 16) {
-            serial_raw_rx[serial_raw_rx_count++] = b;
-        }
-        switch (config->parsing_state) {
-        case PARSING_STATE_TYPE:
-            *(uint8_t *)&config->serial_header = b;
-            config->hdr_wire[0] = b;
-            LOG_DBG("Received Serial Type: %u", config->serial_header.type);
-            config->parsing_state = PARSING_STATE_SEQUENCE_NUMBER;
-            config->bytes_read = 0; // Reset bytes read for new packet
-            break;
-        case PARSING_STATE_SEQUENCE_NUMBER:
-            (*((uint8_t *)&config->serial_header + 1)) = b;
-            config->hdr_wire[1] = b;
-            LOG_DBG("Received Serial Seq: %u", config->serial_header.sequence_number);
-            config->parsing_state = PARSING_STATE_LENGTH1;
-            break;
-        case PARSING_STATE_LENGTH1:
-            *(uint8_t *)&config->serial_header.length = b;
-            config->hdr_wire[2] = b;
-            config->parsing_state = PARSING_STATE_LENGTH2;
-            break;
-        case PARSING_STATE_LENGTH2:
-            (*((uint8_t *)&config->serial_header.length + 1)) = b;
-            config->hdr_wire[3] = b;
-            config->serial_header.length = sys_be16_to_cpu(config->serial_header.length);
-            /* Seed the running CRC with the complete 4-byte header and reset
-             * the trailer state for this frame. */
-            config->rx_crc = crc32_c(0U, config->hdr_wire, 4U, true, false);
-            config->trailer_read = 0;
-            if (config->serial_header.length == 0) {
-                if (config->serial_header.no_ack &&
-                    config->serial_header.type == SERIAL_TYPE_PROTOCOL_INFO) {
-                    /* Protocol info query: respond with an info frame. */
-                    config->parsing_state = PARSING_STATE_DATA;
-                } else if (!config->serial_header.no_ack) {
-                    /* ACK from the peer: no payload, nothing to do. */
-                    config->parsing_state = PARSING_STATE_TYPE;
-                } else {
-                    LOG_ERR("Invalid Serial Length: 0");
-                    config->parsing_state = PARSING_STATE_TYPE;
-                }
-            } else if (config->serial_header.length > SERIAL_MAX_PAYLOAD_LEN) {
-                LOG_ERR("Payload too long: %u > %u", config->serial_header.length,
-                        SERIAL_MAX_PAYLOAD_LEN);
-                /* Send LENGTH_TOO_LONG error ACK */
-                struct SerialHeader ack = {
-                    .type = config->serial_header.type,
-                    .no_ack = false,
-                    .host = true,
-                    .error = ERROR_TYPE_LENGTH_TOO_LONG,
-                    .crc = config->crc_enabled,
-                    .reserved = 0,
-                    .sequence_number = config->serial_header.sequence_number,
-                    .length = sys_cpu_to_be16(0),
-                };
-                const uint8_t *ack_wire = (const uint8_t *)&ack;
-
-                serial_data_tx(dev, ack_wire, sizeof(ack));
-                if (config->crc_enabled) {
-                    uint32_t ack_crc = serial_frame_crc(ack_wire, NULL, 0U);
-                    uint8_t ack_trailer[SERIAL_CRC_LEN] = {
-                        (uint8_t)(ack_crc >> 24), (uint8_t)(ack_crc >> 16),
-                        (uint8_t)(ack_crc >> 8),  (uint8_t)(ack_crc),
-                    };
-
-                    serial_data_tx(dev, ack_trailer, sizeof(ack_trailer));
-                }
-                config->parsing_state = PARSING_STATE_TYPE;
-            } else {
-                LOG_DBG("Received Serial Length: %u", config->serial_header.length);
-                config->parsing_state = PARSING_STATE_DATA;
-            }
-            break;
-        case PARSING_STATE_DATA:
-            /* Unreachable: the loop exits before any payload byte is read. */
-            break;
-        default:
-            LOG_ERR("Unknown parsing state: %d", config->parsing_state);
-            break;
-        }
-    }
-
-    /*
-     * Complete header: the payload remains in the ring for
-     * serial_work_handler, which reads exactly
-     * serial_header.length - bytes_read bytes from it.  Queue the handler
-     * (no-op if already pending).
-     */
-    if (config->parsing_state == PARSING_STATE_DATA) {
-        (void)k_work_submit(&config->work_item);
-    }
+    k_sem_give(&serial_rx_sem);
 }
 
 static void send_ack(struct serial_config *config, enum SerialType type,
@@ -332,19 +223,15 @@ static void handle_protocol_info(struct serial_config *config, uint8_t sequence_
                             sizeof(payload));
     ARG_UNUSED(sequence_number);
 }
-
-static volatile uint32_t serial_work_trace = 0;
-
-static void serial_work_handler(struct k_work *work_item_ptr)
+/* Reads the frame body (payload plus, when the crc bit is set, the 4-byte
+ * CRC32C trailer) from the FIFO into the client buffer. The running CRC is
+ * updated with every byte read, so the payload need not be contiguous.
+ *
+ * Returns 0 when the body is fully read (or the frame was dropped with the
+ * parser reset), -EAGAIN when the FIFO is empty and more data is needed, or
+ * a negative errno on a read error. */
+static int serial_read_frame_body(struct serial_config *config)
 {
-    struct serial_config *config =
-        CONTAINER_OF(work_item_ptr, struct serial_config, work_item);
-
-    serial_work_trace = (serial_work_trace << 1) | 1;
-    static volatile uint32_t work_hdr_trace = 0;
-    work_hdr_trace = ((uint32_t)config->serial_header.type & 0xF) |
-                     ((uint32_t)config->serial_header.length & 0xFFFF) << 4;
-
     const struct device *dev = config->serial_dev;
     uint8_t *data_buffer = NULL;
     enum SerialType frame_type = config->serial_header.type;
@@ -353,25 +240,16 @@ static void serial_work_handler(struct k_work *work_item_ptr)
     const bool has_crc = config->serial_header.crc != 0;
     const size_t frame_total = length + (has_crc ? SERIAL_CRC_LEN : 0U);
 
-    /* Length-0 protocol info request: respond immediately, no payload to read.
-     * A CRC trailer, if present, is consumed for stream alignment (the query
-     * is idempotent, so a split trailer is not fatal). */
+    /* Length-0 protocol info request: no body to read. A CRC trailer, if
+     * present, is consumed for stream alignment (the query is idempotent, so
+     * a split trailer is not fatal). */
     if (frame_type == SERIAL_TYPE_PROTOCOL_INFO && length == 0) {
         if (has_crc) {
             (void)uart_fifo_read(dev, config->trailer, SERIAL_CRC_LEN);
         }
-        handle_protocol_info(config, config->serial_header.sequence_number);
-        config->parsing_state = PARSING_STATE_TYPE;
-        config->bytes_read = 0;
-        config->trailer_read = 0;
-        config->serial_header.length = 0;
-        return;
+        return 0;
     }
 
-    /* Read the frame body: `length` payload bytes plus, when the crc bit is
-     * set, a 4-byte CRC32C trailer. Re-entrant: it breaks when the FIFO is
-     * empty and the next RX event resubmits this work item. The running CRC is
-     * updated with every byte read, so the payload need not be contiguous. */
     while (config->bytes_read < frame_total) {
         if (config->bytes_read < length) {
             /* Payload phase. */
@@ -383,12 +261,14 @@ static void serial_work_handler(struct k_work *work_item_ptr)
                 size_t to_read = MIN(buffer_size, sizeof(discard));
                 int n = uart_fifo_read(dev, discard, to_read);
                 if (n < 0) {
-                    LOG_ERR("UART FIFO read error: %d", n);
-                    break;
+                    return n;
                 }
                 config->rx_crc =
                     crc32_c(config->rx_crc, discard, (size_t)n, false, false);
                 config->bytes_read += (size_t)n;
+                if (n == 0) {
+                    return -EAGAIN;
+                }
                 continue;
             }
 
@@ -400,11 +280,14 @@ static void serial_work_handler(struct k_work *work_item_ptr)
                 size_t to_read = MIN(buffer_size, sizeof(discard));
                 int n = uart_fifo_read(dev, discard, to_read);
                 if (n < 0) {
-                    break;
+                    return n;
                 }
                 config->rx_crc =
                     crc32_c(config->rx_crc, discard, (size_t)n, false, false);
                 config->bytes_read += (size_t)n;
+                if (n == 0) {
+                    return -EAGAIN;
+                }
                 continue;
             }
 
@@ -424,7 +307,7 @@ static void serial_work_handler(struct k_work *work_item_ptr)
                 config->parsing_state = PARSING_STATE_TYPE;
                 config->bytes_read = 0;
                 config->trailer_read = 0;
-                break;
+                return 0;
             }
 
             /* `data_buffer` already points at &buf[bytes_read]: the client
@@ -432,25 +315,15 @@ static void serial_work_handler(struct k_work *work_item_ptr)
              * bytes_read for the in-flight frame. No extra offset here. */
             int n = uart_fifo_read(dev, data_buffer, buffer_size);
             if (n < 0) {
-                LOG_ERR("UART FIFO read error: %d", n);
-                break;
-            } else if (n == 0) {
-                LOG_DBG("No more data available, waiting for next interrupt");
-                break;
+                return n;
+            }
+            if (n == 0) {
+                return -EAGAIN;
             }
             config->rx_crc = crc32_c(config->rx_crc, data_buffer,
                                      (size_t)n, false, false);
             config->bytes_read += (size_t)n;
 
-            LOG_INF("Read %d bytes, total: %zu/%u", n, config->bytes_read,
-                    (unsigned int)length);
-            /* Debug: dump first bytes from FIFO to verify data integrity */
-            LOG_INF("FIFO[%zu]: %02x %02x %02x %02x %02x %02x %02x %02x",
-                    (unsigned int)config->bytes_read,
-                    n > 0 ? data_buffer[0] : 0, n > 1 ? data_buffer[1] : 0,
-                    n > 2 ? data_buffer[2] : 0, n > 3 ? data_buffer[3] : 0,
-                    n > 4 ? data_buffer[4] : 0, n > 5 ? data_buffer[5] : 0,
-                    n > 6 ? data_buffer[6] : 0, n > 7 ? data_buffer[7] : 0);
             callbacks->commit_data((size_t)n);
         } else {
             /* Trailer phase (crc bit set). */
@@ -458,20 +331,28 @@ static void serial_work_handler(struct k_work *work_item_ptr)
             int n = uart_fifo_read(dev, config->trailer + config->trailer_read,
                                    to_read);
             if (n < 0) {
-                LOG_ERR("UART FIFO read error: %d", n);
-                break;
-            } else if (n == 0) {
-                break;
+                return n;
+            }
+            if (n == 0) {
+                return -EAGAIN;
             }
             config->trailer_read += (size_t)n;
             config->bytes_read += (size_t)n;
         }
     }
 
-    /* Incomplete frame: leave state so the next RX event resumes. */
-    if (config->bytes_read < frame_total) {
-        return;
-    }
+    return 0;
+}
+
+/* Dispatches a fully-read frame: verifies the CRC32C trailer when requested,
+ * validates the sequence number, notifies the client, and sends an ACK. */
+static void serial_dispatch_frame(struct serial_config *config)
+{
+    const struct device *dev = config->serial_dev;
+    enum SerialType frame_type = config->serial_header.type;
+    const struct client_callbacks *callbacks = serial_mux_get_callbacks(frame_type);
+    const size_t length = config->serial_header.length;
+    const bool has_crc = config->serial_header.crc != 0;
 
     /* Frame body complete. Verify the CRC32C trailer when requested. */
     if (has_crc) {
@@ -499,7 +380,7 @@ static void serial_work_handler(struct k_work *work_item_ptr)
         }
     }
 
-    /* Completion (previously inline in the read loop). */
+    /* Completion. */
     if (frame_type == SERIAL_TYPE_PROTOCOL_INFO) {
         handle_protocol_info(config, config->serial_header.sequence_number);
         config->parsing_state = PARSING_STATE_TYPE;
@@ -555,6 +436,127 @@ static void serial_work_handler(struct k_work *work_item_ptr)
 
     uart_irq_rx_enable(dev);
 }
+/* Dedicated RX thread. Owns every FIFO read: header parse, body read, CRC
+ * verify, dispatch, and ACK. Blocks on serial_rx_sem until the UART callback
+ * signals that new data has landed in the CDC ACM RX ring. */
+static void serial_rx_thread_fn(void *arg, void *arg1, void *arg2)
+{
+    ARG_UNUSED(arg1);
+    ARG_UNUSED(arg2);
+    struct serial_config *config = (struct serial_config *)arg;
+    const struct device *dev = config->serial_dev;
+    uint8_t b;
+
+    while (true) {
+        k_sem_take(&serial_rx_sem, K_FOREVER);
+
+        /* Drain every complete frame currently in the FIFO. The loop exits
+         * when the FIFO is empty (mid-header or mid-body), at which point the
+         * thread blocks on the semaphore until the next RX event. */
+        while (true) {
+            /* Read header bytes until the frame body is pending (DATA) or the
+             * FIFO is empty. */
+            while (config->parsing_state != PARSING_STATE_DATA) {
+                if (uart_fifo_read(dev, &b, 1) != 1) {
+                    break;
+                }
+
+                switch (config->parsing_state) {
+                case PARSING_STATE_TYPE:
+                    *(uint8_t *)&config->serial_header = b;
+                    config->hdr_wire[0] = b;
+                    config->parsing_state = PARSING_STATE_SEQUENCE_NUMBER;
+                    config->bytes_read = 0;
+                    break;
+                case PARSING_STATE_SEQUENCE_NUMBER:
+                    (*((uint8_t *)&config->serial_header + 1)) = b;
+                    config->hdr_wire[1] = b;
+                    config->parsing_state = PARSING_STATE_LENGTH1;
+                    break;
+                case PARSING_STATE_LENGTH1:
+                    *(uint8_t *)&config->serial_header.length = b;
+                    config->hdr_wire[2] = b;
+                    config->parsing_state = PARSING_STATE_LENGTH2;
+                    break;
+                case PARSING_STATE_LENGTH2:
+                    (*((uint8_t *)&config->serial_header.length + 1)) = b;
+                    config->hdr_wire[3] = b;
+                    config->serial_header.length =
+                        sys_be16_to_cpu(config->serial_header.length);
+                    config->rx_crc = crc32_c(0U, config->hdr_wire, 4U, true, false);
+                    config->trailer_read = 0;
+                    if (config->serial_header.length == 0) {
+                        if (config->serial_header.no_ack &&
+                            config->serial_header.type == SERIAL_TYPE_PROTOCOL_INFO) {
+                            config->parsing_state = PARSING_STATE_DATA;
+                        } else if (!config->serial_header.no_ack) {
+                            config->parsing_state = PARSING_STATE_TYPE;
+                        } else {
+                            LOG_ERR("Invalid Serial Length: 0");
+                            config->parsing_state = PARSING_STATE_TYPE;
+                        }
+                    } else if (config->serial_header.length > SERIAL_MAX_PAYLOAD_LEN) {
+                        LOG_ERR("Payload too long: %u > %u",
+                                config->serial_header.length,
+                                SERIAL_MAX_PAYLOAD_LEN);
+                        struct SerialHeader ack = {
+                            .type = config->serial_header.type,
+                            .no_ack = false,
+                            .host = true,
+                            .error = ERROR_TYPE_LENGTH_TOO_LONG,
+                            .crc = config->crc_enabled,
+                            .reserved = 0,
+                            .sequence_number = config->serial_header.sequence_number,
+                            .length = sys_cpu_to_be16(0),
+                        };
+                        const uint8_t *ack_wire = (const uint8_t *)&ack;
+
+                        serial_data_tx(dev, ack_wire, sizeof(ack));
+                        if (config->crc_enabled) {
+                            uint32_t ack_crc = serial_frame_crc(ack_wire, NULL, 0U);
+                            uint8_t ack_trailer[SERIAL_CRC_LEN] = {
+                                (uint8_t)(ack_crc >> 24), (uint8_t)(ack_crc >> 16),
+                                (uint8_t)(ack_crc >> 8),  (uint8_t)(ack_crc),
+                            };
+                            serial_data_tx(dev, ack_trailer, sizeof(ack_trailer));
+                        }
+                        config->parsing_state = PARSING_STATE_TYPE;
+                    } else {
+                        config->parsing_state = PARSING_STATE_DATA;
+                    }
+                    break;
+                default:
+                    LOG_ERR("Unknown parsing state: %d", config->parsing_state);
+                    break;
+                }
+            }
+
+            if (config->parsing_state != PARSING_STATE_DATA) {
+                /* FIFO empty mid-header. Wait for more data. */
+                break;
+            }
+
+            /* Read the frame body (payload + optional CRC trailer). */
+            int rc = serial_read_frame_body(config);
+            if (rc == -EAGAIN) {
+                /* FIFO empty mid-body. Wait for more data. */
+                break;
+            }
+            if (rc < 0) {
+                LOG_ERR("Frame body read error: %d", rc);
+                config->parsing_state = PARSING_STATE_TYPE;
+                config->bytes_read = 0;
+                config->trailer_read = 0;
+                continue;
+            }
+
+            /* Dispatch the complete frame. */
+            serial_dispatch_frame(config);
+        }
+    }
+}
+
+
 
 void initialize_uart(struct serial_config *config)
 {
@@ -566,14 +568,18 @@ void initialize_uart(struct serial_config *config)
     config->rx_sequence_number = 0;
     config->tx_sequence_number = 0;
 
-    k_work_init(&config->work_item, serial_work_handler);
+    k_thread_create(&serial_rx_thread, serial_rx_stack,
+                    K_THREAD_STACK_SIZEOF(serial_rx_stack),
+                    serial_rx_thread_fn, config, NULL, NULL,
+                    K_PRIO_PREEMPT(7), 0, K_NO_WAIT);
+    k_thread_name_set(&serial_rx_thread, "serial_rx");
 
     uart_irq_callback_user_data_set(dev, uart_irq_callback, config);
 
     LOG_INF("About to enable interrupts");
     uart_irq_rx_enable(dev);
 
-    LOG_INF("UART initialized and RX interrupts enabled");
+    LOG_INF("UART initialized and RX thread started");
 }
 
 void serial_set_crc_enabled(struct serial_config *config, bool enabled)

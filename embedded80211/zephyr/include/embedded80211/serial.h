@@ -62,7 +62,6 @@ struct client_callbacks {
 };
 
 struct serial_config {
-    struct k_work work_item;
     const struct device *const serial_dev;
     enum ParsingState parsing_state;
     struct SerialHeader {
