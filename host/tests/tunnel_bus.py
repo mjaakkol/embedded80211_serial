@@ -120,85 +120,86 @@ def open_board_port(port: str) -> int:
     return fd
 
 
-def setup_renode(mon: Monitor, console_log: str, bus_tx_log: str,
+BUS_PTY_PATH = "/tmp/renode_bus_pty"
+
+
+def setup_renode(mon: Monitor, console_log: str,
                  elf: str, repl: str) -> None:
     """Send the one-time setup commands to Renode."""
     mon.cmd('mach add "host"')
     mon.cmd(f"machine LoadPlatformDescription @{repl}")
     mon.cmd(f"sysbus.uart0 CreateFileBackend @{console_log} true")
-    mon.cmd(f"sysbus.uart1 CreateFileBackend @{bus_tx_log} true")
+    # Bus UART: PTY terminal for high-throughput bidirectional data.
+    mon.cmd(f'emulation CreateUartPtyTerminal "buspty" "{BUS_PTY_PATH}"')
+    mon.cmd("connector Connect sysbus.uart1 buspty")
     mon.cmd(f"sysbus LoadELF @{elf}", timeout=30.0)
     mon.cmd("s")
 
 
-def pump_tx(tx_log: str, board_fd: int, stop: threading.Event) -> None:
-    """Poll the file backend log, write new bytes to the board port."""
-    last_pos = 0
+def pump_tx(pty_fd: int, board_fd: int, stop: threading.Event) -> None:
+    """Read host→device bytes from the PTY, write to the board port."""
     tx_debug = open("/tmp/e80211-tx-debug.log", "wb")
     total_tx = 0
     while not stop.is_set():
+        r, _, _ = select.select([pty_fd], [], [], 0.05)
+        if not r:
+            continue
         try:
-            with open(tx_log, "rb") as f:
-                f.seek(last_pos)
-                data = f.read()
-                last_pos = f.tell()
-            if data:
-                total_tx += len(data)
-                tx_debug.write(data)
-                tx_debug.flush()
-                burst = 0
-                off = 0
-                while off < len(data):
-                    chunk_end = min(off + 64, len(data))
-                    written = os.write(board_fd, data[off:chunk_end])
-                    off += written
-                    burst += 1
-                    if off < len(data):
-                        if burst >= 5:
-                            time.sleep(0.200)
-                            burst = 0
-                        else:
-                            time.sleep(0.050)
-        except (FileNotFoundError, OSError):
-            pass
-        time.sleep(0.005)
+            data = os.read(pty_fd, 4096)
+        except (BlockingIOError, OSError):
+            continue
+        if not data:
+            break
+        total_tx += len(data)
+        tx_debug.write(data)
+        tx_debug.flush()
+        off = 0
+        while off < len(data):
+            try:
+                written = os.write(board_fd, data[off:])
+                off += written
+            except BlockingIOError:
+                # Board port TX buffer full; wait until writable.
+                _, w, _ = select.select([], [board_fd], [], 1.0)
+                if not w:
+                    break
     tx_debug.close()
     print(f"[tunnel] TX total: {total_tx} bytes", file=sys.stderr)
+    stop.set()
 
 
-def pump_rx(board_fd: int, mon: Monitor, stop: threading.Event) -> None:
-    """Read board port bytes, send as WriteChar commands to the monitor."""
+def pump_rx(board_fd: int, pty_fd: int, stop: threading.Event) -> None:
+    """Read board port bytes, write to the PTY (→ Renode PL011)."""
     rx_debug = open("/tmp/e80211-rx-debug.log", "wb")
     total_rx = 0
     while not stop.is_set():
-        try:
-            data = os.read(board_fd, 256)
-        except BlockingIOError:
-            time.sleep(0.001)
+        r, _, _ = select.select([board_fd], [], [], 0.05)
+        if not r:
             continue
-        except OSError:
-            break
-        if not data:
-            break
+        chunks = []
+        while True:
+            try:
+                data = os.read(board_fd, 4096)
+            except BlockingIOError:
+                break
+            except OSError:
+                rx_debug.close()
+                stop.set()
+                return
+            if not data:
+                break
+            chunks.append(data)
+        if not chunks:
+            continue
+        data = b"".join(chunks)
         total_rx += len(data)
         rx_debug.write(data)
         rx_debug.flush()
-        # Inject one byte at a time, with the CPU RUNNING. The PL011 RX
-        # FIFO in Renode 1.17.0 is small (~6 bytes) and non-configurable
-        # (no hardwareFifoSize property). Injecting a batch of WriteChars
-        # faster than the guest's UART ISR can drain it overflows the FIFO
-        # and drops mid-frame bytes — the Wi-Fi scan only survived because
-        # its bytes were spread across batches with a drain between them,
-        # while a small frame spanning one batch lost bytes. One byte at a
-        # time keeps the FIFO at most one byte deep, so it can never
-        # overflow. The monitor thread is not starved by the emulated CPU
-        # (verified: 60 WriteChars complete in <1s while the CPU runs).
-        for b in data:
-            mon.cmd(f"sysbus.uart1 WriteChar {b}", timeout=5.0)
-            # Give the guest's UART ISR time to drain the PL011 RX FIFO
-            # before the next byte, so the FIFO never accumulates more
-            # than one byte and cannot overflow.
-            time.sleep(0.001)
+        # Write directly to the PTY — no per-byte monitor round-trip.
+        off = 0
+        while off < len(data):
+            written = os.write(pty_fd, data[off:])
+            off += written
     rx_debug.close()
     print(f"[tunnel] RX total: {total_rx} bytes", file=sys.stderr)
     stop.set()
@@ -207,22 +208,25 @@ def pump_rx(board_fd: int, mon: Monitor, stop: threading.Event) -> None:
 def main() -> None:
     monitor_port = int(sys.argv[1])
     board_port = sys.argv[2]
-    bus_tx_log = sys.argv[3]
-    console_log = sys.argv[4]
-    elf = sys.argv[5]
-    repl = sys.argv[6]
+    console_log = sys.argv[3]
+    elf = sys.argv[4]
+    repl = sys.argv[5]
 
     board_fd = open_board_port(board_port)
     print(f"[tunnel] board port {board_port} fd={board_fd}", flush=True)
     mon = Monitor(monitor_port)
     print(f"[tunnel] monitor connected port={monitor_port}", flush=True)
-    setup_renode(mon, console_log, bus_tx_log, elf, repl)
-    print("[tunnel] Renode setup done, starting pumps", flush=True)
+    setup_renode(mon, console_log, elf, repl)
+    print("[tunnel] Renode setup done, opening PTY", flush=True)
+
+    # Open the PTY that Renode created for the bus UART.
+    pty_fd = os.open(BUS_PTY_PATH, os.O_RDWR | os.O_NONBLOCK)
+    print(f"[tunnel] bus PTY fd={pty_fd}", flush=True)
 
     stop = threading.Event()
-    t_tx = threading.Thread(target=pump_tx, args=(bus_tx_log, board_fd, stop),
+    t_tx = threading.Thread(target=pump_tx, args=(pty_fd, board_fd, stop),
                             daemon=True)
-    t_rx = threading.Thread(target=pump_rx, args=(board_fd, mon, stop),
+    t_rx = threading.Thread(target=pump_rx, args=(board_fd, pty_fd, stop),
                             daemon=True)
     t_tx.start()
     t_rx.start()
@@ -237,6 +241,7 @@ def main() -> None:
         t_tx.join(timeout=2)
         t_rx.join(timeout=2)
         mon.close()
+        os.close(pty_fd)
         os.close(board_fd)
 
 

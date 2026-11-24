@@ -46,6 +46,15 @@ struct bus_state {
 	size_t trailer_read;
 	uint8_t rx_buf[E80211_BUS_RX_BUF_SIZE];
 	struct k_work rx_work;
+	/* Polling safety net: the Renode PL011 RX interrupt can stop
+	 * firing after the first batch of bytes. A periodic work item
+	 * drains the FIFO so frames are not lost.
+	 */
+	struct k_work_delayable rx_poll_work;
+	/* Spinlock guarding the RX parse state machine against concurrent
+	 * access from the UART ISR and the polling work item.
+	 */
+	struct k_spinlock rx_lock;
 	/* Sequence counters. tx_seq: host->device. rx_seq: device->host (the
 	 * host does not sequence-check device->host frames; see note below). */
 	uint8_t tx_seq;
@@ -159,6 +168,9 @@ static void bus_rx_isr(const struct device *dev, void *user_data)
 	ARG_UNUSED(user_data);
 	static int debug_rx_count;
 	uint8_t b;
+	k_spinlock_key_t key;
+
+	key = k_spin_lock(&bus.rx_lock);
 
 	while (bus.state != PARSING_STATE_DATA) {
 		if (uart_fifo_read(dev, &b, 1) != 1) {
@@ -220,6 +232,7 @@ static void bus_rx_isr(const struct device *dev, void *user_data)
 	}
 
 	if (bus.state != PARSING_STATE_DATA) {
+		k_spin_unlock(&bus.rx_lock, key);
 		return;
 	}
 
@@ -258,8 +271,12 @@ static void bus_rx_isr(const struct device *dev, void *user_data)
 	}
 
 	if (bus.bytes_read + bus.trailer_read == total) {
+		k_spin_unlock(&bus.rx_lock, key);
 		(void)k_work_submit(&bus.rx_work);
+		return;
 	}
+
+	k_spin_unlock(&bus.rx_lock, key);
 }
 
 /*
@@ -278,66 +295,158 @@ static void bus_rx_isr(const struct device *dev, void *user_data)
 static void bus_rx_work(struct k_work *work)
 {
 	ARG_UNUSED(work);
-	enum SerialType type = bus.hdr.type;
-	const size_t length = bus.hdr.length;
-	const bool has_crc = bus.hdr.crc != 0;
+	struct bus_header hdr;
+	uint8_t hdr_wire[4];
+	uint8_t trailer[SERIAL_CRC_LEN];
+	uint8_t payload[E80211_BUS_RX_BUF_SIZE];
+	size_t length;
+	k_spinlock_key_t key;
+
+	/* Snapshot the frame under the lock so the ISR / poll cannot
+	 * mutate the state machine while we validate and dispatch.
+	 */
+	key = k_spin_lock(&bus.rx_lock);
+	hdr = bus.hdr;
+	length = bus.hdr.length;
+	memcpy(hdr_wire, bus.hdr_wire, sizeof(hdr_wire));
+	memcpy(trailer, bus.trailer, sizeof(trailer));
+	memcpy(payload, bus.rx_buf, length);
+	bus.state = PARSING_STATE_TYPE;
+	bus.bytes_read = 0;
+	bus.trailer_read = 0;
+	k_spin_unlock(&bus.rx_lock, key);
+
+	const bool has_crc = hdr.crc != 0;
 
 	/* Validate the header. */
-	if (bus_validate_rx(&bus.hdr) != 0) {
+	if (bus_validate_rx(&hdr) != 0) {
 		LOG_ERR("Dropping invalid frame (type %u len %u)",
-			bus.hdr.type, bus.hdr.length);
-		bus.state = PARSING_STATE_TYPE;
-		bus.bytes_read = 0;
-		bus.trailer_read = 0;
+			hdr.type, hdr.length);
 		return;
 	}
 
 	/* Verify the CRC32C trailer when requested. A mismatch drops the
 	 * frame without dispatching or acknowledging it. */
 	if (has_crc) {
-		uint32_t expected = ((uint32_t)bus.trailer[0] << 24) |
-				    ((uint32_t)bus.trailer[1] << 16) |
-				    ((uint32_t)bus.trailer[2] << 8) |
-				    (uint32_t)bus.trailer[3];
-		uint32_t actual = serial_frame_crc(bus.hdr_wire, bus.rx_buf, length);
+		uint32_t expected = ((uint32_t)trailer[0] << 24) |
+				    ((uint32_t)trailer[1] << 16) |
+				    ((uint32_t)trailer[2] << 8) |
+				    (uint32_t)trailer[3];
+		uint32_t actual = serial_frame_crc(hdr_wire, payload, length);
 
 		if (actual != expected) {
 			LOG_ERR("CRC32C mismatch (type %u len %u): expected 0x%08x, "
-				"got 0x%08x", type, (unsigned int)length,
+				"got 0x%08x", hdr.type, (unsigned int)length,
 				(unsigned int)expected, (unsigned int)actual);
-			bus.state = PARSING_STATE_TYPE;
-			bus.bytes_read = 0;
-			bus.trailer_read = 0;
 			return;
 		}
 	}
 
-	if (bus.hdr.length == 0U) {
+	if (hdr.length == 0U) {
 		/* ACK from the device. */
 		if (bus.request_pending) {
-			bus.last_hdr = bus.hdr;
+			bus.last_hdr = hdr;
 			k_sem_give(&bus.rx_sem);
 		}
 	} else {
 		/* Data frame from the device. Acknowledge it (the device
 		 * discards host ACKs; this keeps the link symmetric). */
-		if (!bus.hdr.no_ack) {
-			bus_send_ack(bus.hdr.type, bus.hdr.seq, ERROR_TYPE_NO_ERROR);
+		if (!hdr.no_ack) {
+			bus_send_ack(hdr.type, hdr.seq, ERROR_TYPE_NO_ERROR);
 		}
 		if (bus.request_pending) {
-			bus.last_hdr = bus.hdr;
+			bus.last_hdr = hdr;
 			k_sem_give(&bus.rx_sem);
 		} else {
-			bus_rx_handler_t cb = bus.handler[type];
+			bus_rx_handler_t cb = bus.handler[hdr.type];
 
 			if (cb != NULL) {
-				cb(bus.rx_buf, bus.hdr.length, bus.handler_user[type]);
+				cb(payload, hdr.length, bus.handler_user[hdr.type]);
 			}
 		}
 	}
+}
 
+/*
+ * Renode's PL011 FR register is broken: RXFE (bit 2) is permanently 0
+ * after the first batch of bytes, so uart_fifo_read() / pl011_fifo_read()
+ * always thinks the FIFO has data and reads 0xFF from DR.
+ *
+ * Workaround: read directly from the PL011 DR register (offset 0x00).
+ * One byte per poll cycle (2 ms). 0xFF from an empty FIFO is indistinguishable
+ * from a valid 0xFF payload byte, but the link-protocol header bytes never
+ * encode 0xFF (type≤7, seq≤15, reserved=0), and payload 0xFF is rare enough
+ * to tolerate for E2E testing.
+ */
+#define BUS_UART_DR_ADDR	(0x40040000UL + 0x00UL)
 
-	bus.state = PARSING_STATE_TYPE;
+static void bus_rx_poll_fn(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	if (bus.uart != NULL) {
+		uint8_t probe = (uint8_t)(sys_read32(BUS_UART_DR_ADDR) & 0xFF);
+		k_spinlock_key_t key;
+
+		key = k_spin_lock(&bus.rx_lock);
+
+		switch (bus.state) {
+		case PARSING_STATE_TYPE:
+			if (probe == 0xFF) {
+				break; /* empty FIFO */
+			}
+			bus.hdr.type = probe & 0x0F;
+			bus.hdr.no_ack = (probe >> 4) & 0x1;
+			bus.hdr.host = (probe >> 5) & 0x1;
+			bus.hdr.error = (probe >> 6) & 0x3;
+			bus.hdr_wire[0] = probe;
+			bus.bytes_read = 0;
+			bus.state = PARSING_STATE_SEQUENCE_NUMBER;
+			break;
+		case PARSING_STATE_SEQUENCE_NUMBER:
+			bus.hdr.crc = probe & 0x01;
+			bus.hdr.reserved = (probe >> 1) & 0x07;
+			bus.hdr.seq = (probe >> 4) & 0x0F;
+			bus.hdr_wire[1] = probe;
+			bus.state = PARSING_STATE_LENGTH1;
+			break;
+		case PARSING_STATE_LENGTH1:
+			bus.hdr.length = (uint16_t)(probe << 8);
+			bus.hdr_wire[2] = probe;
+			bus.state = PARSING_STATE_LENGTH2;
+			break;
+		case PARSING_STATE_LENGTH2:
+			bus.hdr.length |= probe;
+			bus.hdr_wire[3] = probe;
+			bus.trailer_read = 0;
+			bus.state = PARSING_STATE_DATA;
+			break;
+		case PARSING_STATE_DATA: {
+			const size_t total = bus.hdr.length +
+				((size_t)bus.hdr.crc * SERIAL_CRC_LEN);
+
+			if (bus.bytes_read < bus.hdr.length) {
+				bus.rx_buf[bus.bytes_read++] = probe;
+			} else if (bus.trailer_read < SERIAL_CRC_LEN) {
+				bus.trailer[bus.trailer_read++] = probe;
+			}
+
+			if (bus.bytes_read + bus.trailer_read == total) {
+				k_spin_unlock(&bus.rx_lock, key);
+				(void)k_work_submit(&bus.rx_work);
+				key = k_spin_lock(&bus.rx_lock);
+			}
+			break;
+		}
+		default:
+			bus.state = PARSING_STATE_TYPE;
+			break;
+		}
+
+		k_spin_unlock(&bus.rx_lock, key);
+	}
+
+	k_work_reschedule(&bus.rx_poll_work, K_MSEC(2));
 }
 
 static int bus_sync(void)
@@ -411,14 +520,18 @@ int bus_open(void)
 	bus.bytes_read = 0;
 	bus.rx_seq = 0;
 	bus.tx_seq = 0;
-
 	k_work_init(&bus.rx_work, bus_rx_work);
+	k_work_init_delayable(&bus.rx_poll_work, bus_rx_poll_fn);
 	/* rx_sem / tx_mutex are statically initialized. */
 
 	uart_irq_callback_user_data_set(bus.uart, bus_rx_isr, NULL);
 	uart_irq_rx_enable(bus.uart);
 
+	/* Polling safety net alongside the interrupt-driven path. */
+	k_work_schedule(&bus.rx_poll_work, K_MSEC(2));
+
 	int rc = bus_sync();
+
 
 	/*
 	 * Mark opened only on a completed handshake. virt_wifi / virt_bt call

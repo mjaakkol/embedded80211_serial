@@ -29,5 +29,4 @@ uart0: UART.PL011 @ sysbus 0x40000000
     -> nvic0@0
 
 uart1: UART.PL011 @ sysbus 0x40040000
-    frequency: 100000000
     -> nvic0@1

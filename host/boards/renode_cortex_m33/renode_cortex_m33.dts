@@ -39,6 +39,7 @@
 		#clock-cells = <0>;
 	};
 
+
 	/* Code segment: Renode maps a writable 256 KiB region at 0x0
 	 * (rom in support/renode_cortex_m33.repl); `loadelf` populates it. */
 	flash0: flash@0 {
