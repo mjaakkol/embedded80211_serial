@@ -13,6 +13,11 @@ cmake_policy(SET CMP0057 NEW)
 # Zephyr's kernel-mode build configuration.
 set(ZEPHYR_EXTRA_MODULES ${CMAKE_CURRENT_SOURCE_DIR}/../embedded80211)
 
+# Rebalance the flash/SRAM partitions so the Wi-Fi co-processor appcore fits
+# (see partitions.overlay.dts). Must be set before find_package(Zephyr): the
+# variable is gathered during Zephyr package processing.
+set(EXTRA_DTC_OVERLAY_FILE ${CMAKE_CURRENT_SOURCE_DIR}/partitions.overlay.dts)
+
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project(embedded80211_serial)

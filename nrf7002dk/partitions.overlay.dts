@@ -1,0 +1,61 @@
+/*
+ * Copyright (c) 2025 Mikko Jaakkola
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ *
+ * Project partition override for the nRF7002 DK non-secure appcore.
+ *
+ * The Wi-Fi co-processor appcore needs ~535 KB flash / ~201 KB SRAM, which
+ * does not fit the default 192 KB non-secure partition (the nRF7002 radio
+ * firmware + wpa_supplicant core alone are ~335 KB and are not trimmable).
+ *
+ * This overlay rebalances the 1 MB flash and 512 KB SRAM. This build has
+ * BL2 disabled (BL2=FALSE), so the secure image is the first image and must
+ * sit at 0x0 (the nRF5340 APP core always resets to 0x0). The default
+ * mcuboot/BL2 partition at 0x0 is therefore removed and slot0 is moved to
+ * 0x0:
+ *
+ *   Flash (1 MB):
+ *     0x00000  slot0: S (128 KB) + NS (544 KB) = 672 KB
+ *     0xA8000  free (was the 448 KB slot1 secondary; no in-place DFU here)
+ *     0xF0000  PS (16 KB) / ITS (8 KB) / OTP (8 KB)
+ *
+ *   SRAM (512 KB):
+ *     0x00000  sram0_s        (256 KB, secure)
+ *     0x40000  sram0_ns_app   (208 KB)
+ *     0x74000  sram0_shared   (48 KB, IPC)
+ *
+ * The NCS tfm_boards partition header derives the S/NS sizes from these DTS
+ * nodes, so no upstream TF-M header is modified.
+ */
+
+&slot0_partition {
+	reg = <0x00000000 0xA8000>;
+	ranges = <0x0 0x0 0xA8000>;
+};
+
+&slot0_s_partition {
+	reg = <0x00000000 0x20000>;
+};
+
+&slot0_ns_partition {
+	reg = <0x00020000 0x88000>;
+};
+
+/* No BL2/MCUBoot in this build (BL2=FALSE): remove the 64 KB boot partition
+ * at 0x0 so slot0 can start there. Also free the 448 KB secondary slot; this
+ * build has no in-place DFU. */
+&flash0 {
+	partitions {
+		/delete-node/ boot_partition;
+		/delete-node/ slot1_partition;
+	};
+};
+
+&sram0_ns_app {
+	reg = <0x0 0x34000>;
+};
+
+&sram0_shared {
+	reg = <0x74000 0xC000>;
+};
