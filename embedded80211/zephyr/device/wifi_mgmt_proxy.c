@@ -2,6 +2,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_mgmt.h>
+#include <zephyr/net/wifi_nm.h>
 #include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
@@ -507,14 +508,22 @@ static void wifi_mgmt_net_event_handler(struct net_mgmt_event_callback *cb,
 					struct net_if *iface)
 {
     switch (mgmt_event) {
-    case NET_EVENT_WIFI_SCAN_RESULT:
-        handle_wifi_scan_result((const struct wifi_scan_result *)cb->info);
+    case NET_EVENT_WIFI_SCAN_RESULT: {
+        const struct wifi_scan_result *sr =
+            (const struct wifi_scan_result *)cb->info;
+        LOG_INF("WIFI EVT SCAN_RESULT: ssid=%.*s rssi=%d ch=%d",
+                sr ? sr->ssid_length : 0,
+                sr ? (const char *)sr->ssid : "",
+                sr ? sr->rssi : 0,
+                sr ? sr->channel : 0);
+        handle_wifi_scan_result(sr);
         break;
+    }
     case NET_EVENT_WIFI_SCAN_DONE: {
         const struct wifi_status *wstatus =
             (const struct wifi_status *)cb->info;
         int32_t status = (wstatus != NULL) ? wstatus->status : 0;
-
+        LOG_INF("WIFI EVT SCAN_DONE: status=%d", status);
         send_scan_done_notification(iface, status);
         break;
     }
@@ -538,7 +547,7 @@ static void wifi_mgmt_net_event_handler(struct net_mgmt_event_callback *cb,
         const struct wifi_status *wstatus =
             (const struct wifi_status *)cb->info;
         int32_t status = (wstatus != NULL) ? wstatus->status : 0;
-
+        LOG_INF("WIFI EVT CONNECT_RESULT: status=%d", status);
         send_status_result_notification(iface,
                                         embedded_wifi_mgmt_WifiEvent_connect_result_event_tag,
                                         status);
@@ -561,6 +570,7 @@ static void wifi_mgmt_net_event_handler(struct net_mgmt_event_callback *cb,
         if (ist == NULL) {
             break;
         }
+        LOG_INF("WIFI EVT IFACE_STATUS: state=%d", ist->state);
         if (ist->state == WIFI_STATE_COMPLETED) {
             send_status_result_notification(iface,
                 embedded_wifi_mgmt_WifiEvent_connect_result_event_tag, 0);
@@ -623,7 +633,7 @@ struct ScanRequestContext {
 // --- Nanopb Decoder Callback Functions ---
 // (Assuming these are correctly implemented as in your provided context to populate the context structs)
 
-static bool decode_directed_scan_ssid_cb(pb_istream_t *stream, const pb_field_t *field, void **arg) {
+static bool __attribute__((unused)) decode_directed_scan_ssid_cb(pb_istream_t *stream, const pb_field_t *field, void **arg) {
     struct ScanRequestContext *ctx = (struct ScanRequestContext *)*arg;
     if (ctx->current_ssid_count >= MAX_DIRECTED_SCAN_SSIDS_CB) {
         LOG_WRN("Max directed scan SSIDs reached (%u)", MAX_DIRECTED_SCAN_SSIDS_CB);
@@ -916,6 +926,30 @@ static void handle_connect_request(const embedded_wifi_mgmt_WifiConnectRequest *
         LOG_ERR("Interface with index %u not found", req->iface_index);
         resp->error_code = -ENODEV;
         set_status_error_msg_bytes(resp->error_message, "Interface not found");
+        return;
+    }
+
+    /* Ensure the interface is admin-up so the wpa_supplicant network manager
+     * registers it (wifi_nm_register_mgd_type_iface). Without this,
+     * get_wifi_api() falls back to nrf_wifi_mgmt_ops (no .connect) and
+     * NET_REQUEST_WIFI_CONNECT returns -ENOTSUP. */
+    if (!net_if_is_admin_up(iface)) {
+        net_if_up(iface);
+    }
+
+    /* Wait for the wpa_supplicant to register the interface as a managed
+     * STA iface. The registration happens asynchronously in response to
+     * NET_EVENT_IF_ADMIN_UP, so poll briefly. */
+    for (int attempt = 0; attempt < 50; attempt++) {
+        if (wifi_nm_get_instance_iface(iface) != NULL) {
+            break;
+        }
+        k_sleep(K_MSEC(100));
+    }
+    if (wifi_nm_get_instance_iface(iface) == NULL) {
+        LOG_ERR("wpa_supplicant did not register iface %u", req->iface_index);
+        resp->error_code = -ENOTSUP;
+        set_status_error_msg_bytes(resp->error_message, "wpa_supplicant not ready");
         return;
     }
 
